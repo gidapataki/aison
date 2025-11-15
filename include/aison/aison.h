@@ -2,9 +2,11 @@
 
 #include <json/json.h>
 
+#include <array>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -27,6 +29,9 @@ class Decoder;
 
 template <typename Schema, typename Owner, typename Facet = encodeDecode>
 struct Fields;
+
+template <typename E, size_t N>
+using EnumMap = std::array<std::pair<E, std::string_view>, N>;
 
 namespace detail {
 
@@ -156,7 +161,7 @@ struct is_vector<std::vector<U, Alloc>> : std::true_type {};
 template <typename T>
 inline constexpr bool is_vector_v = is_vector<T>::value;
 
-// Forward declarations
+// Forward declarations for default encode/decode/dispatchers
 template <typename Schema, typename T>
 void encode_default(const T& value, Json::Value& dst, Encoder<Schema>& enc);
 
@@ -193,6 +198,17 @@ struct has_schema_decode<
         std::declval<Decoder<Schema>&>()))>> : std::true_type {};
 
 // ============================================================================
+// Detection of Schema::Enum<E> mapping for enum classes
+// ============================================================================
+template <typename Schema, typename E, typename = void>
+struct has_enum_mapping : std::false_type {};
+
+template <typename Schema, typename E>
+struct has_enum_mapping<Schema, E,
+                        std::void_t<typename Schema::template Enum<E>>>
+    : std::true_type {};
+
+// ============================================================================
 // Dispatcher: encode_value / decode_value
 // ============================================================================
 template <typename Schema, typename T>
@@ -226,6 +242,17 @@ void encode_default(const T& value, Json::Value& dst, Encoder<Schema>& enc) {
     dst = value;
   } else if constexpr (std::is_same_v<T, bool>) {
     dst = value;
+  } else if constexpr (std::is_enum_v<T> &&
+                       has_enum_mapping<Schema, T>::value) {
+    using EnumSpec = typename Schema::template Enum<T>;
+    const auto& mapping = EnumSpec::mapping;
+    for (const auto& entry : mapping) {
+      if (entry.first == value) {
+        dst = Json::Value(std::string(entry.second));
+        return;
+      }
+    }
+    enc.addError("Unhandled enum value during encode");
   } else if constexpr (is_optional_v<T>) {
     using U = typename T::value_type;
     if (!value) {
@@ -279,6 +306,22 @@ void decode_default(const Json::Value& src, T& value, Decoder<Schema>& dec) {
       return;
     }
     value = src.asBool();
+  } else if constexpr (std::is_enum_v<T> &&
+                       has_enum_mapping<Schema, T>::value) {
+    if (!src.isString()) {
+      dec.addError("Expected string for enum");
+      return;
+    }
+    const std::string s = src.asString();
+    using EnumSpec = typename Schema::template Enum<T>;
+    const auto& mapping = EnumSpec::mapping;
+    for (const auto& entry : mapping) {
+      if (s == entry.second) {
+        value = entry.first;
+        return;
+      }
+    }
+    dec.addError("Unknown enum value: " + s);
   } else if constexpr (is_optional_v<T>) {
     using U = typename T::value_type;
     if (src.isNull()) {
@@ -546,8 +589,6 @@ class FieldsImpl<Schema, Owner, encodeDecode> {
 
 // ============================================================================
 // Public base for schema field mappings
-//   template<> struct SchemaA::Fields<MyType>
-//       : aison::Fields<SchemaA, MyType, aison::encodeDecode> { ... };
 // ============================================================================
 template <typename Schema, typename Owner, typename Facet>
 struct Fields : FieldsImpl<Schema, Owner, Facet> {

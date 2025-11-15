@@ -5,16 +5,17 @@
 #include <iostream>
 #include <sstream>
 
-// -------------------- Custom type: RGB --------------------
+// -------------------- Enum + types --------------------
+enum class Kind { Unknown, Foo, Bar };
+
 struct RGB {
   unsigned char r = 0;
   unsigned char g = 0;
   unsigned char b = 0;
 };
 
-// -------------------- Your data types --------------------
 struct Stats {
-  int a;
+  Kind kind;
 
   struct Nested {
     int x;
@@ -28,11 +29,13 @@ struct Stats {
 
 // -------------------- Schema --------------------
 struct SchemaA {
-  // Type -> field mapping
   template <typename T>
   struct Fields;
 
-  // Custom primitive encodings live here (RGB in hex)
+  template <typename E>
+  struct Enum;  // enum mappings
+
+  // Custom primitive encodings (RGB as hex)
   static void encodeValue(const RGB& src, Json::Value& dst,
                           aison::Encoder<SchemaA>&) {
     std::ostringstream oss;
@@ -42,7 +45,6 @@ struct SchemaA {
     dst = oss.str();
   }
 
-#if 0
   static void decodeValue(const Json::Value& src, RGB& dst,
                           aison::Decoder<SchemaA>& dec) {
     if (!src.isString()) {
@@ -72,15 +74,25 @@ struct SchemaA {
     if (!hexByte(3, dst.g)) return;
     if (!hexByte(5, dst.b)) return;
   }
-#endif
 };
 
-// -------------------- SchemaA::Fields<T> specializations --------------------
+// -------------------- Enum mapping for Kind --------------------
+// Single source of truth: mapping array only.
+template <>
+struct SchemaA::Enum<Kind> {
+  static constexpr aison::EnumMap<Kind, 3> mapping{{
+      {Kind::Unknown, "unknown"},
+      {Kind::Foo, "foo"},
+      {Kind::Bar, "bar"},
+  }};
+};
+
+// -------------------- Field mappings --------------------
 template <>
 struct SchemaA::Fields<Stats>
-    : aison::Fields<SchemaA, Stats, aison::encodeOnly> {
+    : aison::Fields<SchemaA, Stats, aison::encodeDecode> {
   Fields() {
-    add(&Stats::a, "a");
+    add(&Stats::kind, "kind");  // enum class
     add(&Stats::nested, "nested");
     add(&Stats::ls, "ls");
     add(&Stats::maybe, "maybe");
@@ -100,22 +112,21 @@ struct SchemaA::Fields<Stats::Nested>
 // -------------------- Demo --------------------
 int main() {
   Stats s;
-  s.a = 42;
+  s.kind = Kind::Foo;
   s.nested.x = 7;
   s.nested.y = "hello";
   s.ls = {1, 2, 3};
   s.maybe = 99;
   s.color = RGB{0x12, 0x34, 0xAB};
 
-  // ---------- Encode ----------
+  // Encode
   aison::Encoder<SchemaA> encoder;
   Json::Value root;
   auto encRes = encoder.encode(s, root);
 
   Json::StreamWriterBuilder builder;
   builder["indentation"] = "  ";
-  std::cout << "Encoded JSON (SchemaA):\n"
-            << Json::writeString(builder, root) << "\n\n";
+  std::cout << "Encoded JSON:\n" << Json::writeString(builder, root) << "\n\n";
 
   if (!encRes) {
     std::cout << "Encode errors:\n";
@@ -124,24 +135,19 @@ int main() {
     }
   }
 
-  // Break some things: wrong type, missing field, bad color
-  root.removeMember("ls");  // missing required field
-  // root["a"] = "not-int";      // wrong type
-  // root["color"] = "#12345Z";  // invalid hex
+  // Mutate for decode test
+  root["kind"] = "bogus";  // unknown enum name
 
-  // ---------- Decode ----------
-  // aison::Decoder<SchemaA> decoder;
-  // Stats out{};
-  // auto decRes = decoder.decode(root, out);
+  aison::Decoder<SchemaA> decoder;
+  Stats out{};
+  auto decRes = decoder.decode(root, out);
 
-  // if (!decRes) {
-  //   std::cout << "Decode errors:\n";
-  //   for (const auto& e : decRes.getErrors()) {
-  //     std::cout << "  " << e.path << ": " << e.message << "\n";
-  //   }
-  // } else {
-  //   std::cout << "Decoded successfully.\n";
-  // }
-
-  return 0;
+  if (!decRes) {
+    std::cout << "Decode errors:\n";
+    for (const auto& e : decRes.getErrors()) {
+      std::cout << "  " << e.path << ": " << e.message << "\n";
+    }
+  } else {
+    std::cout << "Decoded successfully.\n";
+  }
 }
