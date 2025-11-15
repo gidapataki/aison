@@ -1,1 +1,4 @@
-BasedOnStyle: Google
+BasedOnStyle: LLVM
+ColumnLimit: 100
+PointerAlignment: Left
+IndentWidth: 4
