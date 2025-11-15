@@ -7,12 +7,8 @@ Checks: >
   readability-*,
   cppcoreguidelines-*,
   -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-owning-memory,
   -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -cppcoreguidelines-no-malloc,
-  -cppcoreguidelines-avoid-non-const-global-variables,
   -modernize-use-trailing-return-type,
-  -modernize-use-auto,
   -readability-magic-numbers
 
 WarningsAsErrors: 'clang-analyzer-*,bugprone-*'
