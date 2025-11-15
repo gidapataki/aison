@@ -14,6 +14,21 @@
 namespace aison {
 
 // ============================================================================
+// Common error + result types
+// ============================================================================
+struct Error {
+  std::string path;     // e.g. "$.nested.x" or "$.ls[2]"
+  std::string message;  // e.g. "Expected integer"
+};
+
+struct Result {
+  bool ok;
+  std::vector<Error> errors;
+
+  explicit operator bool() const { return ok; }
+};
+
+// ============================================================================
 // Facet tags (types)
 // ============================================================================
 struct encodeOnly {};
@@ -40,11 +55,6 @@ namespace detail {
 // ============================================================================
 template <typename Schema>
 struct ContextBase {
-  struct Error {
-    std::string path;     // e.g. "$.nested.x" or "$.ls[2]"
-    std::string message;  // e.g. "Expected integer"
-  };
-
   std::vector<Error> errors;
   std::string currentPath;  // built up as we recurse
 
@@ -89,16 +99,7 @@ template <typename Schema>
 class Encoder : public detail::ContextBase<Schema> {
  public:
   using Base = detail::ContextBase<Schema>;
-  using Error = typename Base::Error;
   using PathScope = typename Base::PathScope;
-
-  struct Result {
-    bool ok;
-    const std::vector<Error>* errors;
-
-    explicit operator bool() const { return ok; }
-    const std::vector<Error>& getErrors() const { return *errors; }
-  };
 
   Encoder() = default;
 
@@ -106,8 +107,6 @@ class Encoder : public detail::ContextBase<Schema> {
   Result encode(const T& value, Json::Value& dst);
 
   void addError(const std::string& msg) { Base::addError(msg); }
-
-  const std::vector<Error>& getErrors() const { return this->errors; }
 };
 
 // ============================================================================
@@ -117,16 +116,7 @@ template <typename Schema>
 class Decoder : public detail::ContextBase<Schema> {
  public:
   using Base = detail::ContextBase<Schema>;
-  using Error = typename Base::Error;
   using PathScope = typename Base::PathScope;
-
-  struct Result {
-    bool ok;
-    const std::vector<Error>* errors;
-
-    explicit operator bool() const { return ok; }
-    const std::vector<Error>& getErrors() const { return *errors; }
-  };
 
   Decoder() = default;
 
@@ -134,8 +124,6 @@ class Decoder : public detail::ContextBase<Schema> {
   Result decode(const Json::Value& src, T& value);
 
   void addError(const std::string& msg) { Base::addError(msg); }
-
-  const std::vector<Error>& getErrors() const { return this->errors; }
 };
 
 namespace detail {
@@ -362,11 +350,12 @@ void decode_default(const Json::Value& src, T& value, Decoder<Schema>& dec) {
 // ============================================================================
 template <typename Schema>
 template <typename T>
-inline typename Encoder<Schema>::Result Encoder<Schema>::encode(
-    const T& value, Json::Value& dst) {
+inline Result Encoder<Schema>::encode(const T& value, Json::Value& dst) {
   this->errors.clear();
   detail::encode_value<Schema, T>(value, dst, *this);
-  return {this->ok(), &this->errors};
+  Result r{this->ok(), std::move(this->errors)};
+  // moved-from vector is now empty; ready for reuse on next call
+  return r;
 }
 
 // ============================================================================
@@ -374,11 +363,11 @@ inline typename Encoder<Schema>::Result Encoder<Schema>::encode(
 // ============================================================================
 template <typename Schema>
 template <typename T>
-inline typename Decoder<Schema>::Result Decoder<Schema>::decode(
-    const Json::Value& src, T& value) {
+inline Result Decoder<Schema>::decode(const Json::Value& src, T& value) {
   this->errors.clear();
   detail::decode_value<Schema, T>(src, value, *this);
-  return {this->ok(), &this->errors};
+  Result r{this->ok(), std::move(this->errors)};
+  return r;
 }
 
 // ============================================================================
@@ -596,5 +585,20 @@ struct Fields : FieldsImpl<Schema, Owner, Facet> {
   using Base::add;
   using Base::Base;
 };
+
+// ============================================================================
+// Convenience free functions
+// ============================================================================
+template <typename Schema, typename T>
+Result encode(const T& value, Json::Value& dst) {
+  Encoder<Schema> enc;
+  return enc.encode(value, dst);
+}
+
+template <typename Schema, typename T>
+Result decode(const Json::Value& src, T& value) {
+  Decoder<Schema> dec;
+  return dec.decode(src, value);
+}
 
 }  // namespace aison

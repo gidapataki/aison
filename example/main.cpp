@@ -119,35 +119,30 @@ int main() {
   s.maybe = 99;
   s.color = RGB{0x12, 0x34, 0xAB};
 
-  // Encode
-  aison::Encoder<SchemaA> encoder;
   Json::Value root;
-  auto encRes = encoder.encode(s, root);
 
-  Json::StreamWriterBuilder builder;
-  builder["indentation"] = "  ";
-  std::cout << "Encoded JSON:\n" << Json::writeString(builder, root) << "\n\n";
+  // Using Encoder directly
+  aison::Encoder<SchemaA> enc;
+  aison::Result er = enc.encode(s, root);
 
-  if (!encRes) {
-    std::cout << "Encode errors:\n";
-    for (const auto& e : encRes.getErrors()) {
-      std::cout << "  " << e.path << ": " << e.message << "\n";
+  std::cout << "== Encoded ==\n" << root.toStyledString() << "\n\n";
+
+  if (!er) {
+    for (const auto& e : er.errors) {
+      std::cerr << e.path << ": " << e.message << "\n";
     }
   }
 
-  // Mutate for decode test
-  root["kind"] = "bogus";  // unknown enum name
+  root["nested"]["y"] = 5;
 
-  aison::Decoder<SchemaA> decoder;
+  // Or one-liner free function
   Stats out{};
-  auto decRes = decoder.decode(root, out);
+  aison::Result dr = aison::decode<SchemaA>(root, out);
 
-  if (!decRes) {
-    std::cout << "Decode errors:\n";
-    for (const auto& e : decRes.getErrors()) {
-      std::cout << "  " << e.path << ": " << e.message << "\n";
+  if (!dr) {
+    std::cerr << "== Decode errors ==\n";
+    for (const auto& e : dr.errors) {
+      std::cerr << e.path << ": " << e.message << "\n";
     }
-  } else {
-    std::cout << "Decoded successfully.\n";
   }
 }
