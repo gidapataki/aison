@@ -1,0 +1,35 @@
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  modernize-*,
+  readability-*,
+  cppcoreguidelines-*,
+  -cppcoreguidelines-avoid-magic-numbers,
+  -cppcoreguidelines-owning-memory,
+  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
+  -cppcoreguidelines-no-malloc,
+  -cppcoreguidelines-avoid-non-const-global-variables,
+  -modernize-use-trailing-return-type,
+  -modernize-use-auto,
+  -readability-magic-numbers
+
+WarningsAsErrors: 'clang-analyzer-*,bugprone-*'
+
+HeaderFilterRegex: '^(include|src|examples)/'
+
+AnalyzeTemporaryDtors: false
+FormatStyle: file
+
+CheckOptions:
+  - key:             modernize-use-nodiscard.ReplacementString
+    value:           '[[nodiscard]]'
+  - key:             readability-identifier-naming.NamespaceCase
+    value:           lower_case
+  - key:             readability-identifier-naming.ClassCase
+    value:           CamelCase
+  - key:             readability-identifier-naming.FunctionCase
+    value:           camelBack
+  - key:             readability-identifier-naming.VariableCase
+    value:           camelBack
