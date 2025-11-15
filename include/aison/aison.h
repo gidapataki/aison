@@ -38,40 +38,89 @@ template <typename Schema, typename Owner, typename Facet = encodeDecode> struct
 template <typename E, size_t N> using EnumMap = std::array<std::pair<E, std::string_view>, N>;
 
 namespace detail {
-
 // ============================================================================
 // Common context: error handling + JSON path tracking
 // ============================================================================
+
 template <typename Schema> struct ContextBase {
     std::vector<Error> errors;
-    std::string currentPath;
 
-    void addError(const std::string& msg) {
-        std::string p = currentPath.empty() ? "$" : "$." + currentPath;
-        errors.push_back({p, msg});
+    struct PathSegment {
+        enum class Kind { Key, Index } kind;
+
+        union Data {
+            const char* key;   // valid if kind == Key
+            std::size_t index; // valid if kind == Index
+
+            constexpr Data() : key(nullptr) {}
+            constexpr Data(const char* k) : key(k) {}
+            constexpr Data(std::size_t i) : index(i) {}
+        } data;
+
+        static PathSegment keySeg(const char* k) {
+            PathSegment s;
+            s.kind = Kind::Key;
+            s.data = Data{k};
+            return s;
+        }
+
+        static PathSegment indexSeg(std::size_t i) {
+            PathSegment s;
+            s.kind = Kind::Index;
+            s.data = Data{i};
+            return s;
+        }
+    };
+
+    std::vector<PathSegment> pathStack;
+
+    std::string buildPath() const {
+        std::string result = "$";
+        result.reserve(64); // heuristic
+
+        for (const auto& seg : pathStack) {
+            if (seg.kind == PathSegment::Kind::Key) {
+                result.push_back('.');
+                result += seg.data.key;
+            } else {
+                result.push_back('[');
+                result += std::to_string(seg.data.index);
+                result.push_back(']');
+            }
+        }
+        return result;
     }
 
+    void addError(const std::string& msg) { errors.push_back(Error{buildPath(), msg}); }
+
     struct PathScope {
-        ContextBase& ctx;
-        std::string oldPath;
+        ContextBase* ctx;
 
-        PathScope(ContextBase& c, const std::string& key) : ctx(c), oldPath(c.currentPath) {
-            if (ctx.currentPath.empty())
-                ctx.currentPath = key;
-            else
-                ctx.currentPath += "." + key;
+        PathScope(ContextBase& c, const char* key) : ctx(&c) {
+            ctx->pathStack.push_back(PathSegment::keySeg(key));
         }
 
-        PathScope(ContextBase& c, std::size_t index) : ctx(c), oldPath(c.currentPath) {
-            std::string part = "[" + std::to_string(index) + "]";
-            if (ctx.currentPath.empty())
-                ctx.currentPath = part;
-            else
-                ctx.currentPath += part;
+        PathScope(ContextBase& c, std::size_t index) : ctx(&c) {
+            ctx->pathStack.push_back(PathSegment::indexSeg(index));
         }
 
-        ~PathScope() { ctx.currentPath = oldPath; }
+        // No copying
+        PathScope(const PathScope&) = delete;
+        PathScope& operator=(const PathScope&) = delete;
+
+        // Move transfers responsibility for the pop
+        PathScope(PathScope&& other) noexcept : ctx(other.ctx) { other.ctx = nullptr; }
+
+        PathScope& operator=(PathScope&&) = delete;
+
+        ~PathScope() {
+            if (ctx) {
+                ctx->pathStack.pop_back();
+            }
+        }
     };
+
+    bool ok() const { return errors.empty(); }
 };
 
 } // namespace detail
