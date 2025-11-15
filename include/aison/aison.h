@@ -80,7 +80,7 @@ template <typename Schema> struct ContextBase {
 // Encoder<Schema>
 // ============================================================================
 template <typename Schema> class Encoder : public detail::ContextBase<Schema> {
-  public:
+public:
     using Base = detail::ContextBase<Schema>;
     using PathScope = typename Base::PathScope;
 
@@ -95,7 +95,7 @@ template <typename Schema> class Encoder : public detail::ContextBase<Schema> {
 // Decoder<Schema>
 // ============================================================================
 template <typename Schema> class Decoder : public detail::ContextBase<Schema> {
-  public:
+public:
     using Base = detail::ContextBase<Schema>;
     using PathScope = typename Base::PathScope;
 
@@ -433,7 +433,7 @@ template <typename Schema, typename Owner> class FieldsImpl<Schema, Owner, encod
     using Base = IEncodeFieldDesc<Owner, Schema>;
     std::vector<std::unique_ptr<Base>> data_;
 
-  public:
+public:
     template <typename T> void add(T Owner::* member, const char* name) {
         data_.push_back(std::make_unique<FieldDescE<Owner, T, Schema>>(name, member));
     }
@@ -463,7 +463,7 @@ template <typename Schema, typename Owner> class FieldsImpl<Schema, Owner, decod
     using Base = IDecodeFieldDesc<Owner, Schema>;
     std::vector<std::unique_ptr<Base>> data_;
 
-  public:
+public:
     template <typename T> void add(T Owner::* member, const char* name) {
         data_.push_back(std::make_unique<FieldDescD<Owner, T, Schema>>(name, member));
     }
@@ -498,7 +498,7 @@ template <typename Schema, typename Owner> class FieldsImpl<Schema, Owner, encod
     using Base = IFieldDescED<Owner, Schema>;
     std::vector<std::unique_ptr<Base>> data_;
 
-  public:
+public:
     template <typename T> void add(T Owner::* member, const char* name) {
         data_.push_back(std::make_unique<FieldDescED<Owner, T, Schema>>(name, member));
     }
