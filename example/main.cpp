@@ -22,6 +22,7 @@ struct Stats {
         std::string y;
     } nested;
 
+    float f = 0;
     std::vector<int> ls;
     std::optional<int> maybe;
     RGB color;
@@ -93,11 +94,12 @@ template<>
 struct SchemaA::Object<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecode> {
     Object()
     {
-        add(&Stats::kind, "kind");  // enum class
+        add(&Stats::kind, "kind");
         add(&Stats::nested, "nested");
         add(&Stats::ls, "ls");
         add(&Stats::maybe, "maybe");
         add(&Stats::color, "color");
+        add(&Stats::f, "f");
     }
 };
 
@@ -121,6 +123,7 @@ int main()
     s.ls = {1, 2, 3};
     s.maybe = 99;
     s.color = RGB{0x12, 0x34, 0xAB};
+    s.f = NAN;
 
     Json::Value root;
 
