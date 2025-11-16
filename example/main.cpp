@@ -35,8 +35,12 @@ struct SchemaA {
     template<typename E>
     struct Enum;
 
+    struct Config : aison::Config {
+        int version = 0;
+    };
+
     // Custom primitive encodings (RGB as hex)
-    static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>&)
+    static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>& enc)
     {
         std::ostringstream oss;
         oss << '#' << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(src.r)
@@ -121,7 +125,8 @@ int main()
     Json::Value root;
 
     // Using Encoder directly
-    aison::Encoder<SchemaA> enc;
+    SchemaA::Config cfg{.version = 55};
+    aison::Encoder<SchemaA> enc(cfg);
     aison::Result er = enc.encode(s, root);
 
     std::cout << "== Encoded ==\n" << root.toStyledString() << "\n\n";
@@ -132,15 +137,17 @@ int main()
         }
     }
 
-#if 0
+#if 1
     Stats out{};
-    aison::Result dr = aison::decode<SchemaA>(root, out);
+    aison::Result dr = aison::decode<SchemaA>(root, out, cfg);
 
     if (!dr) {
         std::cerr << "== Decode errors ==\n";
         for (const auto& e : dr.errors) {
             std::cerr << e.path << ": " << e.message << "\n";
         }
+    } else {
+        std::cout << "== Decoded ==\n";
     }
 #endif
 }
