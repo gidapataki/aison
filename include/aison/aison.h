@@ -32,10 +32,65 @@ struct EncodeDecode {};
 // Forward declarations
 template<typename Schema, typename Owner, typename Facet = EncodeDecode>
 struct Object;
-template<typename E, size_t N>
-using EnumMap = std::array<std::pair<E, std::string_view>, N>;
+
+template<typename Schema, typename E>
+struct Enum;
+
+struct Config;
 
 namespace detail {
+
+// Forward declarations
+
+using EmptyConfig = Config;
+
+template<typename Schema>
+class Encoder;
+
+template<typename Schema>
+class Decoder;
+
+template<typename Schema, typename T>
+void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
+
+template<typename Schema, typename T>
+void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
+
+template<typename Schema, typename T>
+void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decoder);
+
+template<typename Schema, typename T>
+void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& decoder);
+
+// Object Traits
+
+template<typename Schema, typename T, typename = void>
+struct HasEnumT : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
+    : std::true_type {};
+
+template<typename Schema, typename T, typename = void>
+struct HasObjectT : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
+    : std::true_type {};
+
+template<typename Schema, typename = void>
+struct SchemaConfig {
+    using type = EmptyConfig;
+    static constexpr bool isEmpty = true;
+};
+
+template<typename Schema>
+struct SchemaConfig<Schema, std::void_t<typename Schema::Config::ConfigTag>> {
+    using type = typename Schema::Config;
+    static constexpr bool isEmpty = false;
+};
+
+// Context
 
 struct PathScope;
 
@@ -46,9 +101,15 @@ struct PathSegment {
         const char* key;    // valid if kind == Key
         std::size_t index;  // valid if kind == Index
 
-        constexpr Data() : key(nullptr) {}
-        constexpr Data(const char* k) : key(k) {}
-        constexpr Data(std::size_t i) : index(i) {}
+        constexpr Data()
+            : key(nullptr)
+        {}
+        constexpr Data(const char* k)
+            : key(k)
+        {}
+        constexpr Data(std::size_t i)
+            : index(i)
+        {}
     } data;
 
     static PathSegment makeKey(const char* k)
@@ -99,12 +160,14 @@ protected:
 struct PathScope {
     Context* ctx = nullptr;
 
-    PathScope(Context& context, const char* key) : ctx(&context)
+    PathScope(Context& context, const char* key)
+        : ctx(&context)
     {
         ctx->pathStack_.push_back(PathSegment::makeKey(key));
     }
 
-    PathScope(Context& context, std::size_t index) : ctx(&context)
+    PathScope(Context& context, std::size_t index)
+        : ctx(&context)
     {
         ctx->pathStack_.push_back(PathSegment::makeIndex(index));
     }
@@ -112,7 +175,11 @@ struct PathScope {
     PathScope(const PathScope&) = delete;
     PathScope& operator=(const PathScope&) = delete;
 
-    PathScope(PathScope&& other) noexcept : ctx(other.ctx) { other.ctx = nullptr; }
+    PathScope(PathScope&& other) noexcept
+        : ctx(other.ctx)
+    {
+        other.ctx = nullptr;
+    }
     PathScope& operator=(PathScope&&) = delete;
 
     ~PathScope()
@@ -126,18 +193,44 @@ struct PathScope {
 template<typename Schema>
 class Encoder : public Context {
 public:
+    using Config = typename SchemaConfig<Schema>::type;
+
+    explicit Encoder(Config& cfg)
+        : config(cfg)
+    {}
+
     template<typename T>
-    Result encode(const T& value, Json::Value& dst);
+    Result encode(const T& value, Json::Value& dst)
+    {
+        this->errors_.clear();
+        encodeValue<Schema, T>(value, dst, *this);
+        return Result{std::move(this->errors_)};
+    }
+
+    Config& config;
 };
 
 template<typename Schema>
 class Decoder : public Context {
 public:
+    using Config = typename SchemaConfig<Schema>::type;
+
+    explicit Decoder(Config& cfg)
+        : config(cfg)
+    {}
+
     template<typename T>
-    Result decode(const Json::Value& src, T& value);
+    Result decode(const Json::Value& src, T& value)
+    {
+        this->errors_.clear();
+        decodeValue<Schema, T>(src, value, *this);
+        return Result{std::move(this->errors_)};
+    }
+
+    Config& config;
 };
 
-// Traits
+// Field Traits
 
 template<typename T>
 struct IsOptional : std::false_type {};
@@ -150,6 +243,8 @@ struct IsVector : std::false_type {};
 
 template<typename T, typename A>
 struct IsVector<std::vector<T, A>> : std::true_type {};
+
+// Schema traits
 
 template<typename Schema, typename T, typename = void>
 struct HasEncodeValue : std::false_type {};
@@ -171,20 +266,7 @@ struct HasDecodeValue<
         std::declval<const Json::Value&>(), std::declval<T&>(), std::declval<Decoder<Schema>&>()))>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void>
-struct HasEnumT : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>::Tag>> : std::true_type {};
-
-template<typename Schema, typename T, typename = void>
-struct HasObjectT : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::Tag>>
-    : std::true_type {};
-
-// Schema objects
+// // Schema objects
 
 template<typename T>
 T& getSchemaObject()
@@ -192,20 +274,6 @@ T& getSchemaObject()
     static T instance = {};
     return instance;
 }
-
-// Encode / decode forward declarations
-
-template<typename Schema, typename T>
-void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
-
-template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
-
-template<typename Schema, typename T>
-void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decoder);
-
-template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& decoder);
 
 // Encode defaults
 
@@ -371,26 +439,6 @@ void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& decoder)
     }
 }
 
-// Encode / decode implementation
-
-template<typename Schema>
-template<typename T>
-inline Result Encoder<Schema>::encode(const T& value, Json::Value& dst)
-{
-    this->errors_.clear();
-    encodeValue<Schema, T>(value, dst, *this);
-    return Result{std::move(this->errors_)};
-}
-
-template<typename Schema>
-template<typename T>
-inline Result Decoder<Schema>::decode(const Json::Value& src, T& value)
-{
-    this->errors_.clear();
-    decodeValue<Schema, T>(src, value, *this);
-    return Result{std::move(this->errors_)};
-}
-
 // Field facet interfaces
 
 template<typename Owner, typename Schema>
@@ -426,7 +474,10 @@ struct EncodeOnlyField : IEncodeOnlyField<Owner, Schema> {
     const char* name;
     T Owner::* member;
 
-    EncodeOnlyField(const char* name, T Owner::* member) : name(name), member(member) {}
+    EncodeOnlyField(const char* name, T Owner::* member)
+        : name(name)
+        , member(member)
+    {}
 
     const char* getName() const override { return name; }
 
@@ -442,7 +493,10 @@ struct DecodeOnlyField : IDecodeOnlyField<Owner, Schema> {
     const char* name;
     T Owner::* member;
 
-    DecodeOnlyField(const char* name, T Owner::* member) : name(name), member(member) {}
+    DecodeOnlyField(const char* name, T Owner::* member)
+        : name(name)
+        , member(member)
+    {}
 
     const char* getName() const override { return name; }
 
@@ -458,7 +512,10 @@ struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
     const char* name;
     T Owner::* member;
 
-    EncodeDecodeField(const char* name, T Owner::* member) : name(name), member(member) {}
+    EncodeDecodeField(const char* name, T Owner::* member)
+        : name(name)
+        , member(member)
+    {}
 
     const char* getName() const override { return name; }
 
@@ -621,28 +678,59 @@ using Decoder = detail::Decoder<Schema>;
 
 template<typename Schema, typename Owner, typename Facet>
 struct Object : detail::ObjectImpl<Schema, Owner, Facet> {
-    using Tag = void;
+    using ObjectTag = void;
     using Base = detail::ObjectImpl<Schema, Owner, Facet>;
     using Base::add;
 };
 
 template<typename Schema, typename E>
 struct Enum : detail::EnumImpl<Schema, E> {
-    using Tag = void;
+    using EnumTag = void;
     using Base = detail::EnumImpl<Schema, E>;
     using Base::add;
+};
+
+struct Config {
+    using ConfigTag = void;
 };
 
 template<typename Schema, typename T>
 Result encode(const T& value, Json::Value& dst)
 {
-    return detail::Encoder<Schema>().encode(value, dst);
+    if constexpr (!detail::SchemaConfig<Schema>::isEmpty) {
+        static_assert(
+            detail::SchemaConfig<Schema>::isEmpty,
+            "When Schema::Config{} is defined, a config object must be passed to encode()");
+
+    } else {
+        detail::EmptyConfig cfg;
+        return detail::Encoder<Schema>(cfg).encode(value, dst);
+    }
 }
 
 template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value)
 {
-    return detail::Decoder<Schema>().decode(src, value);
+    if constexpr (!detail::SchemaConfig<Schema>::isEmpty) {
+        static_assert(
+            detail::SchemaConfig<Schema>::isEmpty,
+            "When Schema::Config{} is defined, a config object must be passed to decode()");
+    } else {
+        detail::EmptyConfig cfg;
+        return detail::Decoder<Schema>(cfg).decode(src, value);
+    }
+}
+
+template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
+Result encode(const T& value, Json::Value& dst, Config& config)
+{
+    return detail::Encoder<Schema>(config).encode(value, dst);
+}
+
+template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
+Result decode(const Json::Value& src, T& value, Config& config)
+{
+    return detail::Decoder<Schema>(config).decode(src, value);
 }
 
 }  // namespace aison
