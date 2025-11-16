@@ -17,4 +17,9 @@ SpaceAfterTemplateKeyword: false
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterFunction: true
+  SplitEmptyFunction: false
 
+BreakConstructorInitializers: BeforeComma
+BreakInheritanceList: BeforeComma
+PackConstructorInitializers: Never
+AllowShortFunctionsOnASingleLine: Inline
