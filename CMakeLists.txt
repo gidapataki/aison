@@ -19,7 +19,7 @@ set(BUILD_SHARED_LIBS                 OFF CACHE INTERNAL "")
 set(BUILD_STATIC_LIBS                 ON  CACHE INTERNAL "")
 set(BUILD_OBJECT_LIBS                 OFF CACHE INTERNAL "")
 
-add_subdirectory(external/jsoncpp)
+add_subdirectory(third_party/jsoncpp)
 
 # aison
 
