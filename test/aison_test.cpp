@@ -720,4 +720,83 @@ TEST_SUITE("aison") {
         }
     }
 
+    TEST_CASE("Root-level optional<T> decode behavior") {
+
+        SUBCASE("Decode null into optional<int> → disengaged") {
+            Json::Value root = Json::nullValue;
+
+            std::optional<int> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            REQUIRE(res);
+            CHECK(res.errors.empty());
+            CHECK(!out.has_value());
+        }
+
+        SUBCASE("Decode valid integer → engaged optional<int>") {
+            Json::Value root = 123;
+
+            std::optional<int> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            REQUIRE(res);
+            CHECK(res.errors.empty());
+            REQUIRE(out.has_value());
+            CHECK(out.value() == 123);
+        }
+
+        SUBCASE("Decode wrong type → error at root ($)") {
+            Json::Value root = Json::objectValue; // expecting primitive or null
+
+            std::optional<int> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            CHECK_FALSE(res);
+            REQUIRE_FALSE(res.errors.empty());
+            CHECK(res.errors[0].path == "$");
+            CHECK(res.errors[0].message.find("Expected integer") != std::string::npos);
+        }
+
+        SUBCASE("Decode optional<Foo> with null → disengaged") {
+            Json::Value root = Json::nullValue;
+
+            std::optional<Foo> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            REQUIRE(res);
+            CHECK(res.errors.empty());
+            CHECK(!out.has_value());
+        }
+
+        SUBCASE("Decode optional<Foo> with valid Foo") {
+            Foo f;
+            f.id = 10;
+            f.name = "hello";
+
+            Json::Value root;
+            REQUIRE(aison::encode<SchemaFull>(f, root));
+
+            std::optional<Foo> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            REQUIRE(res);
+            CHECK(res.errors.empty());
+            REQUIRE(out.has_value());
+            CHECK(out->id == 10);
+            CHECK(out->name == "hello");
+        }
+
+        SUBCASE("Decode optional<Foo> wrong type → error at $") {
+            Json::Value root = Json::arrayValue; // foo expects object
+
+            std::optional<Foo> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            CHECK_FALSE(res);
+            REQUIRE_FALSE(res.errors.empty());
+            CHECK(res.errors[0].path == "$");
+            CHECK(res.errors[0].message.find("Expected object") != std::string::npos);
+        }
+    }
+
 } // TEST_SUITE
