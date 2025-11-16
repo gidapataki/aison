@@ -11,7 +11,7 @@ AlignAfterOpenBracket: AlwaysBreak
 BinPackParameters: BinPack
 BinPackArguments: true
 
-BreakTemplateDeclarations: Leave
+BreakTemplateDeclarations: Yes
 SpaceAfterTemplateKeyword: false
 
 BreakBeforeBraces: Custom

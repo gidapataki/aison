@@ -30,8 +30,10 @@ struct DecodeOnly {};
 struct EncodeDecode {};
 
 // Forward declarations
-template<typename Schema, typename Owner, typename Facet = EncodeDecode> struct Object;
-template<typename E, size_t N> using EnumMap = std::array<std::pair<E, std::string_view>, N>;
+template<typename Schema, typename Owner, typename Facet = EncodeDecode>
+struct Object;
+template<typename E, size_t N>
+using EnumMap = std::array<std::pair<E, std::string_view>, N>;
 
 namespace detail {
 
@@ -121,27 +123,36 @@ struct PathScope {
     }
 };
 
-template<typename Schema> class Encoder : public Context {
+template<typename Schema>
+class Encoder : public Context {
 public:
-    template<typename T> Result encode(const T& value, Json::Value& dst);
+    template<typename T>
+    Result encode(const T& value, Json::Value& dst);
 };
 
-template<typename Schema> class Decoder : public Context {
+template<typename Schema>
+class Decoder : public Context {
 public:
-    template<typename T> Result decode(const Json::Value& src, T& value);
+    template<typename T>
+    Result decode(const Json::Value& src, T& value);
 };
 
 // Traits
 
-template<typename T> struct IsOptional : std::false_type {};
+template<typename T>
+struct IsOptional : std::false_type {};
 
-template<typename T> struct IsOptional<std::optional<T>> : std::true_type {};
+template<typename T>
+struct IsOptional<std::optional<T>> : std::true_type {};
 
-template<typename T> struct IsVector : std::false_type {};
+template<typename T>
+struct IsVector : std::false_type {};
 
-template<typename T, typename A> struct IsVector<std::vector<T, A>> : std::true_type {};
+template<typename T, typename A>
+struct IsVector<std::vector<T, A>> : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct HasEncodeValue : std::false_type {};
+template<typename Schema, typename T, typename = void>
+struct HasEncodeValue : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasEncodeValue<
@@ -150,7 +161,8 @@ struct HasEncodeValue<
         std::declval<const T&>(), std::declval<Json::Value&>(), std::declval<Encoder<Schema>&>()))>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct HasDecodeValue : std::false_type {};
+template<typename Schema, typename T, typename = void>
+struct HasDecodeValue : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasDecodeValue<
@@ -159,12 +171,14 @@ struct HasDecodeValue<
         std::declval<const Json::Value&>(), std::declval<T&>(), std::declval<Decoder<Schema>&>()))>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct HasEnumT : std::false_type {};
+template<typename Schema, typename T, typename = void>
+struct HasEnumT : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>::Tag>> : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct HasObjectT : std::false_type {};
+template<typename Schema, typename T, typename = void>
+struct HasObjectT : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::Tag>>
@@ -379,21 +393,24 @@ inline Result Decoder<Schema>::decode(const Json::Value& src, T& value)
 
 // Field facet interfaces
 
-template<typename Owner, typename Schema> struct IEncodeOnlyField {
+template<typename Owner, typename Schema>
+struct IEncodeOnlyField {
     virtual ~IEncodeOnlyField() = default;
     virtual const char* getName() const = 0;
     virtual void encodeField(
         const Owner& owner, Json::Value& dst, Encoder<Schema>& encoder) const = 0;
 };
 
-template<typename Owner, typename Schema> struct IDecodeOnlyField {
+template<typename Owner, typename Schema>
+struct IDecodeOnlyField {
     virtual ~IDecodeOnlyField() = default;
     virtual const char* getName() const = 0;
     virtual void decodeField(
         const Json::Value& src, Owner& owner, Decoder<Schema>& decoder) const = 0;
 };
 
-template<typename Owner, typename Schema> struct IEncodeDecodeField {
+template<typename Owner, typename Schema>
+struct IEncodeDecodeField {
     virtual ~IEncodeDecodeField() = default;
     virtual const char* getName() const = 0;
     virtual void encodeField(
@@ -460,7 +477,8 @@ struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
 
 // Object facets
 
-template<typename Schema, typename Owner, typename Facet> class ObjectImpl;
+template<typename Schema, typename Owner, typename Facet>
+class ObjectImpl;
 
 template<typename Schema, typename Owner>
 class ObjectImpl<Schema, Owner, EncodeOnly> {
@@ -470,7 +488,8 @@ class ObjectImpl<Schema, Owner, EncodeOnly> {
     std::vector<std::unique_ptr<IField>> fields_;
 
 public:
-    template<typename T> void add(T Owner::* member, const char* name)
+    template<typename T>
+    void add(T Owner::* member, const char* name)
     {
         fields_.push_back(std::make_unique<EncodeOnlyField<Owner, T, Schema>>(name, member));
     }
@@ -493,14 +512,16 @@ public:
     }
 };
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, DecodeOnly> {
+template<typename Schema, typename Owner>
+class ObjectImpl<Schema, Owner, DecodeOnly> {
     using Decoder = Decoder<Schema>;
     using IField = IDecodeOnlyField<Owner, Schema>;
 
     std::vector<std::unique_ptr<IField>> fields_;
 
 public:
-    template<typename T> void add(T Owner::* member, const char* name)
+    template<typename T>
+    void add(T Owner::* member, const char* name)
     {
         fields_.push_back(std::make_unique<DecodeOnlyField<Owner, T, Schema>>(name, member));
     }
@@ -527,7 +548,8 @@ public:
     }
 };
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, EncodeDecode> {
+template<typename Schema, typename Owner>
+class ObjectImpl<Schema, Owner, EncodeDecode> {
     using Encoder = Encoder<Schema>;
     using Decoder = Decoder<Schema>;
     using IField = IEncodeDecodeField<Owner, Schema>;
@@ -535,7 +557,8 @@ template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, Encode
     std::vector<std::unique_ptr<IField>> fields_;
 
 public:
-    template<typename T> void add(T Owner::* member, const char* name)
+    template<typename T>
+    void add(T Owner::* member, const char* name)
     {
         fields_.push_back(std::make_unique<EncodeDecodeField<Owner, T, Schema>>(name, member));
     }
@@ -590,9 +613,11 @@ public:
 
 }  // namespace detail
 
-template<typename Schema> using Encoder = detail::Encoder<Schema>;
+template<typename Schema>
+using Encoder = detail::Encoder<Schema>;
 
-template<typename Schema> using Decoder = detail::Decoder<Schema>;
+template<typename Schema>
+using Decoder = detail::Decoder<Schema>;
 
 template<typename Schema, typename Owner, typename Facet>
 struct Object : detail::ObjectImpl<Schema, Owner, Facet> {
@@ -601,7 +626,6 @@ struct Object : detail::ObjectImpl<Schema, Owner, Facet> {
     using Base::add;
 };
 
-template<typename Schema, typename T> Result encode(const T& value, Json::Value& dst)
 template<typename Schema, typename E>
 struct Enum : detail::EnumImpl<Schema, E> {
     using Tag = void;
@@ -609,11 +633,14 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::add;
 };
 
+template<typename Schema, typename T>
+Result encode(const T& value, Json::Value& dst)
 {
     return detail::Encoder<Schema>().encode(value, dst);
 }
 
-template<typename Schema, typename T> Result decode(const Json::Value& src, T& value)
+template<typename Schema, typename T>
+Result decode(const Json::Value& src, T& value)
 {
     return detail::Decoder<Schema>().decode(src, value);
 }
