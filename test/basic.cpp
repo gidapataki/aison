@@ -297,7 +297,7 @@ static Obj makeSampleObj()
 // Tests
 // ------------------------------------------------------------
 
-TEST_SUITE("aison")
+TEST_SUITE("Basic")
 {
     TEST_CASE("Happy path: full schema roundtrip")
     {
@@ -439,7 +439,7 @@ TEST_SUITE("aison")
             CHECK_FALSE(res);
             REQUIRE_FALSE(res.errors.empty());
             CHECK(res.errors[0].path == "$.intArray[1]");
-            CHECK(res.errors[0].message.find("Expected integer") != std::string::npos);
+            CHECK(res.errors[0].message.find("Expected int") != std::string::npos);
         }
 
         SUBCASE("boolArray wrong type")
@@ -800,7 +800,7 @@ TEST_SUITE("aison")
             CHECK_FALSE(res);
             REQUIRE_FALSE(res.errors.empty());
             CHECK(res.errors[0].path == "$");
-            CHECK(res.errors[0].message.find("Expected integer") != std::string::npos);
+            CHECK(res.errors[0].message.find("Expected int") != std::string::npos);
         }
 
         SUBCASE("Decode optional<Foo> with null → disengaged")

@@ -41,17 +41,18 @@ if(TRUE)
   include(CTest)
   enable_testing()
 
-  add_executable(aison_test
-      test/aison_test.cpp
+  add_executable(aison-test
+      test/basic.cpp
+      test/schema_with_config.cpp
   )
 
-  target_include_directories(aison_test PRIVATE
+  target_include_directories(aison-test PRIVATE
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
   )
 
-  target_link_libraries(aison_test PRIVATE aison)
+  target_link_libraries(aison-test PRIVATE aison)
 
 
-  add_test(NAME aison_test COMMAND aison_test)
+  add_test(NAME aison-test COMMAND aison-test)
 endif()
