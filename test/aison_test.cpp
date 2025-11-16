@@ -134,7 +134,7 @@ template <> struct SchemaFull::Enum<Mode> {
     static constexpr auto& mapping = ModeEnumMap::mapping;
 };
 
-template <> struct SchemaFull::Fields<Foo> : aison::Object<SchemaFull, Foo, aison::encodeDecode> {
+template <> struct SchemaFull::Fields<Foo> : aison::Object<SchemaFull, Foo, aison::EncodeDecode> {
     Fields() {
         add(&Foo::id, "id");
         add(&Foo::name, "name");
@@ -143,7 +143,7 @@ template <> struct SchemaFull::Fields<Foo> : aison::Object<SchemaFull, Foo, aiso
     }
 };
 
-template <> struct SchemaFull::Fields<Obj> : aison::Object<SchemaFull, Obj, aison::encodeDecode> {
+template <> struct SchemaFull::Fields<Obj> : aison::Object<SchemaFull, Obj, aison::EncodeDecode> {
     Fields() {
         add(&Obj::intValue, "intValue");
         add(&Obj::floatValue, "floatValue");
@@ -164,13 +164,13 @@ template <> struct SchemaFull::Fields<Obj> : aison::Object<SchemaFull, Obj, aiso
 
 template <>
 struct SchemaFull::Fields<EncodeOnlyColorHolder>
-    : aison::Object<SchemaFull, EncodeOnlyColorHolder, aison::encodeOnly> {
+    : aison::Object<SchemaFull, EncodeOnlyColorHolder, aison::EncodeOnly> {
     Fields() { add(&EncodeOnlyColorHolder::color, "color"); }
 };
 
 template <>
 struct SchemaFull::Fields<DecodeOnlyColorHolder>
-    : aison::Object<SchemaFull, DecodeOnlyColorHolder, aison::decodeOnly> {
+    : aison::Object<SchemaFull, DecodeOnlyColorHolder, aison::DecodeOnly> {
     Fields() { add(&DecodeOnlyColorHolder::color, "color"); }
 };
 
@@ -218,14 +218,14 @@ template <> struct SchemaPartial::Enum<Mode> {
 // - enumValue
 // - colorValue
 template <>
-struct SchemaPartial::Fields<Foo> : aison::Object<SchemaPartial, Foo, aison::encodeDecode> {
+struct SchemaPartial::Fields<Foo> : aison::Object<SchemaPartial, Foo, aison::EncodeDecode> {
     Fields() {
         add(&Foo::id, "id"); // only id, ignore others
     }
 };
 
 template <>
-struct SchemaPartial::Fields<Obj> : aison::Object<SchemaPartial, Obj, aison::encodeDecode> {
+struct SchemaPartial::Fields<Obj> : aison::Object<SchemaPartial, Obj, aison::EncodeDecode> {
     Fields() {
         add(&Obj::intValue, "intValue");
         add(&Obj::foo, "foo"); // but only Foo::id is used

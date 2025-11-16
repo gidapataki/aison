@@ -29,11 +29,9 @@ struct Stats {
 
 // -------------------- Schema --------------------
 struct SchemaA {
-    template <typename T>
-    struct Fields;
+    template<typename T> struct Fields;
 
-    template <typename E>
-    struct Enum;  // enum mappings
+    template<typename E> struct Enum;  // enum mappings
 
     // Custom primitive encodings (RGB as hex)
     static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>&)
@@ -77,8 +75,7 @@ struct SchemaA {
 
 // -------------------- Enum mapping for Kind --------------------
 // Single source of truth: mapping array only.
-template <>
-struct SchemaA::Enum<Kind> {
+template<> struct SchemaA::Enum<Kind> {
     static constexpr aison::EnumMap<Kind, 3> mapping{{
         {Kind::Unknown, "unknown"},
         {Kind::Foo, "foo"},
@@ -87,8 +84,7 @@ struct SchemaA::Enum<Kind> {
 };
 
 // -------------------- Field mappings --------------------
-template <>
-struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::encodeDecode> {
+template<> struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecode> {
     Fields()
     {
         add(&Stats::kind, "kind");  // enum class
@@ -99,8 +95,8 @@ struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::encodeDecod
     }
 };
 
-template <>
-struct SchemaA::Fields<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::encodeDecode> {
+template<>
+struct SchemaA::Fields<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::EncodeDecode> {
     Fields()
     {
         add(&Stats::Nested::x, "x");
