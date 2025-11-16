@@ -281,6 +281,12 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
 {
     if constexpr (std::is_same_v<T, int>) {
         dst = value;
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        dst = value;
+    } else if constexpr (std::is_same_v<T, unsigned>) {
+        dst = value;
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        dst = value;
     } else if constexpr (std::is_same_v<T, float>) {
         dst = value;
     } else if constexpr (std::is_same_v<T, double>) {
@@ -329,6 +335,8 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, encoder);
+    } else if constexpr (std::is_pointer_v<T>) {
+        static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
     } else {
         static_assert(
             HasEncodeValue<Schema, T>::value,
@@ -343,13 +351,31 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
 {
     if constexpr (std::is_same_v<T, int>) {
         if (!src.isInt()) {
-            decoder.addError("Expected integer");
+            decoder.addError("Expected int");
             return;
         }
         value = src.asInt();
+    } else if constexpr (std::is_same_v<T, int64_t>) {
+        if (!src.isInt64()) {
+            decoder.addError("Expected int64_t");
+            return;
+        }
+        value = src.asInt64();
+    } else if constexpr (std::is_same_v<T, unsigned>) {
+        if (!src.isUInt()) {
+            decoder.addError("Expected unsigned");
+            return;
+        }
+        value = src.asUInt();
+    } else if constexpr (std::is_same_v<T, uint64_t>) {
+        if (!src.isUInt64()) {
+            decoder.addError("Expected uint64_t");
+            return;
+        }
+        value = src.asUInt64();
     } else if constexpr (std::is_same_v<T, float>) {
         if (!src.isDouble() && !src.isInt()) {
-            decoder.addError("Expected float/double");
+            decoder.addError("Expected float");
             return;
         }
         value = (float)src.asDouble();
@@ -425,6 +451,8 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.decodeFields(src, value, decoder);
+    } else if constexpr (std::is_pointer_v<T>) {
+        static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
     } else {
         static_assert(
             HasDecodeValue<Schema, T>::value,
