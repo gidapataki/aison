@@ -321,10 +321,18 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
             encodeValue<Schema, U>(elem, v, encoder);
             dst.append(v);
         }
-    } else {
-        static_assert(HasObjectT<Schema, T>::value, "Missing Schema::Object<T> definition");
+    } else if constexpr (std::is_class_v<T>) {
+        static_assert(
+            HasObjectT<Schema, T>::value,
+            "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
+            "OR a custom encoder (Schema::decodeValue) needs to be defined.");
+
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, encoder);
+    } else {
+        static_assert(
+            HasEncodeValue<Schema, T>::value,
+            "Unsupported type - a custom encoder (Schema::decodeValue) needs to be defined.");
     }
 }
 
@@ -404,8 +412,12 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             decodeValue<Schema, U>(src[i], elem, decoder);
             value.push_back(std::move(elem));
         }
-    } else {
-        static_assert(HasObjectT<Schema, T>::value, "Missing Schema::Object<T> definition");
+    } else if constexpr (std::is_class_v<T>) {
+        static_assert(
+            HasObjectT<Schema, T>::value,
+            "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
+            "OR a custom decoder (Schema::decodeValue) needs to be defined.");
+
         if (!src.isObject()) {
             decoder.addError("Expected object");
             return;
@@ -413,6 +425,10 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.decodeFields(src, value, decoder);
+    } else {
+        static_assert(
+            HasDecodeValue<Schema, T>::value,
+            "Unsupported type - a custom decoder (Schema::decodeValue) needs to be defined.");
     }
 }
 
