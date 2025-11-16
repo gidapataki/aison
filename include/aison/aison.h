@@ -2,6 +2,8 @@
 
 #include <json/json.h>
 
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -221,7 +223,6 @@ public:
     template<typename T>
     Result encode(const T& value, Json::Value& dst)
     {
-        SchemaConfig<Schema> _;
         this->errors_.clear();
         encodeValue<Schema, T>(value, dst, *this);
         return Result{std::move(this->errors_)};
@@ -323,12 +324,14 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
     } else if constexpr (std::is_same_v<T, uint64_t>) {
         dst = value;
     } else if constexpr (std::is_same_v<T, float>) {
+        // Note: inf is encoded as a large value, we don't need to filter
         if (std::isnan(value)) {
             encoder.addError("Invalid float value - NaN");
             return;
         }
         dst = value;
     } else if constexpr (std::is_same_v<T, double>) {
+        // Note: inf is encoded as a large value, we don't need to filter
         if (std::isnan(value)) {
             encoder.addError("Invalid double value - NaN");
             return;
@@ -374,7 +377,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
         static_assert(
             HasObjectT<Schema, T>::value,
             "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
-            "OR a custom encoder (Schema::decodeValue) needs to be defined.");
+            "OR a custom encoder (Schema::encodeValue) needs to be defined.");
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, encoder);
@@ -383,7 +386,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
     } else {
         static_assert(
             HasEncodeValue<Schema, T>::value,
-            "Unsupported type - a custom encoder (Schema::decodeValue) needs to be defined.");
+            "Unsupported type - a custom encoder (Schema::encodeValue) needs to be defined.");
     }
 }
 
@@ -808,14 +811,16 @@ Result decode(const Json::Value& src, T& value)
     }
 }
 
-template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
-Result encode(const T& value, Json::Value& dst, const Config& config)
+template<typename Schema, typename T>
+Result encode(
+    const T& value, Json::Value& dst, const typename detail::SchemaConfig<Schema>::type& config)
 {
     return detail::Encoder<Schema>(config).encode(value, dst);
 }
 
-template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
-Result decode(const Json::Value& src, T& value, const Config& config)
+template<typename Schema, typename T>
+Result decode(
+    const Json::Value& src, T& value, const typename detail::SchemaConfig<Schema>::type& config)
 {
     return detail::Decoder<Schema>(config).decode(src, value);
 }
