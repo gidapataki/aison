@@ -37,19 +37,21 @@ target_link_libraries(example PRIVATE aison)
 
 # test
 
-include(CTest)
-enable_testing()
+if(TRUE)
+  include(CTest)
+  enable_testing()
 
-add_executable(aison_test
-    test/aison_test.cpp
-)
+  add_executable(aison_test
+      test/aison_test.cpp
+  )
 
-target_include_directories(aison_test PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
-)
+  target_include_directories(aison_test PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
+  )
 
-target_link_libraries(aison_test PRIVATE aison)
+  target_link_libraries(aison_test PRIVATE aison)
 
 
-add_test(NAME aison_test COMMAND aison_test)
+  add_test(NAME aison_test COMMAND aison_test)
+endif()

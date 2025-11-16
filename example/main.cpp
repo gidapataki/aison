@@ -15,10 +15,10 @@ struct RGB {
 };
 
 struct Stats {
-    Kind kind;
+    Kind kind{};
 
     struct Nested {
-        int x;
+        int x{};
         std::string y;
     } nested;
 

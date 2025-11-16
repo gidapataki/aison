@@ -16,6 +16,7 @@ SpaceAfterTemplateKeyword: false
 
 BreakBeforeBraces: Custom
 BraceWrapping:
+  AfterClass: false
   AfterFunction: true
   SplitEmptyFunction: false
 
