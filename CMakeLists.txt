@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(aison LANGUAGES CXX)
 
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -33,3 +34,22 @@ target_link_libraries(aison INTERFACE jsoncpp_static)
 
 add_executable(example example/main.cpp)
 target_link_libraries(example PRIVATE aison)
+
+# test
+
+include(CTest)
+enable_testing()
+
+add_executable(aison_test
+    test/aison_test.cpp
+)
+
+target_include_directories(aison_test PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
+)
+
+target_link_libraries(aison_test PRIVATE aison)
+
+
+add_test(NAME aison_test COMMAND aison_test)

@@ -248,6 +248,8 @@ void encode_default(const T& value, Json::Value& dst, Encoder<Schema>& enc) {
         dst = value;
     } else if constexpr (std::is_same_v<T, double>) {
         dst = value;
+    } else if constexpr (std::is_same_v<T, float>) {
+        dst = value;
     } else if constexpr (std::is_same_v<T, std::string>) {
         dst = value;
     } else if constexpr (std::is_same_v<T, bool>) {
@@ -303,6 +305,12 @@ void decode_default(const Json::Value& src, T& value, Decoder<Schema>& dec) {
             return;
         }
         value = src.asDouble();
+    } else if constexpr (std::is_same_v<T, float>) {
+        if (!src.isDouble() && !src.isInt()) {
+            dec.addError("Expected float/double");
+            return;
+        }
+        value = static_cast<float>(src.asDouble());
     } else if constexpr (std::is_same_v<T, std::string>) {
         if (!src.isString()) {
             dec.addError("Expected string");
