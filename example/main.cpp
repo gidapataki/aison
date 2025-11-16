@@ -23,6 +23,7 @@ struct Stats {
     } nested;
 
     float f = 0;
+    uint8_t u8 = 33;
     std::vector<int> ls;
     std::optional<int> maybe;
     RGB color;
@@ -100,6 +101,7 @@ struct SchemaA::Object<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecod
         add(&Stats::maybe, "maybe");
         add(&Stats::color, "color");
         add(&Stats::f, "f");
+        add(&Stats::u8, "u8");
     }
 };
 
@@ -140,6 +142,7 @@ int main()
     }
 
 #if 1
+    root["u8"] = 333;
     Stats out{};
     aison::Result dr = aison::decode<SchemaA>(root, out, {.version = 55});
 

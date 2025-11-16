@@ -315,14 +315,11 @@ constexpr void validateEnumType()
 template<typename Schema, typename T>
 void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encoder)
 {
-    if constexpr (std::is_same_v<T, int>) {
+    if constexpr (std::is_same_v<T, bool>) {
         dst = value;
-    } else if constexpr (std::is_same_v<T, int64_t>) {
-        dst = value;
-    } else if constexpr (std::is_same_v<T, unsigned>) {
-        dst = value;
-    } else if constexpr (std::is_same_v<T, uint64_t>) {
-        dst = value;
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        // Note: jsoncpp stores everything as 64-bit under the hood anyway
+        dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(value);
     } else if constexpr (std::is_same_v<T, float>) {
         // Note: inf is encoded as a large value, we don't need to filter
         if (std::isnan(value)) {
@@ -336,8 +333,6 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
             encoder.addError("Invalid double value - NaN");
             return;
         }
-        dst = value;
-    } else if constexpr (std::is_same_v<T, bool>) {
         dst = value;
     } else if constexpr (std::is_same_v<T, std::string>) {
         dst = value;
@@ -395,30 +390,27 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
 template<typename Schema, typename T>
 void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decoder)
 {
-    if constexpr (std::is_same_v<T, int>) {
-        if (!src.isInt()) {
-            decoder.addError("Expected int");
+    if constexpr (std::is_same_v<T, bool>) {
+        if (!src.isBool()) {
+            decoder.addError("Expected bool");
             return;
         }
-        value = src.asInt();
-    } else if constexpr (std::is_same_v<T, int64_t>) {
-        if (!src.isInt64()) {
-            decoder.addError("Expected int64_t");
+        value = src.asBool();
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        if (!src.isIntegral()) {
+            decoder.addError("Expected integral value");
             return;
         }
-        value = src.asInt64();
-    } else if constexpr (std::is_same_v<T, unsigned>) {
-        if (!src.isUInt()) {
-            decoder.addError("Expected unsigned");
-            return;
+        if constexpr (std::is_signed_v<T>) {
+            value = static_cast<T>(src.asInt64());
+        } else {
+            auto v = src.asUInt64();
+            if (v > std::numeric_limits<T>::max()) {
+                decoder.addError("Unsigned integer out of range");
+                return;
+            }
+            value = static_cast<T>(v);
         }
-        value = src.asUInt();
-    } else if constexpr (std::is_same_v<T, uint64_t>) {
-        if (!src.isUInt64()) {
-            decoder.addError("Expected uint64_t");
-            return;
-        }
-        value = src.asUInt64();
     } else if constexpr (std::is_same_v<T, float>) {
         if (!src.isDouble() && !src.isInt()) {
             decoder.addError("Expected float");
@@ -437,12 +429,6 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             return;
         }
         value = src.asString();
-    } else if constexpr (std::is_same_v<T, bool>) {
-        if (!src.isBool()) {
-            decoder.addError("Expected bool");
-            return;
-        }
-        value = src.asBool();
     } else if constexpr (std::is_enum_v<T>) {
         validateEnumType<Schema, T>();
 
