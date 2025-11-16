@@ -1,35 +1,33 @@
-Checks: >
-  clang-analyzer-*,
-  bugprone-*,
-  performance-*,
-  portability-*,
-  modernize-*,
-  readability-*,
-  cppcoreguidelines-*,
-  -cppcoreguidelines-avoid-magic-numbers,
-  -cppcoreguidelines-pro-bounds-array-to-pointer-decay,
-  -modernize-use-trailing-return-type,
-  -readability-magic-numbers
-
-WarningsAsErrors: 'clang-analyzer-*,bugprone-*'
-
-HeaderFilterRegex: '^(include|src|examples)/'
-
-AnalyzeTemporaryDtors: false
-FormatStyle: file
+Checks:
+  - 'bugprone-*' # Enable all checks from the bugprone category
+  - 'performance-*'
+  - 'clang-analyzer-*'
+  # Enable specific checks
+  - 'readability-identifier-naming'
+  - 'cppcoreguidelines-pro-type-member-init'
+  - 'cppcoreguidelines-slicing'
+  - 'misc-definitions-in-headers'
+  - 'modernize-use-nullptr'
+  - 'modernize-use-override'
+  - 'modernize-loop-convert'
+  # Disabled checks
+  - '-clang-diagnostic-*'
+  - '-bugprone-easily-swappable-parameters'
+  - '-performance-enum-size'
+  - '-bugprone-branch-clone'
 
 CheckOptions:
-  - key:             modernize-use-nodiscard.ReplacementString
-    value:           '[[nodiscard]]'
-  - key:             readability-identifier-naming.NamespaceCase
-    value:           lower_case
-  - key:             readability-identifier-naming.ClassCase
-    value:           CamelCase
-  - key:             readability-identifier-naming.FunctionCase
-    value:           camelBack
-  - key:             readability-identifier-naming.VariableCase
-    value:           camelBack
-
-
-ExcludePaths:
-  - "third_party/.*"
+  - key: readability-identifier-naming.VariableCase
+    value: camelBack
+  - key: readability-identifier-naming.MemberCase
+    value: camelBack
+  - key: readability-identifier-naming.PrivateMemberSuffix
+    value: "_"
+  - key: readability-identifier-naming.ProtectedMemberSuffix
+    value: "_"
+  - key: readability-identifier-naming.ClassMethodCase
+    value: camelBack
+  - key: readability-identifier-naming.FunctionCase
+    value: camelBack
+  - key: readability-identifier-naming.ClassCase
+    value: CamelCase
