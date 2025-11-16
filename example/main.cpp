@@ -29,19 +29,23 @@ struct Stats {
 
 // -------------------- Schema --------------------
 struct SchemaA {
-    template <typename T> struct Fields;
+    template <typename T>
+    struct Fields;
 
-    template <typename E> struct Enum; // enum mappings
+    template <typename E>
+    struct Enum;  // enum mappings
 
     // Custom primitive encodings (RGB as hex)
-    static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>&) {
+    static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>&)
+    {
         std::ostringstream oss;
         oss << '#' << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(src.r)
             << std::setw(2) << static_cast<int>(src.g) << std::setw(2) << static_cast<int>(src.b);
         dst = oss.str();
     }
 
-    static void decodeValue(const Json::Value& src, RGB& dst, aison::Decoder<SchemaA>& dec) {
+    static void decodeValue(const Json::Value& src, RGB& dst, aison::Decoder<SchemaA>& dec)
+    {
         if (!src.isString()) {
             dec.addError("Expected hex RGB string");
             return;
@@ -65,18 +69,16 @@ struct SchemaA {
             return true;
         };
 
-        if (!hexByte(1, dst.r))
-            return;
-        if (!hexByte(3, dst.g))
-            return;
-        if (!hexByte(5, dst.b))
-            return;
+        if (!hexByte(1, dst.r)) return;
+        if (!hexByte(3, dst.g)) return;
+        if (!hexByte(5, dst.b)) return;
     }
 };
 
 // -------------------- Enum mapping for Kind --------------------
 // Single source of truth: mapping array only.
-template <> struct SchemaA::Enum<Kind> {
+template <>
+struct SchemaA::Enum<Kind> {
     static constexpr aison::EnumMap<Kind, 3> mapping{{
         {Kind::Unknown, "unknown"},
         {Kind::Foo, "foo"},
@@ -85,9 +87,11 @@ template <> struct SchemaA::Enum<Kind> {
 };
 
 // -------------------- Field mappings --------------------
-template <> struct SchemaA::Fields<Stats> : aison::Fields<SchemaA, Stats, aison::encodeDecode> {
-    Fields() {
-        add(&Stats::kind, "kind"); // enum class
+template <>
+struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::encodeDecode> {
+    Fields()
+    {
+        add(&Stats::kind, "kind");  // enum class
         add(&Stats::nested, "nested");
         add(&Stats::ls, "ls");
         add(&Stats::maybe, "maybe");
@@ -96,15 +100,17 @@ template <> struct SchemaA::Fields<Stats> : aison::Fields<SchemaA, Stats, aison:
 };
 
 template <>
-struct SchemaA::Fields<Stats::Nested> : aison::Fields<SchemaA, Stats::Nested, aison::encodeDecode> {
-    Fields() {
+struct SchemaA::Fields<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::encodeDecode> {
+    Fields()
+    {
         add(&Stats::Nested::x, "x");
         add(&Stats::Nested::y, "y");
     }
 };
 
 // -------------------- Demo --------------------
-int main() {
+int main()
+{
     Stats s;
     s.kind = Kind::Foo;
     s.nested.x = 7;
