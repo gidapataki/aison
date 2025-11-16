@@ -25,82 +25,55 @@ struct Result {
 };
 
 // Facet tags
-struct encodeOnly {};
-struct decodeOnly {};
-struct encodeDecode {};
+struct EncodeOnly {};
+struct DecodeOnly {};
+struct EncodeDecode {};
 
 // Forward declarations
-template<typename Schema, typename Owner, typename Facet = encodeDecode> struct Object;
+template<typename Schema, typename Owner, typename Facet = EncodeDecode> struct Object;
 template<typename E, size_t N> using EnumMap = std::array<std::pair<E, std::string_view>, N>;
 
 namespace detail {
 
-struct Context {
-    struct PathSegment {
-        enum class Kind { kKey, kIndex } kind = {};
+struct PathScope;
 
-        union Data {
-            const char* key;    // valid if kind == Key
-            std::size_t index;  // valid if kind == Index
+struct PathSegment {
+    enum class Kind { kKey, kIndex } kind = {};
 
-            constexpr Data() : key(nullptr) {}
-            constexpr Data(const char* k) : key(k) {}
-            constexpr Data(std::size_t i) : index(i) {}
-        } data;
+    union Data {
+        const char* key;    // valid if kind == Key
+        std::size_t index;  // valid if kind == Index
 
-        static PathSegment makeKey(const char* k)
-        {
-            PathSegment s;
-            s.kind = Kind::kKey;
-            s.data = Data{k};
-            return s;
-        }
+        constexpr Data() : key(nullptr) {}
+        constexpr Data(const char* k) : key(k) {}
+        constexpr Data(std::size_t i) : index(i) {}
+    } data;
 
-        static PathSegment makeIndex(std::size_t i)
-        {
-            PathSegment s;
-            s.kind = Kind::kIndex;
-            s.data = Data{i};
-            return s;
-        }
-    };
+    static PathSegment makeKey(const char* k)
+    {
+        PathSegment segment;
+        segment.kind = Kind::kKey;
+        segment.data = Data{k};
+        return segment;
+    }
 
-    struct PathScope {
-        Context* ctx = nullptr;
+    static PathSegment makeIndex(std::size_t i)
+    {
+        PathSegment segment;
+        segment.kind = Kind::kIndex;
+        segment.data = Data{i};
+        return segment;
+    }
+};
 
-        PathScope(Context& context, const char* key) : ctx(&context)
-        {
-            ctx->pathStack.push_back(PathSegment::makeKey(key));
-        }
-
-        PathScope(Context& context, std::size_t index) : ctx(&context)
-        {
-            ctx->pathStack.push_back(PathSegment::makeIndex(index));
-        }
-
-        PathScope(const PathScope&) = delete;
-        PathScope& operator=(const PathScope&) = delete;
-
-        PathScope(PathScope&& other) noexcept : ctx(other.ctx) { other.ctx = nullptr; }
-        PathScope& operator=(PathScope&&) = delete;
-
-        ~PathScope()
-        {
-            if (ctx) {
-                ctx->pathStack.pop_back();
-            }
-        }
-    };
-
-    std::vector<PathSegment> pathStack;
-    std::vector<Error> errors;
-
+class Context {
+public:
     std::string buildPath() const
     {
         std::string result = "$";
         result.reserve(64);
 
-        for (const auto& seg : pathStack) {
+        for (const auto& seg : pathStack_) {
             if (seg.kind == PathSegment::Kind::kKey) {
                 result.push_back('.');
                 result += seg.data.key;
@@ -113,79 +86,103 @@ struct Context {
         return result;
     }
 
-    void addError(const std::string& msg) { errors.push_back(Error{buildPath(), msg}); }
+    void addError(const std::string& msg) { errors_.push_back(Error{buildPath(), msg}); }
+
+protected:
+    friend struct PathScope;
+    std::vector<PathSegment> pathStack_;
+    std::vector<Error> errors_;
+};
+
+struct PathScope {
+    Context* ctx = nullptr;
+
+    PathScope(Context& context, const char* key) : ctx(&context)
+    {
+        ctx->pathStack_.push_back(PathSegment::makeKey(key));
+    }
+
+    PathScope(Context& context, std::size_t index) : ctx(&context)
+    {
+        ctx->pathStack_.push_back(PathSegment::makeIndex(index));
+    }
+
+    PathScope(const PathScope&) = delete;
+    PathScope& operator=(const PathScope&) = delete;
+
+    PathScope(PathScope&& other) noexcept : ctx(other.ctx) { other.ctx = nullptr; }
+    PathScope& operator=(PathScope&&) = delete;
+
+    ~PathScope()
+    {
+        if (ctx) {
+            ctx->pathStack_.pop_back();
+        }
+    }
 };
 
 template<typename Schema> class Encoder : public Context {
 public:
-    using Base = detail::Context;
-    using PathScope = typename Base::PathScope;
-    using Base::addError;
-
     template<typename T> Result encode(const T& value, Json::Value& dst);
 };
 
 template<typename Schema> class Decoder : public Context {
 public:
-    using Base = detail::Context;
-    using PathScope = typename Base::PathScope;
-    using Base::addError;
-
     template<typename T> Result decode(const Json::Value& src, T& value);
 };
 
 // Traits
 
-template<typename T> struct isOptional : std::false_type {};
+template<typename T> struct IsOptional : std::false_type {};
 
-template<typename T> struct isOptional<std::optional<T>> : std::true_type {};
+template<typename T> struct IsOptional<std::optional<T>> : std::true_type {};
 
-template<typename T> struct isVector : std::false_type {};
+template<typename T> struct IsVector : std::false_type {};
 
-template<typename T, typename A> struct isVector<std::vector<T, A>> : std::true_type {};
+template<typename T, typename A> struct IsVector<std::vector<T, A>> : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct hasEncodeValue : std::false_type {};
+template<typename Schema, typename T, typename = void> struct HasEncodeValue : std::false_type {};
 
 template<typename Schema, typename T>
-struct hasEncodeValue<
+struct HasEncodeValue<
     Schema, T,
     std::void_t<decltype(Schema::encodeValue(
         std::declval<const T&>(), std::declval<Json::Value&>(), std::declval<Encoder<Schema>&>()))>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void> struct hasDecodeValue : std::false_type {};
+template<typename Schema, typename T, typename = void> struct HasDecodeValue : std::false_type {};
 
 template<typename Schema, typename T>
-struct hasDecodeValue<
+struct HasDecodeValue<
     Schema, T,
     std::void_t<decltype(Schema::decodeValue(
         std::declval<const Json::Value&>(), std::declval<T&>(), std::declval<Decoder<Schema>&>()))>>
     : std::true_type {};
 
 // Detect Schema::Enum<E> mapping
-template<typename Schema, typename E, typename = void> struct hasEnumT : std::false_type {};
+template<typename Schema, typename E, typename = void> struct HasEnumT : std::false_type {};
 
 template<typename Schema, typename E>
-struct hasEnumT<Schema, E, std::void_t<typename Schema::template Enum<E>>> : std::true_type {};
+struct HasEnumT<Schema, E, std::void_t<typename Schema::template Enum<E>>> : std::true_type {};
 
 // Encode / decode forward declarations
 
 template<typename Schema, typename T>
-void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& enc);
+void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
 
 template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& enc);
+void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& encoder);
 
 template<typename Schema, typename T>
-void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& dec);
+void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decoder);
 
 template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& dec);
+void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& decoder);
 
 // Encode defaults
 
 template<typename Schema, typename T>
-void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& enc)
+void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encoder)
 {
     if constexpr (std::is_same_v<T, int>) {
         dst = value;
@@ -197,7 +194,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& enc)
         dst = value;
     } else if constexpr (std::is_same_v<T, std::string>) {
         dst = value;
-    } else if constexpr (std::is_enum_v<T> && hasEnumT<Schema, T>::value) {
+    } else if constexpr (std::is_enum_v<T> && HasEnumT<Schema, T>::value) {
         using EnumSpec = typename Schema::template Enum<T>;
         const auto& mapping = EnumSpec::mapping;
         for (const auto& entry : mapping) {
@@ -206,68 +203,68 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& enc)
                 return;
             }
         }
-        enc.addError("Unhandled enum value during encode");
-    } else if constexpr (isOptional<T>::value) {
+        encoder.addError("Unhandled enum value during encode");
+    } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (!value) {
             dst = Json::nullValue;
         } else {
-            encodeValue<Schema, U>(*value, dst, enc);
+            encodeValue<Schema, U>(*value, dst, encoder);
         }
-    } else if constexpr (isVector<T>::value) {
+    } else if constexpr (IsVector<T>::value) {
         using U = typename T::value_type;
         dst = Json::arrayValue;
         std::size_t index = 0;
         for (const auto& elem : value) {
-            Context::PathScope guard(enc, index++);
+            PathScope guard(encoder, index++);
             Json::Value v;
-            encodeValue<Schema, U>(elem, v, enc);
+            encodeValue<Schema, U>(elem, v, encoder);
             dst.append(v);
         }
     } else {
         typename Schema::template Fields<T> fields;
-        fields.encodeObject(value, dst, enc);
+        fields.encodeObject(value, dst, encoder);
     }
 }
 
 // Decode defaults
 
 template<typename Schema, typename T>
-void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& dec)
+void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decoder)
 {
     if constexpr (std::is_same_v<T, int>) {
         if (!src.isInt()) {
-            dec.addError("Expected integer");
+            decoder.addError("Expected integer");
             return;
         }
         value = src.asInt();
     } else if constexpr (std::is_same_v<T, float>) {
         if (!src.isDouble() && !src.isInt()) {
-            dec.addError("Expected float/double");
+            decoder.addError("Expected float/double");
             return;
         }
         value = (float)src.asDouble();
     } else if constexpr (std::is_same_v<T, double>) {
         if (!src.isDouble() && !src.isInt()) {
-            dec.addError("Expected double");
+            decoder.addError("Expected double");
             return;
         }
         value = src.asDouble();
     } else if constexpr (std::is_same_v<T, std::string>) {
         if (!src.isString()) {
-            dec.addError("Expected string");
+            decoder.addError("Expected string");
             return;
         }
         value = src.asString();
     } else if constexpr (std::is_same_v<T, bool>) {
         if (!src.isBool()) {
-            dec.addError("Expected bool");
+            decoder.addError("Expected bool");
             return;
         }
         value = src.asBool();
-    } else if constexpr (std::is_enum_v<T> && hasEnumT<Schema, T>::value) {
+    } else if constexpr (std::is_enum_v<T> && HasEnumT<Schema, T>::value) {
         if (!src.isString()) {
-            dec.addError("Expected string for enum");
+            decoder.addError("Expected string for enum");
             return;
         }
         const std::string s = src.asString();
@@ -279,58 +276,58 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& dec)
                 return;
             }
         }
-        dec.addError("Unknown enum value: " + s);
-    } else if constexpr (isOptional<T>::value) {
+        decoder.addError("Unknown enum value: " + s);
+    } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (src.isNull()) {
             value.reset();
         } else {
             U tmp{};
-            decodeValue<Schema, U>(src, tmp, dec);
+            decodeValue<Schema, U>(src, tmp, decoder);
             value = std::move(tmp);
         }
-    } else if constexpr (isVector<T>::value) {
+    } else if constexpr (IsVector<T>::value) {
         using U = typename T::value_type;
         value.clear();
         if (!src.isArray()) {
-            dec.addError("Expected array");
+            decoder.addError("Expected array");
             return;
         }
         for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
-            Context::PathScope guard(dec, i);
+            PathScope guard(decoder, i);
             U elem{};
-            decodeValue<Schema, U>(src[i], elem, dec);
+            decodeValue<Schema, U>(src[i], elem, decoder);
             value.push_back(std::move(elem));
         }
     } else {
         if (!src.isObject()) {
-            dec.addError("Expected object");
+            decoder.addError("Expected object");
             return;
         }
         typename Schema::template Fields<T> fields;
-        fields.decodeObject(src, value, dec);
+        fields.decodeObject(src, value, decoder);
     }
 }
 
 // Encode / decode dispatcher
 
 template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& enc)
+void encodeValue(const T& value, Json::Value& dst, Encoder<Schema>& encoder)
 {
-    if constexpr (hasEncodeValue<Schema, T>::value) {
-        Schema::encodeValue(value, dst, enc);
+    if constexpr (HasEncodeValue<Schema, T>::value) {
+        Schema::encodeValue(value, dst, encoder);
     } else {
-        encodeValueDefault<Schema, T>(value, dst, enc);
+        encodeValueDefault<Schema, T>(value, dst, encoder);
     }
 }
 
 template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& dec)
+void decodeValue(const Json::Value& src, T& value, Decoder<Schema>& decoder)
 {
-    if constexpr (hasDecodeValue<Schema, T>::value) {
-        Schema::decodeValue(src, value, dec);
+    if constexpr (HasDecodeValue<Schema, T>::value) {
+        Schema::decodeValue(src, value, decoder);
     } else {
-        decodeValueDefault<Schema, T>(src, value, dec);
+        decodeValueDefault<Schema, T>(src, value, decoder);
     }
 }
 
@@ -340,18 +337,18 @@ template<typename Schema>
 template<typename T>
 inline Result Encoder<Schema>::encode(const T& value, Json::Value& dst)
 {
-    this->errors.clear();
-    detail::encodeValue<Schema, T>(value, dst, *this);
-    return Result{std::move(this->errors)};
+    this->errors_.clear();
+    encodeValue<Schema, T>(value, dst, *this);
+    return Result{std::move(this->errors_)};
 }
 
 template<typename Schema>
 template<typename T>
 inline Result Decoder<Schema>::decode(const Json::Value& src, T& value)
 {
-    this->errors.clear();
-    detail::decodeValue<Schema, T>(src, value, *this);
-    return Result{std::move(this->errors)};
+    this->errors_.clear();
+    decodeValue<Schema, T>(src, value, *this);
+    return Result{std::move(this->errors_)};
 }
 
 // Field facet interfaces
@@ -393,7 +390,7 @@ struct EncodeOnlyField : IEncodeOnlyField<Owner, Schema> {
     void encodeField(const Owner& owner, Json::Value& dst, Encoder<Schema>& encoder) const override
     {
         const T& src = owner.*member;
-        detail::encodeValue<Schema, T>(src, dst, encoder);
+        encodeValue<Schema, T>(src, dst, encoder);
     }
 };
 
@@ -409,7 +406,7 @@ struct DecodeOnlyField : IDecodeOnlyField<Owner, Schema> {
     void decodeField(const Json::Value& src, Owner& owner, Decoder<Schema>& decoder) const override
     {
         T& dst = owner.*member;
-        detail::decodeValue<Schema, T>(src, dst, decoder);
+        decodeValue<Schema, T>(src, dst, decoder);
     }
 };
 
@@ -425,13 +422,13 @@ struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
     void encodeField(const Owner& owner, Json::Value& dst, Encoder<Schema>& encoder) const override
     {
         const T& src = owner.*member;
-        detail::encodeValue<Schema, T>(src, dst, encoder);
+        encodeValue<Schema, T>(src, dst, encoder);
     }
 
     void decodeField(const Json::Value& src, Owner& owner, Decoder<Schema>& decoder) const override
     {
         T& dst = owner.*member;
-        detail::decodeValue<Schema, T>(src, dst, decoder);
+        decodeValue<Schema, T>(src, dst, decoder);
     }
 };
 
@@ -439,7 +436,7 @@ struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
 
 template<typename Schema, typename Owner, typename Facet> class ObjectImpl;
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, encodeOnly> {
+template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, EncodeOnly> {
     using Encoder = Encoder<Schema>;
     using IField = IEncodeOnlyField<Owner, Schema>;
 
@@ -462,14 +459,14 @@ public:
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            Context::PathScope guard(encoder, field->getName());
+            PathScope guard(encoder, field->getName());
             Json::Value& node = dst[field->getName()];
             field->encodeField(src, node, encoder);
         }
     }
 };
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, decodeOnly> {
+template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, DecodeOnly> {
     using Decoder = Decoder<Schema>;
     using IField = IDecodeOnlyField<Owner, Schema>;
 
@@ -497,13 +494,13 @@ public:
                 continue;
             }
             const Json::Value& node = src[key];
-            typename Decoder::PathScope guard(decoder, key);
+            PathScope guard(decoder, key);
             field->decodeField(node, dst, decoder);
         }
     }
 };
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, encodeDecode> {
+template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, EncodeDecode> {
     using Encoder = Encoder<Schema>;
     using Decoder = Decoder<Schema>;
     using IField = IEncodeDecodeField<Owner, Schema>;
@@ -527,7 +524,7 @@ public:
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            Context::PathScope guard(encoder, field->getName());
+            PathScope guard(encoder, field->getName());
             Json::Value& node = dst[field->getName()];
             field->encodeField(src, node, encoder);
         }
@@ -542,7 +539,7 @@ public:
                 continue;
             }
             const Json::Value& node = src[key];
-            Context::PathScope guard(decoder, key);
+            PathScope guard(decoder, key);
             field->decodeField(node, dst, decoder);
         }
     }
