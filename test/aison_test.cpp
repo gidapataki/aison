@@ -285,7 +285,7 @@ static Obj makeSampleObj() {
 // Tests
 // ------------------------------------------------------------
 
-TEST_SUITE("aison / Obj end-to-end") {
+TEST_SUITE("aison") {
 
     TEST_CASE("Happy path: full schema roundtrip") {
         Obj in = makeSampleObj();
@@ -602,6 +602,122 @@ TEST_SUITE("aison / Obj end-to-end") {
         REQUIRE_FALSE(res.errors.empty());
         CHECK(res.errors[0].path == "$");
         CHECK(res.errors[0].message.find("Expected object") != std::string::npos);
+    }
+
+    TEST_CASE("Root array support for vector<T>") {
+
+        SUBCASE("vector<int> root encode/decode") {
+            std::vector<int> in = {1, 2, 3};
+
+            Json::Value root;
+            auto encRes = aison::encode<SchemaFull>(in, root);
+            REQUIRE(encRes);
+            CHECK(root.isArray());
+            CHECK(root.size() == 3);
+            CHECK(root[0].asInt() == 1);
+            CHECK(root[1].asInt() == 2);
+            CHECK(root[2].asInt() == 3);
+
+            std::vector<int> out;
+            auto decRes = aison::decode<SchemaFull>(root, out);
+            REQUIRE(decRes);
+            CHECK(out == in);
+        }
+
+        SUBCASE("vector<Foo> root encode/decode") {
+            // build sample Foos
+            Foo f1;
+            f1.id = 1;
+            f1.name = "one";
+            Foo f2;
+            f2.id = 2;
+            f2.name = "two";
+            std::vector<Foo> in = {f1, f2};
+
+            Json::Value root;
+            auto encRes = aison::encode<SchemaFull>(in, root);
+            REQUIRE(encRes);
+            CHECK(root.isArray());
+            CHECK(root.size() == 2);
+            CHECK(root[0]["id"].asInt() == 1);
+            CHECK(root[1]["name"].asString() == "two");
+
+            std::vector<Foo> out;
+            auto decRes = aison::decode<SchemaFull>(root, out);
+            REQUIRE(decRes);
+            CHECK(out.size() == 2);
+            CHECK(out[0].id == 1);
+            CHECK(out[1].name == "two");
+        }
+
+        SUBCASE("vector<RgbColor> root encode/decode") {
+            std::vector<RgbColor> in = {
+                {0x12, 0x34, 0x56},
+                {0xAA, 0xBB, 0xCC},
+            };
+
+            Json::Value root;
+            auto encRes = aison::encode<SchemaFull>(in, root);
+            REQUIRE(encRes);
+            CHECK(root.isArray());
+            CHECK(root[0].asString() == "#123456");
+            CHECK(root[1].asString() == "#AABBCC");
+
+            std::vector<RgbColor> out;
+            auto decRes = aison::decode<SchemaFull>(root, out);
+            REQUIRE(decRes);
+            CHECK(out.size() == 2);
+            CHECK(out[0].r == 0x12);
+            CHECK(out[1].b == 0xCC);
+        }
+
+        SUBCASE("vector<int> root decode error: wrong type at root") {
+            Json::Value root = Json::objectValue; // not an array
+            std::vector<int> out;
+
+            auto res = aison::decode<SchemaFull>(root, out);
+            CHECK_FALSE(res);
+            REQUIRE_FALSE(res.errors.empty());
+            CHECK(res.errors[0].path == "$");
+            CHECK(res.errors[0].message.find("Expected array") != std::string::npos);
+        }
+
+        SUBCASE("vector<Foo> root decode error: wrong element type") {
+            Json::Value root = Json::arrayValue;
+            root.append(Json::Value("not-object")); // incorrect element
+
+            std::vector<Foo> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            CHECK_FALSE(res);
+            REQUIRE_FALSE(res.errors.empty());
+            CHECK(res.errors[0].path == "$[0]");
+            CHECK(res.errors[0].message.find("Expected object") != std::string::npos);
+        }
+
+        SUBCASE("vector<Foo> root decode error: struct field missing") {
+            Json::Value root = Json::arrayValue;
+
+            Json::Value ok = Json::objectValue;
+            ok["id"] = 1;
+            ok["name"] = "valid";
+            ok["flagOpt"] = Json::nullValue;
+            ok["samples"] = Json::arrayValue;
+
+            Json::Value bad = Json::objectValue;
+            bad["name"] = "missing-id";
+
+            root.append(ok);
+            root.append(bad);
+
+            std::vector<Foo> out;
+            auto res = aison::decode<SchemaFull>(root, out);
+
+            CHECK_FALSE(res);
+            REQUIRE_FALSE(res.errors.empty());
+            CHECK(res.errors[0].path == "$[1]");
+            CHECK(res.errors[0].message.find("Missing required field: id") != std::string::npos);
+        }
     }
 
 } // TEST_SUITE
