@@ -11,8 +11,9 @@ def run_cmd(cmd, cwd=None):
     print("+", " ".join(cmd))
     try:
         subprocess.check_call(cmd, cwd=cwd)
+        return True
     except subprocess.CalledProcessError as err:
-        pass
+        return False
 
 
 def is_configured(build_dir: str) -> bool:
@@ -38,7 +39,7 @@ def do_gen(build_dir: str,
     for d in cmake_defs:
         cmd.append(f"-D{d}")
 
-    run_cmd(cmd)
+    return run_cmd(cmd)
 
 
 def do_make(build_dir: str,
@@ -48,12 +49,13 @@ def do_make(build_dir: str,
             targets: list[str]):
     # configure if needed
     if not is_configured(build_dir):
-        do_gen(build_dir, build_type, generator, cmake_defs)
+        if not do_gen(build_dir, build_type, generator, cmake_defs):
+            return False
 
     cmd = ["cmake", "--build", build_dir]
     if targets:
         cmd.extend(["--target", *targets])
-    run_cmd(cmd)
+    return run_cmd(cmd)
 
 
 def do_run(build_dir: str,
@@ -64,7 +66,8 @@ def do_run(build_dir: str,
            exe_args: list[str],
            build_targets: list[str]):
     # make first (optionally only specific targets)
-    do_make(build_dir, build_type, generator, cmake_defs, build_targets)
+    if not do_make(build_dir, build_type, generator, cmake_defs, build_targets):
+        return False
 
     exe_path = os.path.join(build_dir, "bin", executable)
     if os.name == "nt":
@@ -74,7 +77,7 @@ def do_run(build_dir: str,
         print(f"error: executable '{exe_path}' not found", file=sys.stderr)
         sys.exit(1)
 
-    run_cmd([exe_path, *exe_args])
+    return run_cmd([exe_path, *exe_args])
 
 
 def do_test(build_dir: str,
@@ -83,12 +86,13 @@ def do_test(build_dir: str,
             cmake_defs: list[str],
             label: str | None):
     # ensure tests are built (let CMake decide what that means)
-    do_make(build_dir, build_type, generator, cmake_defs, targets=[])
+    if not do_make(build_dir, build_type, generator, cmake_defs, targets=[]):
+        return False
 
     cmd = ["ctest", "--output-on-failure"]
     if label:
         cmd.extend(["-L", label])
-    run_cmd(cmd, cwd=build_dir)
+    return run_cmd(cmd, cwd=build_dir)
 
 # ---- CLI layer: just wiring args to core functions ---------------------------
 
