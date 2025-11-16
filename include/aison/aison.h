@@ -194,7 +194,7 @@ class Encoder : public Context {
 public:
     using Config = typename SchemaConfig<Schema>::type;
 
-    explicit Encoder(Config& cfg)
+    explicit Encoder(const Config& cfg)
         : config(cfg)
     {}
 
@@ -206,7 +206,7 @@ public:
         return Result{std::move(this->errors_)};
     }
 
-    Config& config;
+    const Config& config;
 };
 
 template<typename Schema>
@@ -214,7 +214,7 @@ class Decoder : public Context {
 public:
     using Config = typename SchemaConfig<Schema>::type;
 
-    explicit Decoder(Config& cfg)
+    explicit Decoder(const Config& cfg)
         : config(cfg)
     {}
 
@@ -226,7 +226,7 @@ public:
         return Result{std::move(this->errors_)};
     }
 
-    Config& config;
+    const Config& config;
 };
 
 // Field Traits
@@ -737,13 +737,13 @@ Result decode(const Json::Value& src, T& value)
 }
 
 template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
-Result encode(const T& value, Json::Value& dst, Config& config)
+Result encode(const T& value, Json::Value& dst, const Config& config)
 {
     return detail::Encoder<Schema>(config).encode(value, dst);
 }
 
 template<typename Schema, typename T, typename Config = typename detail::SchemaConfig<Schema>::type>
-Result decode(const Json::Value& src, T& value, Config& config)
+Result decode(const Json::Value& src, T& value, const Config& config)
 {
     return detail::Decoder<Schema>(config).decode(src, value);
 }

@@ -125,8 +125,7 @@ int main()
     Json::Value root;
 
     // Using Encoder directly
-    SchemaA::Config cfg{.version = 55};
-    aison::Encoder<SchemaA> enc(cfg);
+    aison::Encoder<SchemaA> enc({});
     aison::Result er = enc.encode(s, root);
 
     std::cout << "== Encoded ==\n" << root.toStyledString() << "\n\n";
@@ -139,7 +138,7 @@ int main()
 
 #if 1
     Stats out{};
-    aison::Result dr = aison::decode<SchemaA>(root, out, cfg);
+    aison::Result dr = aison::decode<SchemaA>(root, out, {.version = 55});
 
     if (!dr) {
         std::cerr << "== Decode errors ==\n";
