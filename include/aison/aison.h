@@ -162,13 +162,22 @@ struct HasDecodeValue<
 template<typename Schema, typename T, typename = void> struct HasEnumT : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>>> : std::true_type {};
+struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>::Tag>> : std::true_type {};
 
 template<typename Schema, typename T, typename = void> struct HasObjectT : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::Tag>>
     : std::true_type {};
+
+// Schema objects
+
+template<typename T>
+T& getSchemaObject()
+{
+    static T instance = {};
+    return instance;
+}
 
 // Encode / decode forward declarations
 
@@ -203,14 +212,17 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
         static_assert(HasEnumT<Schema, T>::value, "Missing Enum<T> mapping in schema");
 
         using Enum = typename Schema::template Enum<T>;
-        const auto& mapping = Enum::mapping;
-        for (const auto& entry : mapping) {
+        const auto& enumDef = getSchemaObject<Enum>();
+
+        for (const auto& entry : enumDef) {
             if (entry.first == value) {
                 dst = Json::Value(std::string(entry.second));
                 return;
             }
         }
-        encoder.addError("Unhandled enum value during encode");
+
+        using U = typename std::underlying_type<T>::type;
+        encoder.addError("Unhandled enum value during encode: " + std::to_string(U(value)));
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (!value) {
@@ -230,8 +242,8 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
         }
     } else {
         static_assert(HasObjectT<Schema, T>::value, "Missing Schema::Object<T> definition");
-        using Object = typename Schema::template Object<T>;
-        Object().encodeFields(value, dst, encoder);
+        const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
+        objectDef.encodeFields(value, dst, encoder);
     }
 }
 
@@ -278,14 +290,16 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             return;
         }
         const std::string s = src.asString();
-        using EnumSpec = typename Schema::template Enum<T>;
-        const auto& mapping = EnumSpec::mapping;
-        for (const auto& entry : mapping) {
+        using Enum = typename Schema::template Enum<T>;
+        const auto& enumDef = getSchemaObject<Enum>();
+
+        for (const auto& entry : enumDef) {
             if (s == entry.second) {
                 value = entry.first;
                 return;
             }
         }
+
         decoder.addError("Unknown enum value: " + s);
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
@@ -316,8 +330,8 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             return;
         }
 
-        using Object = typename Schema::template Object<T>;
-        Object().decodeFields(src, value, decoder);
+        const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
+        objectDef.decodeFields(src, value, decoder);
     }
 }
 
@@ -558,6 +572,22 @@ public:
     }
 };
 
+template<typename Schema, typename E>
+class EnumImpl {
+    using Entry = std::pair<E, std::string_view>;
+    std::vector<Entry> entries_;
+
+public:
+    std::size_t size() const { return entries_.size(); }
+
+    auto begin() { return entries_.begin(); }
+    auto end() { return entries_.end(); }
+    auto begin() const { return entries_.begin(); }
+    auto end() const { return entries_.end(); }
+
+    void add(E value, std::string_view name) { entries_.emplace_back(value, name); }
+};
+
 }  // namespace detail
 
 template<typename Schema> using Encoder = detail::Encoder<Schema>;
@@ -572,6 +602,13 @@ struct Object : detail::ObjectImpl<Schema, Owner, Facet> {
 };
 
 template<typename Schema, typename T> Result encode(const T& value, Json::Value& dst)
+template<typename Schema, typename E>
+struct Enum : detail::EnumImpl<Schema, E> {
+    using Tag = void;
+    using Base = detail::EnumImpl<Schema, E>;
+    using Base::add;
+};
+
 {
     return detail::Encoder<Schema>().encode(value, dst);
 }
