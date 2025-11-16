@@ -29,3 +29,7 @@ CheckOptions:
     value:           camelBack
   - key:             readability-identifier-naming.VariableCase
     value:           camelBack
+
+
+ExcludePaths:
+  - "third_party/.*"
