@@ -8,7 +8,8 @@ The library consists of a single header, and depends on JsonCpp.
 - clear struct → JSON mappings
 - strict decoding with useful error messages
 - support for:
-  - primitive types (bool, int, int64_t, unsigned, uint64_t, float, double, std::string)
+  - integral and floating-point types
+  - std::string
   - structs
   - enums
   - std::optional
