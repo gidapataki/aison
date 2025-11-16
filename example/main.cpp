@@ -29,7 +29,7 @@ struct Stats {
 
 // -------------------- Schema --------------------
 struct SchemaA {
-    template<typename T> struct Fields;
+    template<typename T> struct Object;
 
     template<typename E> struct Enum;  // enum mappings
 
@@ -84,8 +84,8 @@ template<> struct SchemaA::Enum<Kind> {
 };
 
 // -------------------- Field mappings --------------------
-template<> struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecode> {
-    Fields()
+template<> struct SchemaA::Object<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecode> {
+    Object()
     {
         add(&Stats::kind, "kind");  // enum class
         add(&Stats::nested, "nested");
@@ -96,8 +96,8 @@ template<> struct SchemaA::Fields<Stats> : aison::Object<SchemaA, Stats, aison::
 };
 
 template<>
-struct SchemaA::Fields<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::EncodeDecode> {
-    Fields()
+struct SchemaA::Object<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::EncodeDecode> {
+    Object()
     {
         add(&Stats::Nested::x, "x");
         add(&Stats::Nested::y, "y");

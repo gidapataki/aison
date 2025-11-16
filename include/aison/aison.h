@@ -159,11 +159,16 @@ struct HasDecodeValue<
         std::declval<const Json::Value&>(), std::declval<T&>(), std::declval<Decoder<Schema>&>()))>>
     : std::true_type {};
 
-// Detect Schema::Enum<E> mapping
-template<typename Schema, typename E, typename = void> struct HasEnumT : std::false_type {};
+template<typename Schema, typename T, typename = void> struct HasEnumT : std::false_type {};
 
-template<typename Schema, typename E>
-struct HasEnumT<Schema, E, std::void_t<typename Schema::template Enum<E>>> : std::true_type {};
+template<typename Schema, typename T>
+struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>>> : std::true_type {};
+
+template<typename Schema, typename T, typename = void> struct HasObjectT : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::Tag>>
+    : std::true_type {};
 
 // Encode / decode forward declarations
 
@@ -194,9 +199,11 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
         dst = value;
     } else if constexpr (std::is_same_v<T, std::string>) {
         dst = value;
-    } else if constexpr (std::is_enum_v<T> && HasEnumT<Schema, T>::value) {
-        using EnumSpec = typename Schema::template Enum<T>;
-        const auto& mapping = EnumSpec::mapping;
+    } else if constexpr (std::is_enum_v<T>) {
+        static_assert(HasEnumT<Schema, T>::value, "Missing Enum<T> mapping in schema");
+
+        using Enum = typename Schema::template Enum<T>;
+        const auto& mapping = Enum::mapping;
         for (const auto& entry : mapping) {
             if (entry.first == value) {
                 dst = Json::Value(std::string(entry.second));
@@ -222,8 +229,9 @@ void encodeValueDefault(const T& value, Json::Value& dst, Encoder<Schema>& encod
             dst.append(v);
         }
     } else {
-        typename Schema::template Fields<T> fields;
-        fields.encodeObject(value, dst, encoder);
+        static_assert(HasObjectT<Schema, T>::value, "Missing Schema::Object<T> definition");
+        using Object = typename Schema::template Object<T>;
+        Object().encodeFields(value, dst, encoder);
     }
 }
 
@@ -262,7 +270,9 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             return;
         }
         value = src.asBool();
-    } else if constexpr (std::is_enum_v<T> && HasEnumT<Schema, T>::value) {
+    } else if constexpr (std::is_enum_v<T>) {
+        static_assert(HasEnumT<Schema, T>::value, "Missing Enum<T> mapping in schema");
+
         if (!src.isString()) {
             decoder.addError("Expected string for enum");
             return;
@@ -300,12 +310,14 @@ void decodeValueDefault(const Json::Value& src, T& value, Decoder<Schema>& decod
             value.push_back(std::move(elem));
         }
     } else {
+        static_assert(HasObjectT<Schema, T>::value, "Missing Schema::Object<T> definition");
         if (!src.isObject()) {
             decoder.addError("Expected object");
             return;
         }
-        typename Schema::template Fields<T> fields;
-        fields.decodeObject(src, value, decoder);
+
+        using Object = typename Schema::template Object<T>;
+        Object().decodeFields(src, value, decoder);
     }
 }
 
@@ -436,7 +448,8 @@ struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
 
 template<typename Schema, typename Owner, typename Facet> class ObjectImpl;
 
-template<typename Schema, typename Owner> class ObjectImpl<Schema, Owner, EncodeOnly> {
+template<typename Schema, typename Owner>
+class ObjectImpl<Schema, Owner, EncodeOnly> {
     using Encoder = Encoder<Schema>;
     using IField = IEncodeOnlyField<Owner, Schema>;
 
@@ -455,7 +468,7 @@ public:
     auto begin() const { return fields_.begin(); }
     auto end() const { return fields_.end(); }
 
-    void encodeObject(const Owner& src, Json::Value& dst, Encoder& encoder) const
+    void encodeFields(const Owner& src, Json::Value& dst, Encoder& encoder) const
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
@@ -485,7 +498,7 @@ public:
     auto begin() const { return fields_.begin(); }
     auto end() const { return fields_.end(); }
 
-    void decodeObject(const Json::Value& src, Owner& dst, Decoder& decoder) const
+    void decodeFields(const Json::Value& src, Owner& dst, Decoder& decoder) const
     {
         for (const auto& field : fields_) {
             const char* key = field->getName();
@@ -520,7 +533,7 @@ public:
     auto begin() const { return fields_.begin(); }
     auto end() const { return fields_.end(); }
 
-    void encodeObject(const Owner& src, Json::Value& dst, Encoder& encoder) const
+    void encodeFields(const Owner& src, Json::Value& dst, Encoder& encoder) const
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
@@ -530,7 +543,7 @@ public:
         }
     }
 
-    void decodeObject(const Json::Value& src, Owner& dst, Decoder& decoder) const
+    void decodeFields(const Json::Value& src, Owner& dst, Decoder& decoder) const
     {
         for (const auto& field : fields_) {
             const char* key = field->getName();
@@ -553,6 +566,7 @@ template<typename Schema> using Decoder = detail::Decoder<Schema>;
 
 template<typename Schema, typename Owner, typename Facet>
 struct Object : detail::ObjectImpl<Schema, Owner, Facet> {
+    using Tag = void;
     using Base = detail::ObjectImpl<Schema, Owner, Facet>;
     using Base::add;
 };
