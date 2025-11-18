@@ -2,9 +2,9 @@
 
 #include <json/json.h>
 
+#include <cmath>
 #include <cstdint>
 #include <limits>
-#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -16,7 +16,11 @@ namespace aison {
 
 // Forward declarations ////////////////////////////////////////////////////////////////////////////
 
-enum class Facet;
+struct EmptyConfig;
+
+struct EncodeOnlyFacet;
+struct DecodeOnlyFacet;
+struct EncodeDecodeFacet;
 
 namespace detail {
 
@@ -24,12 +28,6 @@ class Context;
 struct PathSegment;
 struct PathScope;
 struct EnumBase;
-
-template<typename Schema, typename T>
-struct SchemaConfig;
-
-template<typename Schema, typename T>
-struct SchemaFacet;
 
 template<typename Schema>
 class EncoderImpl;
@@ -40,27 +38,10 @@ class DecoderImpl;
 template<typename Schema, typename T>
 class EnumImpl;
 
-template<typename Schema, typename Owner, Facet F>
+template<typename Schema, typename Owner, typename FacetTag>
 class ObjectImpl;
 
-template<typename Owner, typename Schema>
-struct IEncodeOnlyField;
-
-template<typename Owner, typename Schema>
-struct IDecodeOnlyField;
-
-template<typename Owner, typename Schema>
-struct IEncodeDecodeField;
-
-template<typename Owner, typename T, typename Schema>
-struct EncodeOnlyField;
-
-template<typename Owner, typename T, typename Schema>
-struct DecodeOnlyField;
-
-template<typename Owner, typename T, typename Schema>
-struct EncodeDecodeField;
-
+// Traits
 template<typename T>
 struct IsOptional;
 
@@ -72,6 +53,12 @@ struct HasEnumTag;
 
 template<typename Schema, typename T, typename U>
 struct HasObjectTag;
+
+template<typename Schema, typename T, typename U>
+struct HasEncodeValue;
+
+template<typename Schema, typename T, typename U>
+struct HasDecodeValue;
 
 template<typename Schema, typename T, typename U>
 struct HasEncoderTag;
@@ -91,9 +78,6 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
 template<typename Schema, typename T>
 void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder);
 
-template<typename Schema>
-constexpr void validateConfig();
-
 template<typename Schema, typename T>
 constexpr void validateEnumType();
 
@@ -104,7 +88,6 @@ T& getSchemaObject();
 
 struct Error;
 struct Result;
-struct Config;
 
 template<typename Schema, typename T>
 struct Object;
@@ -112,18 +95,16 @@ struct Object;
 template<typename Schema, typename T>
 struct Enum;
 
-template<typename Derived, Facet F>
+template<typename Derived, typename FacetTag, typename Config>
 struct Schema;
 
 template<typename Schema, typename T>
-struct Encoder;
+struct Encoder;  // custom encoder base
 
 template<typename Schema, typename T>
-struct Decoder;
+struct Decoder;  // custom decoder base
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
-
-enum class Facet { EncodeOnly, DecodeOnly, EncodeDecode };
 
 struct Error {
     std::string path;
@@ -136,16 +117,21 @@ struct Result {
     explicit operator bool() const { return errors.empty(); }
 };
 
-struct Config {
-    using ConfigTag = void;
-};
+struct EmptyConfig {};
 
-using EmptyConfig = aison::Config;
+// Facet tag types
 
-template<typename Derived, Facet F = Facet::EncodeDecode>
+struct EncodeOnlyFacet {};
+struct DecodeOnlyFacet {};
+struct EncodeDecodeFacet {};
+
+// CRTP schema base: facet + config are template parameters
+
+template<typename Derived, typename FacetTag = EncodeDecodeFacet, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
-    static constexpr Facet facet = F;
+    using Facet = FacetTag;
+    using ConfigType = Config;
 
     template<typename T>
     struct Object;
@@ -162,7 +148,7 @@ struct Schema {
 
 namespace detail {
 
-// Path tracking
+// Path tracking /////////////////////////////////////////////////////////////////////////////
 
 struct PathSegment {
     enum class Kind { Key, Index } kind = {};
@@ -258,43 +244,7 @@ struct PathScope {
     }
 };
 
-// Config detection
-
-template<typename Schema, typename = void>
-struct SchemaConfig {
-    using type = EmptyConfig;
-    static constexpr bool isEmpty = true;
-};
-
-template<typename Schema>
-struct SchemaConfig<Schema, std::void_t<typename Schema::Config>> {
-    using type = typename Schema::Config;
-    static constexpr bool isEmpty = false;
-};
-
-template<typename Schema>
-constexpr void validateConfig()
-{
-    using C = typename SchemaConfig<Schema>::type;
-    if constexpr (!std::is_same_v<EmptyConfig, C>) {
-        static_assert(
-            std::is_base_of_v<aison::Config, C>,
-            "Schema::Config (when defined) must derive from aison::Config");
-    }
-}
-
-// Facet detection (fallback to EncodeDecode if not present)
-template<typename Schema, typename = void>
-struct SchemaFacet {
-    static constexpr Facet value = Facet::EncodeDecode;
-};
-
-template<typename Schema>
-struct SchemaFacet<Schema, std::void_t<decltype(Schema::facet)>> {
-    static constexpr Facet value = Schema::facet;
-};
-
-// Traits
+// Traits ///////////////////////////////////////////////////////////////////////////////////
 
 template<typename T>
 struct IsOptional : std::false_type {};
@@ -358,7 +308,7 @@ struct HasDecoderTag<
     Schema, T, std::void_t<typename Schema::template CustomDecoder<T>::CustomDecoderTag>>
     : std::true_type {};
 
-// Enum impl + validation
+// Enum impl + validation //////////////////////////////////////////////////////////////////
 
 struct EnumBase {};
 
@@ -397,21 +347,20 @@ T& getSchemaObject()
     return instance;
 }
 
-// Encoder / Decoder
+// EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
 
 template<typename Schema>
 class EncoderImpl : public Context {
 public:
-    using Config = typename SchemaConfig<Schema>::type;
+    using Config = typename Schema::ConfigType;
 
     explicit EncoderImpl(const Config& cfg)
         : config(cfg)
     {
-        validateConfig<Schema>();
+        using Facet = typename Schema::Facet;
         static_assert(
-            SchemaFacet<Schema>::value == Facet::EncodeDecode ||
-                SchemaFacet<Schema>::value == Facet::EncodeOnly,
-            "Encoder<Schema>: Schema facet must not be DecodeOnly");
+            std::is_same_v<Facet, EncodeDecodeFacet> || std::is_same_v<Facet, EncodeOnlyFacet>,
+            "EncoderImpl<Schema>: Schema facet must not be DecodeOnlyFacet");
     }
 
     template<typename T>
@@ -428,16 +377,15 @@ public:
 template<typename Schema>
 class DecoderImpl : public Context {
 public:
-    using Config = typename SchemaConfig<Schema>::type;
+    using Config = typename Schema::ConfigType;
 
     explicit DecoderImpl(const Config& cfg)
         : config(cfg)
     {
-        validateConfig<Schema>();
+        using Facet = typename Schema::Facet;
         static_assert(
-            SchemaFacet<Schema>::value == Facet::EncodeDecode ||
-                SchemaFacet<Schema>::value == Facet::DecodeOnly,
-            "Decoder<Schema>: Schema facet must not be EncodeOnly");
+            std::is_same_v<Facet, EncodeDecodeFacet> || std::is_same_v<Facet, DecodeOnlyFacet>,
+            "DecoderImpl<Schema>: Schema facet must not be EncodeOnlyFacet");
     }
 
     template<typename T>
@@ -451,7 +399,7 @@ public:
     const Config& config;
 };
 
-// Custom encoder/decoder dispatch
+// Custom encoder/decoder dispatch /////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
@@ -461,8 +409,8 @@ void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
         CE custom;
         custom.setEncoder(encoder);
         custom(value, dst);
-        // } else if constexpr (HasEncodeValue<Schema, T>::value) {
-        //     Schema::encodeValue(value, dst, encoder);
+    } else if constexpr (HasEncodeValue<Schema, T>::value) {
+        Schema::encodeValue(value, dst, encoder);
     } else {
         encodeValueDefault<Schema, T>(value, dst, encoder);
     }
@@ -483,7 +431,7 @@ void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
     }
 }
 
-// Encode defaults
+// Encode defaults ///////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
@@ -556,7 +504,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
     }
 }
 
-// Decode defaults
+// Decode defaults //////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
@@ -663,207 +611,195 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
     }
 }
 
-// Facet-specific field interfaces
+// Field descriptors (type-erased, no virtual) //////////////////////////////////////////////
 
-template<typename Owner, typename Schema>
-struct IEncodeOnlyField {
-    virtual ~IEncodeOnlyField() = default;
-    virtual const char* getName() const = 0;
-    virtual void encodeField(
-        const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder) const = 0;
-};
-
-template<typename Owner, typename Schema>
-struct IDecodeOnlyField {
-    virtual ~IDecodeOnlyField() = default;
-    virtual const char* getName() const = 0;
-    virtual void decodeField(
-        const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder) const = 0;
-};
-
-template<typename Owner, typename Schema>
-struct IEncodeDecodeField {
-    virtual ~IEncodeDecodeField() = default;
-    virtual const char* getName() const = 0;
-    virtual void encodeField(
-        const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder) const = 0;
-    virtual void decodeField(
-        const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder) const = 0;
-};
-
-// Field implementations
-
-template<typename Owner, typename T, typename Schema>
-struct EncodeOnlyField : IEncodeOnlyField<Owner, Schema> {
+// Encode-only descriptor
+template<typename Schema, typename Owner>
+struct EncodeOnlyFieldDesc {
     const char* name;
-    T Owner::* member;
-
-    EncodeOnlyField(const char* name, T Owner::* member)
-        : name(name)
-        , member(member)
-    {}
-
-    const char* getName() const override { return name; }
-
-    void encodeField(
-        const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder) const override
-    {
-        const T& src = owner.*member;
-        encodeValue<Schema, T>(src, dst, encoder);
-    }
+    using EncodeFn =
+        void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
+    EncodeFn encode;
+    const void* context;
 };
 
-template<typename Owner, typename T, typename Schema>
-struct DecodeOnlyField : IDecodeOnlyField<Owner, Schema> {
+// Decode-only descriptor
+template<typename Schema, typename Owner>
+struct DecodeOnlyFieldDesc {
     const char* name;
-    T Owner::* member;
-
-    DecodeOnlyField(const char* name, T Owner::* member)
-        : name(name)
-        , member(member)
-    {}
-
-    const char* getName() const override { return name; }
-
-    void decodeField(
-        const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder) const override
-    {
-        T& dst = owner.*member;
-        decodeValue<Schema, T>(src, dst, decoder);
-    }
+    using DecodeFn =
+        void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
+    DecodeFn decode;
+    const void* context;
 };
 
-template<typename Owner, typename T, typename Schema>
-struct EncodeDecodeField : IEncodeDecodeField<Owner, Schema> {
+// Encode+Decode descriptor
+template<typename Schema, typename Owner>
+struct EncodeDecodeFieldDesc {
     const char* name;
-    T Owner::* member;
-
-    EncodeDecodeField(const char* name, T Owner::* member)
-        : name(name)
-        , member(member)
-    {}
-
-    const char* getName() const override { return name; }
-
-    void encodeField(
-        const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder) const override
-    {
-        const T& src = owner.*member;
-        encodeValue<Schema, T>(src, dst, encoder);
-    }
-
-    void decodeField(
-        const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder) const override
-    {
-        T& dst = owner.*member;
-        decodeValue<Schema, T>(src, dst, decoder);
-    }
+    using EncodeFn =
+        void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
+    using DecodeFn =
+        void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
+    EncodeFn encode;
+    DecodeFn decode;
+    const void* context;
 };
 
-// Object implementations per facet
+template<typename Schema, typename Owner, typename T>
+struct FieldContext {
+    T Owner::* member;
+};
+
+template<typename Schema, typename Owner, typename T>
+void encodeFieldThunk(
+    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, const void* context)
+{
+    auto* ctx = static_cast<const FieldContext<Schema, Owner, T>*>(context);
+    auto& member = ctx->member;
+    const T& ref = owner.*member;
+    encodeValue<Schema, T>(ref, dst, encoder);
+}
+
+template<typename Schema, typename Owner, typename T>
+void decodeFieldThunk(
+    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, const void* context)
+{
+    auto* ctx = static_cast<const FieldContext<Schema, Owner, T>*>(context);
+    auto& member = ctx->member;
+    T& ref = owner.*member;
+    decodeValue<Schema, T>(src, ref, decoder);
+}
+
+// Object implementations per facet /////////////////////////////////////////////////////////
 
 // Encode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, Facet::EncodeOnly> {
+class ObjectImpl<Schema, Owner, EncodeOnlyFacet> {
     using EncoderType = EncoderImpl<Schema>;
-    using IFieldType = IEncodeOnlyField<Owner, Schema>;
-    std::vector<std::unique_ptr<IFieldType>> fields_;
+    using Field = EncodeOnlyFieldDesc<Schema, Owner>;
+    std::vector<Field> fields_;
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        fields_.push_back(std::make_unique<EncodeOnlyField<Owner, T, Schema>>(name, member));
+        using Ctx = FieldContext<Schema, Owner, T>;
+        static const Ctx ctx{member};
+
+        Field f;
+        f.name = name;
+        f.encode = &encodeFieldThunk<Schema, Owner, T>;
+        f.context = &ctx;
+
+        fields_.push_back(f);
     }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            PathScope guard(encoder, field->getName());
-            Json::Value& node = dst[field->getName()];
-            field->encodeField(src, node, encoder);
+            PathScope guard(encoder, field.name);
+            Json::Value& node = dst[field.name];
+            field.encode(src, node, encoder, field.context);
         }
     }
 };
 
 // Decode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, Facet::DecodeOnly> {
+class ObjectImpl<Schema, Owner, DecodeOnlyFacet> {
     using DecoderType = DecoderImpl<Schema>;
-    using IFieldType = IDecodeOnlyField<Owner, Schema>;
-    std::vector<std::unique_ptr<IFieldType>> fields_;
+    using Field = DecodeOnlyFieldDesc<Schema, Owner>;
+    std::vector<Field> fields_;
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        fields_.push_back(std::make_unique<DecodeOnlyField<Owner, T, Schema>>(name, member));
+        using Ctx = FieldContext<Schema, Owner, T>;
+        static const Ctx ctx{member};
+
+        Field f;
+        f.name = name;
+        f.decode = &decodeFieldThunk<Schema, Owner, T>;
+        f.context = &ctx;
+
+        fields_.push_back(f);
     }
 
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
         for (const auto& field : fields_) {
-            const char* key = field->getName();
+            const char* key = field.name;
             if (!src.isMember(key)) {
                 decoder.addError(std::string("Missing required field: ") + key);
                 continue;
             }
             const Json::Value& node = src[key];
             PathScope guard(decoder, key);
-            field->decodeField(node, dst, decoder);
+            field.decode(node, dst, decoder, field.context);
         }
     }
 };
 
 // Encode+Decode
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, Facet::EncodeDecode> {
+class ObjectImpl<Schema, Owner, EncodeDecodeFacet> {
     using EncoderType = EncoderImpl<Schema>;
     using DecoderType = DecoderImpl<Schema>;
-    using IFieldType = IEncodeDecodeField<Owner, Schema>;
-    std::vector<std::unique_ptr<IFieldType>> fields_;
+    using Field = EncodeDecodeFieldDesc<Schema, Owner>;
+    std::vector<Field> fields_;
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        fields_.push_back(std::make_unique<EncodeDecodeField<Owner, T, Schema>>(name, member));
+        using Ctx = FieldContext<Schema, Owner, T>;
+        static const Ctx ctx{member};
+
+        Field f;
+        f.name = name;
+        f.encode = &encodeFieldThunk<Schema, Owner, T>;
+        f.decode = &decodeFieldThunk<Schema, Owner, T>;
+        f.context = &ctx;
+
+        fields_.push_back(f);
     }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            PathScope guard(encoder, field->getName());
-            Json::Value& node = dst[field->getName()];
-            field->encodeField(src, node, encoder);
+            PathScope guard(encoder, field.name);
+            Json::Value& node = dst[field.name];
+            field.encode(src, node, encoder, field.context);
         }
     }
 
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
         for (const auto& field : fields_) {
-            const char* key = field->getName();
+            const char* key = field.name;
             if (!src.isMember(key)) {
                 decoder.addError(std::string("Missing required field: ") + key);
                 continue;
             }
             const Json::Value& node = src[key];
             PathScope guard(decoder, key);
-            field->decodeField(node, dst, decoder);
+            field.decode(node, dst, decoder, field.context);
         }
     }
 };
 
 }  // namespace detail
 
-// Object / Enum wrappers
+// Object / Enum wrappers ///////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename Owner>
-struct Object : detail::ObjectImpl<Schema, Owner, detail::SchemaFacet<Schema>::value> {
+struct Object : detail::ObjectImpl<Schema, Owner, typename Schema::Facet> {
     using ObjectTag = void;
-    using Base = detail::ObjectImpl<Schema, Owner, detail::SchemaFacet<Schema>::value>;
+    using Base = detail::ObjectImpl<Schema, Owner, typename Schema::Facet>;
     using Base::add;
 };
 
@@ -874,7 +810,7 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::add;
 };
 
-// CustomEncoder / CustomDecoder bases (with setEncoder / setDecoder)
+// CustomEncoder / CustomDecoder bases (with setEncoder / setDecoder) ///////////////////////
 
 template<typename Schema, typename T>
 struct Encoder {
@@ -908,17 +844,19 @@ private:
     DecoderType* decoder_ = nullptr;
 };
 
-// Free encode/decode helpers
+// Free encode/decode helpers ///////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 Result encode(const T& value, Json::Value& dst)
 {
-    if constexpr (!detail::SchemaConfig<Schema>::isEmpty) {
+    using Config = typename Schema::ConfigType;
+    if constexpr (!std::is_same_v<Config, EmptyConfig>) {
         static_assert(
-            detail::SchemaConfig<Schema>::isEmpty,
-            "When Schema::Config{} is defined, a config object must be passed to encode()");
+            std::is_same_v<Config, EmptyConfig>,
+            "encode<Schema>(value, dst) requires a config argument because Schema "
+            "was declared with a non-empty Config type.");
     } else {
-        EmptyConfig cfg;
+        Config cfg{};
         return detail::EncoderImpl<Schema>(cfg).encode(value, dst);
     }
 }
@@ -926,26 +864,26 @@ Result encode(const T& value, Json::Value& dst)
 template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value)
 {
-    if constexpr (!detail::SchemaConfig<Schema>::isEmpty) {
+    using Config = typename Schema::ConfigType;
+    if constexpr (!std::is_same_v<Config, EmptyConfig>) {
         static_assert(
-            detail::SchemaConfig<Schema>::isEmpty,
-            "When Schema::Config{} is defined, a config object must be passed to decode()");
+            std::is_same_v<Config, EmptyConfig>,
+            "decode<Schema>(src, value) requires a config argument because Schema "
+            "was declared with a non-empty Config type.");
     } else {
-        EmptyConfig cfg;
+        Config cfg{};
         return detail::DecoderImpl<Schema>(cfg).decode(src, value);
     }
 }
 
 template<typename Schema, typename T>
-Result encode(
-    const T& value, Json::Value& dst, const typename detail::SchemaConfig<Schema>::type& config)
+Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config)
 {
     return detail::EncoderImpl<Schema>(config).encode(value, dst);
 }
 
 template<typename Schema, typename T>
-Result decode(
-    const Json::Value& src, T& value, const typename detail::SchemaConfig<Schema>::type& config)
+Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config)
 {
     return detail::DecoderImpl<Schema>(config).decode(src, value);
 }

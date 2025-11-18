@@ -32,7 +32,7 @@ struct Paragraph {
     Alignment alignment = {};
 };
 
-struct TextSchema : aison::Schema<TextSchema, aison::Facet::EncodeDecode> {};
+struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecodeFacet> {};
 
 template<>
 struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
