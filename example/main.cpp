@@ -48,59 +48,59 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
 
     template<typename T>
     struct Decoder;
+};
 
-    template<>
-    struct Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
-        Enum()
-        {
-            add(Alignment::kLeft, "left");
-            add(Alignment::kCenter, "center");
-            add(Alignment::kRight, "right");
-        }
-    };
+template<>
+struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
+    Enum()
+    {
+        add(Alignment::kLeft, "left");
+        add(Alignment::kCenter, "center");
+        add(Alignment::kRight, "right");
+    }
+};
 
-    template<>
-    struct Object<Span> : aison::Object<TextSchema, Span> {
-        Object()
-        {
-            add(&Span::str, "str");
-            add(&Span::color, "color");
-            add(&Span::fontSize, "fontSize");
-        }
-    };
+template<>
+struct TextSchema::Object<Span> : aison::Object<TextSchema, Span> {
+    Object()
+    {
+        add(&Span::str, "str");
+        add(&Span::color, "color");
+        add(&Span::fontSize, "fontSize");
+    }
+};
 
-    template<>
-    struct Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
-        Object()
-        {
-            add(&Paragraph::spans, "spans");
-            add(&Paragraph::alignment, "alignment");
-        }
-    };
+template<>
+struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
+    Object()
+    {
+        add(&Paragraph::spans, "spans");
+        add(&Paragraph::alignment, "alignment");
+    }
+};
 
-    template<>
-    struct Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
-        void operator()(const Json::Value& src, RGBColor& dst)
-        {
-            if (!src.isString()) {
-                addError("String field required");
-                return;
-            }
-            if (auto value = toRGBColor(src.asString()); value) {
-                dst = *value;
-            } else {
-                addError("Could not parse value for RGBColor");
-            }
+template<>
+struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
+    void operator()(const Json::Value& src, RGBColor& dst)
+    {
+        if (!src.isString()) {
+            addError("String field required");
+            return;
         }
-    };
+        if (auto value = toRGBColor(src.asString()); value) {
+            dst = *value;
+        } else {
+            addError("Could not parse value for RGBColor");
+        }
+    }
+};
 
-    template<>
-    struct Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
-        void operator()(const RGBColor& src, Json::Value& dst)
-        {
-            dst = toHexColor(src, config().upperCaseHex);
-        }
-    };
+template<>
+struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
+    void operator()(const RGBColor& src, Json::Value& dst)
+    {
+        dst = toHexColor(src, config().upperCaseHex);
+    }
 };
 
 // Implementation

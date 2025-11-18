@@ -26,40 +26,42 @@ struct SchemaWithConfig : aison::Schema<SchemaWithConfig, aison::EncodeDecode, C
 
     template<typename T>
     struct Decoder;
+};
 
-    template<>
-    struct Encoder<VersionedValue> : aison::Encoder<SchemaWithConfig, VersionedValue> {
-        void operator()(const VersionedValue& src, Json::Value& dst)
-        {
-            auto& cfg = config();
+template<>
+struct SchemaWithConfig::Encoder<VersionedValue>
+    : aison::Encoder<SchemaWithConfig, VersionedValue> {
+    void operator()(const VersionedValue& src, Json::Value& dst)
+    {
+        auto& cfg = config();
 
-            if (cfg.version == 1) {
-                // v1: encode as bare integer
-                dst = src.raw;
-            } else {
-                // v2: encode as an object with metadata
-                Json::Value obj(Json::objectValue);
-                obj["raw"] = src.raw;
-                obj["meta"] = Json::Value("v2");
-                dst = std::move(obj);
-            }
+        if (cfg.version == 1) {
+            // v1: encode as bare integer
+            dst = src.raw;
+        } else {
+            // v2: encode as an object with metadata
+            Json::Value obj(Json::objectValue);
+            obj["raw"] = src.raw;
+            obj["meta"] = Json::Value("v2");
+            dst = std::move(obj);
         }
-    };
+    }
+};
 
-    template<>
-    struct Decoder<VersionedValue> : aison::Decoder<SchemaWithConfig, VersionedValue> {
-        void operator()(const Json::Value& src, VersionedValue& dst)
-        {
-            // Accept both v1 and v2 shapes
-            if (src.isInt()) {
-                dst.raw = src.asInt();
-            } else if (src.isObject() && src.isMember("raw") && src["raw"].isInt()) {
-                dst.raw = src["raw"].asInt();
-            } else {
-                addError("Unsupported JSON shape for VersionedValue");
-            }
+template<>
+struct SchemaWithConfig::Decoder<VersionedValue>
+    : aison::Decoder<SchemaWithConfig, VersionedValue> {
+    void operator()(const Json::Value& src, VersionedValue& dst)
+    {
+        // Accept both v1 and v2 shapes
+        if (src.isInt()) {
+            dst.raw = src.asInt();
+        } else if (src.isObject() && src.isMember("raw") && src["raw"].isInt()) {
+            dst.raw = src["raw"].asInt();
+        } else {
+            addError("Unsupported JSON shape for VersionedValue");
         }
-    };
+    }
 };
 
 TEST_SUITE("SchemaWithConfig – config-aware encode/decode")
