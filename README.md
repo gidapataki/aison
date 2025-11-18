@@ -27,6 +27,118 @@ only on JsonCpp.
 - [JsonCpp](https://github.com/open-source-parsers/jsoncpp)
 
 
+### Advanced example
+This example shows a realistic usecase where we want to encode text styling info into JSON. It shows how to use
+- enum mapping
+- struct mapping
+- nested data via structs and `std::vector`
+- custom encoder / decoder
+- config object (used in custom encoder)
+- error handling
+
+#### Data
+```C++
+enum class Alignment {
+    kLeft,
+    kCenter,
+    kRight,
+};
+
+struct RGBColor {
+    uint8_t r = 0;
+    uint8_t g = 0;
+    uint8_t b = 0;
+};
+
+struct Span {
+    std::string str;
+    RGBColor color;
+    float fontSize = 24.f;
+};
+
+struct Paragraph {
+    std::vector<Span> spans;
+    Alignment alignment = {};
+};
+```
+
+#### Schema
+```C++
+struct Config {
+    bool upperCaseHex = false;
+};
+
+struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
+    template<typename T> struct Object;
+    template<typename T> struct Enum;
+    template<typename T> struct Encoder;
+    template<typename T> struct Decoder;
+
+    template<>
+    struct Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
+        Enum() {
+            add(Alignment::kLeft, "left");
+            add(Alignment::kCenter, "center");
+            add(Alignment::kRight, "right");
+        }
+    };
+
+    template<>
+    struct Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
+        void operator()(const Json::Value& src, RGBColor& dst) {
+            if (!src.isString()) {
+                addError("String field required");
+                return;
+            }
+            if (auto value = toRGBColor(src.asString()); value) {
+                dst = *value;
+            } else {
+                addError("Could not parse value for RGBColor");
+            }
+        }
+    };
+
+    template<>
+    struct Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
+        void operator()(const RGBColor& src, Json::Value& dst) {
+            dst = toHexColor(src, config().upperCaseHex);
+        }
+    };
+
+    template<>
+    struct Object<Span> : aison::Object<TextSchema, Span> {
+        Object() {
+            add(&Span::str, "str");
+            add(&Span::color, "color");
+            add(&Span::fontSize, "fontSize");
+        }
+    };
+
+    template<>
+    struct Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
+        Object() {
+            add(&Paragraph::spans, "spans");
+            add(&Paragraph::alignment, "alignment");
+        }
+    };
+};
+```
+#### Usage
+```C++
+Json::Value root;
+Config cfg{.upperCaseHex = true};
+Paragraph para;
+...
+auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
+if (res) {
+    std::cout << root.toStyledString();
+} else {
+    for (auto& err : res.errors) {
+        std::cerr << "error at " << err.path << ": " << err.message << "\n";
+    }
+}
+```
+
 
 ---
 
