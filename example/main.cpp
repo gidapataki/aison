@@ -64,7 +64,7 @@ struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
 };
 
 template<>
-struct TextSchema::CustomDecoder<RGBColor> : aison::CustomDecoder<TextSchema, RGBColor> {
+struct TextSchema::CustomDecoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
     void operator()(const Json::Value& src, RGBColor& dst)
     {
         if (!src.isString()) {
@@ -79,7 +79,7 @@ struct TextSchema::CustomDecoder<RGBColor> : aison::CustomDecoder<TextSchema, RG
     }
 };
 template<>
-struct TextSchema::CustomEncoder<RGBColor> : aison::CustomEncoder<TextSchema, RGBColor> {
+struct TextSchema::CustomEncoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
     void operator()(const RGBColor& src, Json::Value& dst) { dst = toHexColor(src); }
 };
 
