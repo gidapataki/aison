@@ -133,17 +133,10 @@ struct Schema {
     using Facet = FacetTag;
     using ConfigType = Config;
 
-    template<typename T>
-    struct Object;
-
-    template<typename E>
-    struct Enum;
-
-    template<typename T>
-    struct CustomEncoder;
-
-    template<typename T>
-    struct CustomDecoder;
+    // template<typename T> struct Object;
+    // template<typename T> struct Enum;
+    // template<typename T> struct CustomEncoder;
+    // template<typename T> struct CustomDecoder;
 };
 
 namespace detail {

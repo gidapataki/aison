@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+namespace {
+
 // ------------------------------------------------------------
 // Test domain types
 // ------------------------------------------------------------
@@ -96,149 +98,171 @@ void decodeColorCommon(const Json::Value& src, RgbColor& dst, aison::detail::Con
 // SchemaFull: uses all Obj fields
 // ------------------------------------------------------------
 
-struct SchemaFull : aison::Schema<SchemaFull> {};
+struct SchemaFull : aison::Schema<SchemaFull> {
+    template<typename T>
+    struct Object;
 
-template<>
-struct SchemaFull::CustomEncoder<RgbColor> : aison::Encoder<SchemaFull, RgbColor> {
-    void operator()(const RgbColor& src, Json::Value& dst)
-    {
-        encodeColorCommon(src, dst, getEncoder());
-    }
-};
+    template<typename T>
+    struct Enum;
 
-template<>
-struct SchemaFull::CustomDecoder<RgbColor> : aison::Decoder<SchemaFull, RgbColor> {
-    void operator()(const Json::Value& src, RgbColor& dst)
-    {
-        decodeColorCommon(src, dst, getDecoder());
-    }
-};
+    template<typename T>
+    struct CustomEncoder;
 
-template<>
-struct SchemaFull::Enum<Mode> : aison::Enum<SchemaFull, Mode> {
-    Enum()
-    {
-        add(Mode::Off, "off");
-        add(Mode::On, "on");
-        add(Mode::Auto, "auto");
-    }
-};
+    template<typename T>
+    struct CustomDecoder;
 
-template<>
-struct SchemaFull::Object<Foo> : aison::Object<SchemaFull, Foo> {
-    Object()
-    {
-        add(&Foo::id, "id");
-        add(&Foo::name, "name");
-        add(&Foo::flagOpt, "flagOpt");
-        add(&Foo::samples, "samples");
-    }
-};
+    template<>
+    struct CustomEncoder<RgbColor> : aison::Encoder<SchemaFull, RgbColor> {
+        void operator()(const RgbColor& src, Json::Value& dst)
+        {
+            encodeColorCommon(src, dst, getEncoder());
+        }
+    };
 
-template<>
-struct SchemaFull::Object<Obj> : aison::Object<SchemaFull, Obj> {
-    Object()
-    {
-        add(&Obj::intValue, "intValue");
-        add(&Obj::floatValue, "floatValue");
-        add(&Obj::boolValue, "boolValue");
-        add(&Obj::strValue, "strValue");
-        add(&Obj::intArray, "intArray");
-        add(&Obj::boolArray, "boolArray");
-        add(&Obj::strOpt, "strOpt");
-        add(&Obj::foo, "foo");
-        add(&Obj::fooArray, "fooArray");
-        add(&Obj::fooOpt, "fooOpt");
-        add(&Obj::enumValue, "enumValue");
-        add(&Obj::colorValue, "colorValue");
-    }
-};
+    template<>
+    struct CustomDecoder<RgbColor> : aison::Decoder<SchemaFull, RgbColor> {
+        void operator()(const Json::Value& src, RgbColor& dst)
+        {
+            decodeColorCommon(src, dst, getDecoder());
+        }
+    };
 
-// Encode-only & decode-only holders of RgbColor
+    template<>
+    struct Enum<Mode> : aison::Enum<SchemaFull, Mode> {
+        Enum()
+        {
+            add(Mode::Off, "off");
+            add(Mode::On, "on");
+            add(Mode::Auto, "auto");
+        }
+    };
 
-template<>
-struct SchemaFull::Object<EncodeOnlyColorHolder>
-    : aison::Object<SchemaFull, EncodeOnlyColorHolder> {
-    Object() { add(&EncodeOnlyColorHolder::color, "color"); }
-};
+    template<>
+    struct Object<Foo> : aison::Object<SchemaFull, Foo> {
+        Object()
+        {
+            add(&Foo::id, "id");
+            add(&Foo::name, "name");
+            add(&Foo::flagOpt, "flagOpt");
+            add(&Foo::samples, "samples");
+        }
+    };
 
-template<>
-struct SchemaFull::Object<DecodeOnlyColorHolder>
-    : aison::Object<SchemaFull, DecodeOnlyColorHolder> {
-    Object() { add(&DecodeOnlyColorHolder::color, "color"); }
+    template<>
+    struct Object<Obj> : aison::Object<SchemaFull, Obj> {
+        Object()
+        {
+            add(&Obj::intValue, "intValue");
+            add(&Obj::floatValue, "floatValue");
+            add(&Obj::boolValue, "boolValue");
+            add(&Obj::strValue, "strValue");
+            add(&Obj::intArray, "intArray");
+            add(&Obj::boolArray, "boolArray");
+            add(&Obj::strOpt, "strOpt");
+            add(&Obj::foo, "foo");
+            add(&Obj::fooArray, "fooArray");
+            add(&Obj::fooOpt, "fooOpt");
+            add(&Obj::enumValue, "enumValue");
+            add(&Obj::colorValue, "colorValue");
+        }
+    };
+
+    // Encode-only & decode-only holders of RgbColor
+
+    template<>
+    struct Object<EncodeOnlyColorHolder> : aison::Object<SchemaFull, EncodeOnlyColorHolder> {
+        Object() { add(&EncodeOnlyColorHolder::color, "color"); }
+    };
+
+    template<>
+    struct Object<DecodeOnlyColorHolder> : aison::Object<SchemaFull, DecodeOnlyColorHolder> {
+        Object() { add(&DecodeOnlyColorHolder::color, "color"); }
+    };
 };
 
 // ------------------------------------------------------------
 // SchemaPartial: only uses a subset of Obj fields
 // ------------------------------------------------------------
 
-struct SchemaPartial : aison::Schema<SchemaPartial> {};
+struct SchemaPartial : aison::Schema<SchemaPartial> {
+    template<typename T>
+    struct Object;
 
-template<>
-struct SchemaPartial::CustomEncoder<float> : aison::Encoder<SchemaPartial, float> {
-    void operator()(const float& src, Json::Value& dst) { dst = static_cast<double>(src); }
-};
+    template<typename T>
+    struct Enum;
 
-template<>
-struct SchemaPartial::CustomDecoder<float> : aison::Decoder<SchemaPartial, float> {
-    void operator()(const Json::Value& src, float& dst)
-    {
-        if (!src.isDouble() && !src.isInt()) {
-            addError("Expected float/double");
-            return;
+    template<typename T>
+    struct CustomEncoder;
+
+    template<typename T>
+    struct CustomDecoder;
+
+    template<>
+    struct CustomEncoder<float> : aison::Encoder<SchemaPartial, float> {
+        void operator()(const float& src, Json::Value& dst) { dst = static_cast<double>(src); }
+    };
+
+    template<>
+    struct CustomDecoder<float> : aison::Decoder<SchemaPartial, float> {
+        void operator()(const Json::Value& src, float& dst)
+        {
+            if (!src.isDouble() && !src.isInt()) {
+                addError("Expected float/double");
+                return;
+            }
+            dst = static_cast<float>(src.asDouble());
         }
-        dst = static_cast<float>(src.asDouble());
-    }
-};
+    };
 
-template<>
-struct SchemaPartial::CustomEncoder<RgbColor> : aison::Encoder<SchemaPartial, RgbColor> {
-    void operator()(const RgbColor& src, Json::Value& dst)
-    {
-        encodeColorCommon(src, dst, getEncoder());
-    }
-};
+    template<>
+    struct CustomEncoder<RgbColor> : aison::Encoder<SchemaPartial, RgbColor> {
+        void operator()(const RgbColor& src, Json::Value& dst)
+        {
+            encodeColorCommon(src, dst, getEncoder());
+        }
+    };
 
-template<>
-struct SchemaPartial::CustomDecoder<RgbColor> : aison::Decoder<SchemaPartial, RgbColor> {
-    void operator()(const Json::Value& src, RgbColor& dst)
-    {
-        decodeColorCommon(src, dst, getDecoder());
-    }
-};
+    template<>
+    struct CustomDecoder<RgbColor> : aison::Decoder<SchemaPartial, RgbColor> {
+        void operator()(const Json::Value& src, RgbColor& dst)
+        {
+            decodeColorCommon(src, dst, getDecoder());
+        }
+    };
 
-template<>
-struct SchemaPartial::Enum<Mode> : aison::Enum<SchemaPartial, Mode> {
-    Enum()
-    {
-        add(Mode::Off, "off");
-        add(Mode::On, "on");
-        add(Mode::Auto, "auto");
-    }
-};
+    template<>
+    struct Enum<Mode> : aison::Enum<SchemaPartial, Mode> {
+        Enum()
+        {
+            add(Mode::Off, "off");
+            add(Mode::On, "on");
+            add(Mode::Auto, "auto");
+        }
+    };
 
-// For partial schema, we only care about a few fields (e.g. core config):
-// - intValue
-// - foo.id
-// - enumValue
-// - colorValue
-template<>
-struct SchemaPartial::Object<Foo> : aison::Object<SchemaPartial, Foo> {
-    Object()
-    {
-        add(&Foo::id, "id");  // only id, ignore others
-    }
-};
+    // For partial schema, we only care about a few fields (e.g. core config):
+    // - intValue
+    // - foo.id
+    // - enumValue
+    // - colorValue
+    template<>
+    struct Object<Foo> : aison::Object<SchemaPartial, Foo> {
+        Object()
+        {
+            add(&Foo::id, "id");  // only id, ignore others
+        }
+    };
 
-template<>
-struct SchemaPartial::Object<Obj> : aison::Object<SchemaPartial, Obj> {
-    Object()
-    {
-        add(&Obj::intValue, "intValue");
-        add(&Obj::foo, "foo");  // but only Foo::id is used
-        add(&Obj::enumValue, "enumValue");
-        add(&Obj::colorValue, "colorValue");
-    }
+    template<>
+    struct Object<Obj> : aison::Object<SchemaPartial, Obj> {
+        Object()
+        {
+            add(&Obj::intValue, "intValue");
+            add(&Obj::foo, "foo");  // but only Foo::id is used
+            add(&Obj::enumValue, "enumValue");
+            add(&Obj::colorValue, "colorValue");
+        }
+    };
 };
 
 // ------------------------------------------------------------
@@ -845,3 +869,5 @@ TEST_SUITE("Basic")
     }
 
 }  // TEST_SUITE
+
+}  // namespace
