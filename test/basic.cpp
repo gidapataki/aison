@@ -106,13 +106,13 @@ struct SchemaFull : aison::Schema<SchemaFull> {
     struct Enum;
 
     template<typename T>
-    struct CustomEncoder;
+    struct Encoder;
 
     template<typename T>
-    struct CustomDecoder;
+    struct Decoder;
 
     template<>
-    struct CustomEncoder<RgbColor> : aison::Encoder<SchemaFull, RgbColor> {
+    struct Encoder<RgbColor> : aison::Encoder<SchemaFull, RgbColor> {
         void operator()(const RgbColor& src, Json::Value& dst)
         {
             encodeColorCommon(src, dst, getEncoder());
@@ -120,7 +120,7 @@ struct SchemaFull : aison::Schema<SchemaFull> {
     };
 
     template<>
-    struct CustomDecoder<RgbColor> : aison::Decoder<SchemaFull, RgbColor> {
+    struct Decoder<RgbColor> : aison::Decoder<SchemaFull, RgbColor> {
         void operator()(const Json::Value& src, RgbColor& dst)
         {
             decodeColorCommon(src, dst, getDecoder());
@@ -192,18 +192,18 @@ struct SchemaPartial : aison::Schema<SchemaPartial> {
     struct Enum;
 
     template<typename T>
-    struct CustomEncoder;
+    struct Encoder;
 
     template<typename T>
-    struct CustomDecoder;
+    struct Decoder;
 
     template<>
-    struct CustomEncoder<float> : aison::Encoder<SchemaPartial, float> {
+    struct Encoder<float> : aison::Encoder<SchemaPartial, float> {
         void operator()(const float& src, Json::Value& dst) { dst = static_cast<double>(src); }
     };
 
     template<>
-    struct CustomDecoder<float> : aison::Decoder<SchemaPartial, float> {
+    struct Decoder<float> : aison::Decoder<SchemaPartial, float> {
         void operator()(const Json::Value& src, float& dst)
         {
             if (!src.isDouble() && !src.isInt()) {
@@ -215,7 +215,7 @@ struct SchemaPartial : aison::Schema<SchemaPartial> {
     };
 
     template<>
-    struct CustomEncoder<RgbColor> : aison::Encoder<SchemaPartial, RgbColor> {
+    struct Encoder<RgbColor> : aison::Encoder<SchemaPartial, RgbColor> {
         void operator()(const RgbColor& src, Json::Value& dst)
         {
             encodeColorCommon(src, dst, getEncoder());
@@ -223,7 +223,7 @@ struct SchemaPartial : aison::Schema<SchemaPartial> {
     };
 
     template<>
-    struct CustomDecoder<RgbColor> : aison::Decoder<SchemaPartial, RgbColor> {
+    struct Decoder<RgbColor> : aison::Decoder<SchemaPartial, RgbColor> {
         void operator()(const Json::Value& src, RgbColor& dst)
         {
             decodeColorCommon(src, dst, getDecoder());

@@ -22,13 +22,13 @@ struct SchemaWithConfig : aison::Schema<SchemaWithConfig, aison::EncodeDecode, C
     struct Enum;
 
     template<typename T>
-    struct CustomEncoder;
+    struct Encoder;
 
     template<typename T>
-    struct CustomDecoder;
+    struct Decoder;
 
     template<>
-    struct CustomEncoder<VersionedValue> : aison::Encoder<SchemaWithConfig, VersionedValue> {
+    struct Encoder<VersionedValue> : aison::Encoder<SchemaWithConfig, VersionedValue> {
         void operator()(const VersionedValue& src, Json::Value& dst)
         {
             auto& cfg = config();
@@ -47,7 +47,7 @@ struct SchemaWithConfig : aison::Schema<SchemaWithConfig, aison::EncodeDecode, C
     };
 
     template<>
-    struct CustomDecoder<VersionedValue> : aison::Decoder<SchemaWithConfig, VersionedValue> {
+    struct Decoder<VersionedValue> : aison::Decoder<SchemaWithConfig, VersionedValue> {
         void operator()(const Json::Value& src, VersionedValue& dst)
         {
             // Accept both v1 and v2 shapes

@@ -44,10 +44,10 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     struct Enum;
 
     template<typename T>
-    struct CustomEncoder;
+    struct Encoder;
 
     template<typename T>
-    struct CustomDecoder;
+    struct Decoder;
 
     template<>
     struct Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
@@ -79,7 +79,7 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     };
 
     template<>
-    struct CustomDecoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
+    struct Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
         void operator()(const Json::Value& src, RGBColor& dst)
         {
             if (!src.isString()) {
@@ -95,7 +95,7 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     };
 
     template<>
-    struct CustomEncoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
+    struct Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
         void operator()(const RGBColor& src, Json::Value& dst) { dst = toHexColor(src); }
     };
 };

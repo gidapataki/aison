@@ -17,7 +17,6 @@ namespace aison {
 // Forward declarations ////////////////////////////////////////////////////////////////////////////
 
 struct EmptyConfig;
-
 struct EncodeOnly;
 struct DecodeOnly;
 struct EncodeDecode;
@@ -48,24 +47,19 @@ struct IsOptional;
 template<typename T>
 struct IsVector;
 
-template<typename Schema, typename T, typename U>
+template<typename Schema, typename T, typename = void>
 struct HasEnumTag;
 
-template<typename Schema, typename T, typename U>
+template<typename Schema, typename T, typename = void>
 struct HasObjectTag;
 
-template<typename Schema, typename T, typename U>
-struct HasEncodeValue;
-
-template<typename Schema, typename T, typename U>
-struct HasDecodeValue;
-
-template<typename Schema, typename T, typename U>
+template<typename Schema, typename T, typename = void>
 struct HasEncoderTag;
 
-template<typename Schema, typename T, typename U>
+template<typename Schema, typename T, typename = void>
 struct HasDecoderTag;
 
+// Functions
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
 
@@ -99,10 +93,10 @@ template<typename Derived, typename FacetTag, typename Config>
 struct Schema;
 
 template<typename Schema, typename T>
-struct Encoder;  // custom encoder base
+struct Encoder;
 
 template<typename Schema, typename T>
-struct Decoder;  // custom decoder base
+struct Decoder;
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
 
@@ -127,16 +121,16 @@ struct EncodeDecode {};
 
 // CRTP schema base: facet + config are template parameters
 
-template<typename Derived, typename FacetTag = EncodeDecode, typename Config = EmptyConfig>
+template<typename Derived, typename Facet = EncodeDecode, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
-    using Facet = FacetTag;
+    using FacetType = Facet;
     using ConfigType = Config;
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
-    // template<typename T> struct CustomEncoder;
-    // template<typename T> struct CustomDecoder;
+    // template<typename T> struct Encoder;
+    // template<typename T> struct Decoder;
 };
 
 namespace detail {
@@ -251,54 +245,32 @@ struct IsVector : std::false_type {};
 template<typename T, typename A>
 struct IsVector<std::vector<T, A>> : std::true_type {};
 
-template<typename Schema, typename T, typename = void>
+template<typename Schema, typename T, typename>
 struct HasEnumTag : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasEnumTag<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void>
+template<typename Schema, typename T, typename>
 struct HasObjectTag : std::false_type {};
 
 template<typename Schema, typename T>
 struct HasObjectTag<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void>
-struct HasEncodeValue : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasEncodeValue<
-    Schema, T,
-    std::void_t<decltype(Schema::encodeValue(
-        std::declval<const T&>(), std::declval<Json::Value&>(),
-        std::declval<EncoderImpl<Schema>&>()))>> : std::true_type {};
-
-template<typename Schema, typename T, typename = void>
-struct HasDecodeValue : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasDecodeValue<
-    Schema, T,
-    std::void_t<decltype(Schema::decodeValue(
-        std::declval<const Json::Value&>(), std::declval<T&>(),
-        std::declval<DecoderImpl<Schema>&>()))>> : std::true_type {};
-
-template<typename Schema, typename T, typename = void>
+template<typename Schema, typename T, typename>
 struct HasEncoderTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasEncoderTag<
-    Schema, T, std::void_t<typename Schema::template CustomEncoder<T>::CustomEncoderTag>>
+struct HasEncoderTag<Schema, T, std::void_t<typename Schema::template Encoder<T>::EncoderTag>>
     : std::true_type {};
 
-template<typename Schema, typename T, typename = void>
+template<typename Schema, typename T, typename>
 struct HasDecoderTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasDecoderTag<
-    Schema, T, std::void_t<typename Schema::template CustomDecoder<T>::CustomDecoderTag>>
+struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>::DecoderTag>>
     : std::true_type {};
 
 // Enum impl + validation //////////////////////////////////////////////////////////////////
@@ -350,7 +322,7 @@ public:
     explicit EncoderImpl(const Config& cfg)
         : config(cfg)
     {
-        using Facet = typename Schema::Facet;
+        using Facet = typename Schema::FacetType;
         static_assert(
             std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, EncodeOnly>,
             "EncoderImpl<Schema>: Schema facet must not be DecodeOnlyFacet");
@@ -375,7 +347,7 @@ public:
     explicit DecoderImpl(const Config& cfg)
         : config(cfg)
     {
-        using Facet = typename Schema::Facet;
+        using Facet = typename Schema::FacetType;
         static_assert(
             std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, DecodeOnly>,
             "DecoderImpl<Schema>: Schema facet must not be EncodeOnlyFacet");
@@ -398,12 +370,10 @@ template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
 {
     if constexpr (HasEncoderTag<Schema, T>::value) {
-        using CE = typename Schema::template CustomEncoder<T>;
-        CE custom;
-        custom.setEncoder(encoder);
-        custom(value, dst);
-    } else if constexpr (HasEncodeValue<Schema, T>::value) {
-        Schema::encodeValue(value, dst, encoder);
+        using EncodeFunc = typename Schema::template Encoder<T>;
+        EncodeFunc encodeFunc;
+        encodeFunc.setEncoder(encoder);
+        encodeFunc(value, dst);
     } else {
         encodeValueDefault<Schema, T>(value, dst, encoder);
     }
@@ -413,12 +383,10 @@ template<typename Schema, typename T>
 void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
 {
     if constexpr (HasDecoderTag<Schema, T>::value) {
-        using CD = typename Schema::template CustomDecoder<T>;
-        CD custom;
-        custom.setDecoder(decoder);
-        custom(src, value);
-    } else if constexpr (HasDecodeValue<Schema, T>::value) {
-        Schema::decodeValue(src, value, decoder);
+        using DecodeFunc = typename Schema::template Decoder<T>;
+        DecodeFunc decodeFunc;
+        decodeFunc.setDecoder(decoder);
+        decodeFunc(src, value);
     } else {
         decodeValueDefault<Schema, T>(src, value, decoder);
     }
@@ -482,7 +450,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         static_assert(
             HasObjectTag<Schema, T>::value,
             "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
-            "OR a custom encoder (Schema::encodeValue or Schema::CustomEncoder<T>) "
+            "OR a custom encoder (Schema::encodeValue or Schema::Encoder<T>) "
             "needs to be defined.");
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
@@ -491,9 +459,9 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
     } else {
         static_assert(
-            HasEncodeValue<Schema, T>::value,
+            !HasEncoderTag<Schema, T>::value,
             "Unsupported type - a custom encoder (Schema::encodeValue or "
-            "Schema::CustomEncoder<T>) needs to be defined.");
+            "Schema::Encoder<T>) needs to be defined.");
     }
 }
 
@@ -584,7 +552,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         static_assert(
             HasObjectTag<Schema, T>::value,
             "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
-            "OR a custom decoder (Schema::decodeValue or Schema::CustomDecoder<T>) "
+            "OR a custom decoder (Schema::decodeValue or Schema::Decoder<T>) "
             "needs to be defined.");
 
         if (!src.isObject()) {
@@ -598,9 +566,9 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
     } else {
         static_assert(
-            HasDecodeValue<Schema, T>::value,
+            !HasDecoderTag<Schema, T>::value,
             "Unsupported type - a custom decoder (Schema::decodeValue or "
-            "Schema::CustomDecoder<T>) needs to be defined.");
+            "Schema::Decoder<T>) needs to be defined.");
     }
 }
 
@@ -790,9 +758,9 @@ public:
 // Object / Enum wrappers ///////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename Owner>
-struct Object : detail::ObjectImpl<Schema, Owner, typename Schema::Facet> {
+struct Object : detail::ObjectImpl<Schema, Owner, typename Schema::FacetType> {
     using ObjectTag = void;
-    using Base = detail::ObjectImpl<Schema, Owner, typename Schema::Facet>;
+    using Base = detail::ObjectImpl<Schema, Owner, typename Schema::FacetType>;
     using Base::add;
 };
 
@@ -803,12 +771,12 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::add;
 };
 
-// CustomEncoder / CustomDecoder bases (with setEncoder / setDecoder) ///////////////////////
+// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
 
 template<typename Schema, typename T>
 struct Encoder {
 public:
-    using CustomEncoderTag = void;
+    using EncoderTag = void;
     using EncoderType = aison::detail::EncoderImpl<Schema>;
 
     Encoder() = default;
@@ -825,7 +793,7 @@ private:
 template<typename Schema, typename T>
 struct Decoder {
 public:
-    using CustomDecoderTag = void;
+    using DecoderTag = void;
     using DecoderType = aison::detail::DecoderImpl<Schema>;
 
     Decoder() = default;
