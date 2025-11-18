@@ -68,16 +68,16 @@ template<typename T>
 struct IsVector;
 
 template<typename Schema, typename T, typename U>
-struct HasEnumT;
+struct HasEnumTag;
 
 template<typename Schema, typename T, typename U>
-struct HasObjectT;
+struct HasObjectTag;
 
 template<typename Schema, typename T, typename U>
-struct HasCustomEncoder;
+struct HasEncoderTag;
 
 template<typename Schema, typename T, typename U>
-struct HasCustomDecoder;
+struct HasDecoderTag;
 
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
@@ -309,17 +309,17 @@ template<typename T, typename A>
 struct IsVector<std::vector<T, A>> : std::true_type {};
 
 template<typename Schema, typename T, typename = void>
-struct HasEnumT : std::false_type {};
+struct HasEnumTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasEnumT<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
+struct HasEnumTag<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
     : std::true_type {};
 
 template<typename Schema, typename T, typename = void>
-struct HasObjectT : std::false_type {};
+struct HasObjectTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasObjectT<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
+struct HasObjectTag<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
     : std::true_type {};
 
 template<typename Schema, typename T, typename = void>
@@ -343,18 +343,18 @@ struct HasDecodeValue<
         std::declval<DecoderImpl<Schema>&>()))>> : std::true_type {};
 
 template<typename Schema, typename T, typename = void>
-struct HasCustomEncoder : std::false_type {};
+struct HasEncoderTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasCustomEncoder<
+struct HasEncoderTag<
     Schema, T, std::void_t<typename Schema::template CustomEncoder<T>::CustomEncoderTag>>
     : std::true_type {};
 
 template<typename Schema, typename T, typename = void>
-struct HasCustomDecoder : std::false_type {};
+struct HasDecoderTag : std::false_type {};
 
 template<typename Schema, typename T>
-struct HasCustomDecoder<
+struct HasDecoderTag<
     Schema, T, std::void_t<typename Schema::template CustomDecoder<T>::CustomDecoderTag>>
     : std::true_type {};
 
@@ -382,7 +382,7 @@ template<typename Schema, typename T>
 constexpr void validateEnumType()
 {
     static_assert(
-        HasEnumT<Schema, T>::value, "Missing Schema::Enum<T> definition for this enum type.");
+        HasEnumTag<Schema, T>::value, "Missing Schema::Enum<T> definition for this enum type.");
 
     using EnumDef = typename Schema::template Enum<T>;
     static_assert(
@@ -456,7 +456,7 @@ public:
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
 {
-    if constexpr (HasCustomEncoder<Schema, T>::value) {
+    if constexpr (HasEncoderTag<Schema, T>::value) {
         using CE = typename Schema::template CustomEncoder<T>;
         CE custom;
         custom.setEncoder(encoder);
@@ -471,7 +471,7 @@ void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
 template<typename Schema, typename T>
 void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
 {
-    if constexpr (HasCustomDecoder<Schema, T>::value) {
+    if constexpr (HasDecoderTag<Schema, T>::value) {
         using CD = typename Schema::template CustomDecoder<T>;
         CD custom;
         custom.setDecoder(decoder);
@@ -539,7 +539,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         }
     } else if constexpr (std::is_class_v<T>) {
         static_assert(
-            HasObjectT<Schema, T>::value,
+            HasObjectTag<Schema, T>::value,
             "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
             "OR a custom encoder (Schema::encodeValue or Schema::CustomEncoder<T>) "
             "needs to be defined.");
@@ -641,7 +641,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         }
     } else if constexpr (std::is_class_v<T>) {
         static_assert(
-            HasObjectT<Schema, T>::value,
+            HasObjectTag<Schema, T>::value,
             "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
             "OR a custom decoder (Schema::decodeValue or Schema::CustomDecoder<T>) "
             "needs to be defined.");
