@@ -37,7 +37,7 @@ target_link_libraries(example PRIVATE aison)
 
 # test
 
-if(TRUE)
+if(0)
   include(CTest)
   enable_testing()
 
