@@ -18,9 +18,9 @@ namespace aison {
 
 struct EmptyConfig;
 
-struct EncodeOnlyFacet;
-struct DecodeOnlyFacet;
-struct EncodeDecodeFacet;
+struct EncodeOnly;
+struct DecodeOnly;
+struct EncodeDecode;
 
 namespace detail {
 
@@ -121,13 +121,13 @@ struct EmptyConfig {};
 
 // Facet tag types
 
-struct EncodeOnlyFacet {};
-struct DecodeOnlyFacet {};
-struct EncodeDecodeFacet {};
+struct EncodeOnly {};
+struct DecodeOnly {};
+struct EncodeDecode {};
 
 // CRTP schema base: facet + config are template parameters
 
-template<typename Derived, typename FacetTag = EncodeDecodeFacet, typename Config = EmptyConfig>
+template<typename Derived, typename FacetTag = EncodeDecode, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
     using Facet = FacetTag;
@@ -359,7 +359,7 @@ public:
     {
         using Facet = typename Schema::Facet;
         static_assert(
-            std::is_same_v<Facet, EncodeDecodeFacet> || std::is_same_v<Facet, EncodeOnlyFacet>,
+            std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, EncodeOnly>,
             "EncoderImpl<Schema>: Schema facet must not be DecodeOnlyFacet");
     }
 
@@ -384,7 +384,7 @@ public:
     {
         using Facet = typename Schema::Facet;
         static_assert(
-            std::is_same_v<Facet, EncodeDecodeFacet> || std::is_same_v<Facet, DecodeOnlyFacet>,
+            std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, DecodeOnly>,
             "DecoderImpl<Schema>: Schema facet must not be EncodeOnlyFacet");
     }
 
@@ -675,7 +675,7 @@ void decodeFieldThunk(
 
 // Encode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeOnlyFacet> {
+class ObjectImpl<Schema, Owner, EncodeOnly> {
     using EncoderType = EncoderImpl<Schema>;
     using Field = EncodeOnlyFieldDesc<Schema, Owner>;
     std::vector<Field> fields_;
@@ -708,7 +708,7 @@ public:
 
 // Decode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, DecodeOnlyFacet> {
+class ObjectImpl<Schema, Owner, DecodeOnly> {
     using DecoderType = DecoderImpl<Schema>;
     using Field = DecodeOnlyFieldDesc<Schema, Owner>;
     std::vector<Field> fields_;
@@ -745,7 +745,7 @@ public:
 
 // Encode+Decode
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeDecodeFacet> {
+class ObjectImpl<Schema, Owner, EncodeDecode> {
     using EncoderType = EncoderImpl<Schema>;
     using DecoderType = DecoderImpl<Schema>;
     using Field = EncodeDecodeFieldDesc<Schema, Owner>;
@@ -823,6 +823,7 @@ public:
     void setEncoder(EncoderType& enc) { encoder_ = &enc; }
     void addError(const std::string& msg) { encoder_->addError(msg); }
     const auto& config() const { return encoder_->config; }
+    EncoderType& getEncoder() { return *encoder_; }
 
 private:
     EncoderType* encoder_ = nullptr;
@@ -839,6 +840,7 @@ public:
     void setDecoder(DecoderType& dec) { decoder_ = &dec; }
     void addError(const std::string& msg) { decoder_->addError(msg); }
     const auto& config() const { return decoder_->config; }
+    DecoderType& getDecoder() { return *decoder_; }
 
 private:
     DecoderType* decoder_ = nullptr;
