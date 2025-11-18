@@ -17,8 +17,22 @@ SpaceAfterTemplateKeyword: false
 BreakBeforeBraces: Custom
 BraceWrapping:
   AfterClass: false
+  AfterCaseLabel: false
+  AfterControlStatement: MultiLine
+  AfterEnum: false
   AfterFunction: true
+  AfterNamespace: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  BeforeLambdaBody: false
+  BeforeWhile: false
+  SplitEmptyRecord: false
   SplitEmptyFunction: false
+  SplitEmptyNamespace: false
+  IndentBraces: false
 
 BreakConstructorInitializers: BeforeComma
 BreakInheritanceList: BeforeComma
