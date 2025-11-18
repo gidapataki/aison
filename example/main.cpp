@@ -32,7 +32,11 @@ struct Paragraph {
     Alignment alignment = {};
 };
 
-struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecodeFacet> {};
+struct Config {
+    int version = 0;
+};
+
+struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {};
 
 template<>
 struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
@@ -136,13 +140,15 @@ int main()
     }
 
     Json::Value root;
-    auto res = aison::encode<TextSchema, Paragraph>(para, root);
+    Config cfg;
+    auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
 
     if (res) {
         std::cout << "== Encoded ==\n";
         std::cout << root.toStyledString() << "\n\n";
 
-        auto res2 = aison::decode<TextSchema, Paragraph>(root, para);
+#if 1
+        auto res2 = aison::decode<TextSchema, Paragraph>(root, para, cfg);
         if (res2) {
             std::cout << "== Decode success ==\n";
         } else {
@@ -151,6 +157,7 @@ int main()
                 std::cout << err.path << ": " << err.message << "\n";
             }
         }
+#endif
     } else {
         std::cout << "== Encode error ==\n";
         for (auto& err : res.errors) {
@@ -160,157 +167,3 @@ int main()
 
     return 0;
 }
-
-#if 0
-// -------------------- Enum + types --------------------
-enum class Kind { Unknown, Foo, Bar };
-
-struct RGB {
-    unsigned char r = 0;
-    unsigned char g = 0;
-    unsigned char b = 0;
-};
-
-struct Stats {
-    Kind kind{};
-
-    struct Nested {
-        int x{};
-        std::string y;
-    } nested;
-
-    float f = 0;
-    uint8_t u8 = 33;
-    std::vector<int> ls;
-    std::optional<int> maybe;
-    RGB color;
-};
-
-// -------------------- Schema --------------------
-struct SchemaA {
-    template<typename T>
-    struct Object;
-
-    template<typename E>
-    struct Enum;
-
-    struct Config : aison::Config {
-        int version = 0;
-    };
-
-    // Custom primitive encodings (RGB as hex)
-    static void encodeValue(const RGB& src, Json::Value& dst, aison::Encoder<SchemaA>& enc)
-    {
-        std::ostringstream oss;
-        oss << '#' << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(src.r)
-            << std::setw(2) << static_cast<int>(src.g) << std::setw(2) << static_cast<int>(src.b);
-        dst = oss.str();
-    }
-
-    static void decodeValue(const Json::Value& src, RGB& dst, aison::Decoder<SchemaA>& dec)
-    {
-        if (!src.isString()) {
-            dec.addError("Expected hex RGB string");
-            return;
-        }
-
-        std::string s = src.asString();
-        if (s.size() != 7 || s[0] != '#') {
-            dec.addError("Invalid RGB hex format");
-            return;
-        }
-
-        auto hexByte = [&](int start, unsigned char& out) {
-            std::string sub = s.substr(start, 2);
-            char* end = nullptr;
-            long v = std::strtol(sub.c_str(), &end, 16);
-            if (!end || *end != '\0' || v < 0 || v > 255) {
-                dec.addError("Invalid RGB component");
-                return false;
-            }
-            out = static_cast<unsigned char>(v);
-            return true;
-        };
-
-        if (!hexByte(1, dst.r)) return;
-        if (!hexByte(3, dst.g)) return;
-        if (!hexByte(5, dst.b)) return;
-    }
-};
-
-template<>
-struct SchemaA::Enum<Kind> : aison::Enum<SchemaA, Kind> {
-    Enum()
-    {
-        add(Kind::Unknown, "unknown");
-        add(Kind::Foo, "foo");
-        add(Kind::Bar, "bar");
-    }
-};
-
-template<>
-struct SchemaA::Object<Stats> : aison::Object<SchemaA, Stats, aison::EncodeDecode> {
-    Object()
-    {
-        add(&Stats::kind, "kind");
-        add(&Stats::nested, "nested");
-        add(&Stats::ls, "ls");
-        add(&Stats::maybe, "maybe");
-        add(&Stats::color, "color");
-        add(&Stats::f, "f");
-        add(&Stats::u8, "u8");
-    }
-};
-
-template<>
-struct SchemaA::Object<Stats::Nested> : aison::Object<SchemaA, Stats::Nested, aison::EncodeDecode> {
-    Object()
-    {
-        add(&Stats::Nested::x, "x");
-        add(&Stats::Nested::y, "y");
-    }
-};
-
-// main
-
-int main()
-{
-    Stats s;
-    s.kind = Kind::Foo;
-    s.nested.x = 7;
-    s.nested.y = "hello";
-    s.ls = {1, 2, 3};
-    s.maybe = 99;
-    s.color = RGB{0x12, 0x34, 0xAB};
-    s.f = NAN;
-
-    Json::Value root;
-
-    // Using Encoder directly
-    aison::Encoder<SchemaA> enc({});
-    aison::Result er = enc.encode(s, root);
-
-    std::cout << "== Encoded ==\n" << root.toStyledString() << "\n\n";
-
-    if (!er) {
-        for (const auto& e : er.errors) {
-            std::cerr << e.path << ": " << e.message << "\n";
-        }
-    }
-
-#if 1
-    root["u8"] = 333;
-    Stats out{};
-    aison::Result dr = aison::decode<SchemaA>(root, out, {.version = 55});
-
-    if (!dr) {
-        std::cerr << "== Decode errors ==\n";
-        for (const auto& e : dr.errors) {
-            std::cerr << e.path << ": " << e.message << "\n";
-        }
-    } else {
-        std::cout << "== Decoded ==\n";
-    }
-#endif
-}
-#endif
