@@ -7,21 +7,19 @@ struct VersionedValue {
     int raw = 0;
 };
 
+struct Config {
+    int version = 1;
+};
+
 // Schema with runtime Config
-struct SchemaWithConfig {
-    template<typename T>
-    struct Object;  // unused here
-    template<typename E>
-    struct Enum;  // unused here
+struct SchemaWithConfig : aison::Schema<SchemaWithConfig, aison::EncodeDecode, Config> {};
 
-    struct Config : aison::Config {
-        int version = 1;
-    };
-
-    static void encodeValue(
-        const VersionedValue& src, Json::Value& dst, aison::Encoder<SchemaWithConfig>& enc)
+template<>
+struct SchemaWithConfig::CustomEncoder<VersionedValue>
+    : aison::Encoder<SchemaWithConfig, VersionedValue> {
+    void operator()(const VersionedValue& src, Json::Value& dst)
     {
-        const auto& cfg = enc.config;  // SchemaWithConfig::Config
+        auto& cfg = config();
 
         if (cfg.version == 1) {
             // v1: encode as bare integer
@@ -34,9 +32,12 @@ struct SchemaWithConfig {
             dst = std::move(obj);
         }
     }
+};
 
-    static void decodeValue(
-        const Json::Value& src, VersionedValue& dst, aison::Decoder<SchemaWithConfig>& dec)
+template<>
+struct SchemaWithConfig::CustomDecoder<VersionedValue>
+    : aison::Decoder<SchemaWithConfig, VersionedValue> {
+    void operator()(const Json::Value& src, VersionedValue& dst)
     {
         // Accept both v1 and v2 shapes
         if (src.isInt()) {
@@ -44,7 +45,7 @@ struct SchemaWithConfig {
         } else if (src.isObject() && src.isMember("raw") && src["raw"].isInt()) {
             dst.raw = src["raw"].asInt();
         } else {
-            dec.addError("Unsupported JSON shape for VersionedValue");
+            addError("Unsupported JSON shape for VersionedValue");
         }
     }
 };
@@ -57,7 +58,7 @@ TEST_SUITE("SchemaWithConfig – config-aware encode/decode")
         v.raw = 42;
 
         // --- v1: integer encoding ---
-        SchemaWithConfig::Config cfg_v1;
+        Config cfg_v1;
         cfg_v1.version = 1;
 
         Json::Value json_v1;
@@ -69,7 +70,7 @@ TEST_SUITE("SchemaWithConfig – config-aware encode/decode")
         CHECK(json_v1.asInt() == 42);
 
         // --- v2: object encoding ---
-        SchemaWithConfig::Config cfg_v2;
+        Config cfg_v2;
         cfg_v2.version = 2;
 
         Json::Value json_v2;
@@ -89,7 +90,7 @@ TEST_SUITE("SchemaWithConfig – config-aware encode/decode")
 
     TEST_CASE("decode accepts both v1 and v2 shapes")
     {
-        SchemaWithConfig::Config cfg;
+        Config cfg;
         cfg.version = 2;  // version doesn't really matter for decode here
 
         // v1 JSON: plain integer
