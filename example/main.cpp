@@ -6,7 +6,7 @@
 #include <sstream>
 
 struct RGBColor;
-std::string toHexColor(const RGBColor& color);
+std::string toHexColor(const RGBColor& color, bool upperCaseHex);
 std::optional<RGBColor> toRGBColor(const std::string& str);
 
 struct RGBColor {
@@ -33,7 +33,7 @@ struct Paragraph {
 };
 
 struct Config {
-    int version = 0;
+    bool upperCaseHex = false;
 };
 
 struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
@@ -96,15 +96,21 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
 
     template<>
     struct Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
-        void operator()(const RGBColor& src, Json::Value& dst) { dst = toHexColor(src); }
+        void operator()(const RGBColor& src, Json::Value& dst)
+        {
+            dst = toHexColor(src, config().upperCaseHex);
+        }
     };
 };
 
 // Implementation
 
-std::string toHexColor(const RGBColor& color)
+std::string toHexColor(const RGBColor& color, bool upperCaseHex)
 {
     std::stringstream stream;
+    if (upperCaseHex) {
+        stream << std::uppercase;
+    }
     stream << '#' << std::hex << std::setfill('0');
     stream << std::setw(2) << int(color.r);
     stream << std::setw(2) << int(color.g);
@@ -153,7 +159,7 @@ int main()
     }
 
     Json::Value root;
-    Config cfg;
+    Config cfg{.upperCaseHex = true};
     auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
 
     if (res) {
