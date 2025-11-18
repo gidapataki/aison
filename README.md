@@ -130,9 +130,18 @@ Json::Value root;
 Config cfg{.upperCaseHex = true};
 Paragraph para;
 ...
-auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
-if (res) {
+// Encode from para to root
+if (auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg)) {
     std::cout << root.toStyledString();
+} else {
+    for (auto& err : res.errors) {
+        std::cerr << "error at " << err.path << ": " << err.message << "\n";
+    }
+}
+...
+// Decode from root to para
+if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
+    std::cout << "Success\n";
 } else {
     for (auto& err : res.errors) {
         std::cerr << "error at " << err.path << ": " << err.message << "\n";
