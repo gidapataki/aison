@@ -297,12 +297,14 @@ template<typename Schema, typename T>
 constexpr void validateEnumType()
 {
     static_assert(
-        HasEnumTag<Schema, T>::value, "Missing Schema::Enum<T> definition for this enum type.");
-
+        HasEnumTag<Schema, T>::value,
+        "No schema enum mapping for this type. "
+        "Define `template<> struct Schema::Enum<T> : aison::Enum<Schema, T>` and "
+        "list all enum values.");
     using EnumDef = typename Schema::template Enum<T>;
     static_assert(
         std::is_base_of_v<EnumBase, EnumDef>,
-        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>");
+        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
 }
 
 template<typename T>
@@ -325,7 +327,7 @@ public:
         using Facet = typename Schema::FacetType;
         static_assert(
             std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, EncodeOnly>,
-            "EncoderImpl<Schema>: Schema facet must not be DecodeOnlyFacet");
+            "EncoderImpl<Schema> cannot be used with a DecodeOnly schema facet.");
     }
 
     template<typename T>
@@ -350,7 +352,7 @@ public:
         using Facet = typename Schema::FacetType;
         static_assert(
             std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, DecodeOnly>,
-            "DecoderImpl<Schema>: Schema facet must not be EncodeOnlyFacet");
+            "DecoderImpl<Schema> cannot be used with an EncodeOnly schema facet.");
     }
 
     template<typename T>
@@ -403,13 +405,13 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(value);
     } else if constexpr (std::is_same_v<T, float>) {
         if (std::isnan(value)) {
-            encoder.addError("Invalid float value - NaN");
+            encoder.addError("NaN is not allowed here.");
             return;
         }
         dst = value;
     } else if constexpr (std::is_same_v<T, double>) {
         if (std::isnan(value)) {
-            encoder.addError("Invalid double value - NaN");
+            encoder.addError("NaN is not allowed here.");
             return;
         }
         dst = value;
@@ -428,7 +430,8 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         }
 
         using U = typename std::underlying_type<T>::type;
-        encoder.addError("Unhandled enum value during encode: " + std::to_string(U(value)));
+        encoder.addError(
+            "Unhandled enum value during encode (underlying = " + std::to_string(U(value)) + ").");
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (!value) {
@@ -449,19 +452,18 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
     } else if constexpr (std::is_class_v<T>) {
         static_assert(
             HasObjectTag<Schema, T>::value,
-            "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
-            "OR a custom encoder (Schema::encodeValue or Schema::Encoder<T>) "
-            "needs to be defined.");
-
+            "Type is not mapped as an object. Either define "
+            "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
+            "add(...) for its fields, or provide a custom encoder via Schema::Encoder<T>.");
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, encoder);
     } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
+        static_assert(!std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
         static_assert(
             !HasEncoderTag<Schema, T>::value,
-            "Unsupported type - a custom encoder (Schema::encodeValue or "
-            "Schema::Encoder<T>) needs to be defined.");
+            "Unsupported type. Define a custom encoder as "
+            "`template<> struct Schema::Encoder<T> : aison::Encoder<Schema, T>`.");
     }
 }
 
@@ -472,13 +474,13 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
 {
     if constexpr (std::is_same_v<T, bool>) {
         if (!src.isBool()) {
-            decoder.addError("Expected bool");
+            decoder.addError("Expected bool.");
             return;
         }
         value = src.asBool();
     } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
         if (!src.isIntegral()) {
-            decoder.addError("Expected integral value");
+            decoder.addError("Expected integral value.");
             return;
         }
         if constexpr (std::is_signed_v<T>) {
@@ -486,26 +488,26 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         } else {
             auto v = src.asUInt64();
             if (v > std::numeric_limits<T>::max()) {
-                decoder.addError("Unsigned integer out of range");
+                decoder.addError("Unsigned integer out of range.");
                 return;
             }
             value = static_cast<T>(v);
         }
     } else if constexpr (std::is_same_v<T, float>) {
         if (!src.isDouble() && !src.isInt()) {
-            decoder.addError("Expected float");
+            decoder.addError("Expected float.");
             return;
         }
         value = static_cast<float>(src.asDouble());
     } else if constexpr (std::is_same_v<T, double>) {
         if (!src.isDouble() && !src.isInt()) {
-            decoder.addError("Expected double");
+            decoder.addError("Expected double.");
             return;
         }
         value = src.asDouble();
     } else if constexpr (std::is_same_v<T, std::string>) {
         if (!src.isString()) {
-            decoder.addError("Expected string");
+            decoder.addError("Expected string.");
             return;
         }
         value = src.asString();
@@ -513,7 +515,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         validateEnumType<Schema, T>();
 
         if (!src.isString()) {
-            decoder.addError("Expected string for enum");
+            decoder.addError("Expected string for enum.");
             return;
         }
         const std::string s = src.asString();
@@ -525,7 +527,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
                 return;
             }
         }
-        decoder.addError("Unknown enum value: " + s);
+        decoder.addError("Unknown enum value '" + s + "'.");
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (src.isNull()) {
@@ -539,7 +541,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         using U = typename T::value_type;
         value.clear();
         if (!src.isArray()) {
-            decoder.addError("Expected array");
+            decoder.addError("Expected array.");
             return;
         }
         for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
@@ -551,24 +553,23 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
     } else if constexpr (std::is_class_v<T>) {
         static_assert(
             HasObjectTag<Schema, T>::value,
-            "Unsupported type - Either a Schema::Object<T> (inherited from aison::Object) "
-            "OR a custom decoder (Schema::decodeValue or Schema::Decoder<T>) "
-            "needs to be defined.");
-
+            "Type is not mapped as an object. Either define "
+            "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
+            "add(...) for its fields, or provide a custom decoder via Schema::Decoder<T>.");
         if (!src.isObject()) {
-            decoder.addError("Expected object");
+            decoder.addError("Expected object.");
             return;
         }
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.decodeFields(src, value, decoder);
     } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(!std::is_pointer_v<T>, "Pointers are not supported");
+        static_assert(!std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
         static_assert(
             !HasDecoderTag<Schema, T>::value,
-            "Unsupported type - a custom decoder (Schema::decodeValue or "
-            "Schema::Decoder<T>) needs to be defined.");
+            "Unsupported type. Define a custom decoder as "
+            "`template<> struct Schema::Decoder<T> : aison::Decoder<Schema, T>`.");
     }
 }
 
@@ -694,7 +695,7 @@ public:
         for (const auto& field : fields_) {
             const char* key = field.name;
             if (!src.isMember(key)) {
-                decoder.addError(std::string("Missing required field: ") + key);
+                decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
             const Json::Value& node = src[key];
@@ -743,7 +744,7 @@ public:
         for (const auto& field : fields_) {
             const char* key = field.name;
             if (!src.isMember(key)) {
-                decoder.addError(std::string("Missing required field: ") + key);
+                decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
             const Json::Value& node = src[key];
@@ -816,8 +817,8 @@ Result encode(const T& value, Json::Value& dst)
     if constexpr (!std::is_same_v<Config, EmptyConfig>) {
         static_assert(
             std::is_same_v<Config, EmptyConfig>,
-            "encode<Schema>(value, dst) requires a config argument because Schema "
-            "was declared with a non-empty Config type.");
+            "Schema was declared with a non-empty ConfigType. "
+            "Use aison::encode<Schema>(value, dst, config) instead.");
     } else {
         Config cfg{};
         return detail::EncoderImpl<Schema>(cfg).encode(value, dst);
@@ -831,8 +832,8 @@ Result decode(const Json::Value& src, T& value)
     if constexpr (!std::is_same_v<Config, EmptyConfig>) {
         static_assert(
             std::is_same_v<Config, EmptyConfig>,
-            "decode<Schema>(src, value) requires a config argument because Schema "
-            "was declared with a non-empty Config type.");
+            "Schema was declared with a non-empty ConfigType. "
+            "Use aison::decode<Schema>(src, value, config) instead.");
     } else {
         Config cfg{};
         return detail::DecoderImpl<Schema>(cfg).decode(src, value);
