@@ -2,8 +2,10 @@
 
 #include <json/json.h>
 
+#include <cassert>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <optional>
 #include <string>
@@ -126,6 +128,7 @@ struct Schema {
     using SchemaTag = void;
     using FacetType = Facet;
     using ConfigType = Config;
+    using EnableAssert = std::true_type;
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -290,7 +293,45 @@ public:
     auto begin() const { return entries_.begin(); }
     auto end() const { return entries_.end(); }
 
-    void add(E value, std::string_view name) { entries_.emplace_back(value, name); }
+    void add(E value, std::string_view name)
+    {
+        for (const auto& entry : entries_) {
+            // Disallow duplicate value or duplicate name
+            if (entry.first == value || entry.second == name) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Duplicate enum mapping in Schema::Enum.");
+                }
+                return;
+            }
+        }
+        entries_.emplace_back(value, name);
+    }
+
+    void addAlias(E value, std::string_view name)
+    {
+        bool isDefined = false;
+        for (const auto& entry : entries_) {
+            if (entry.first == value) {
+                isDefined = true;
+            }
+            if (entry.second == name) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Duplicate enum name in Schema::Enum::addAlias.");
+                }
+                return;
+            }
+        }
+
+        if (!isDefined) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(
+                    false &&
+                    "Alias refers to an enum value that was not added with Schema::Enum::add.");
+            }
+        }
+
+        entries_.emplace_back(value, name);
+    }
 };
 
 template<typename Schema, typename T>
@@ -458,7 +499,7 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, encoder);
     } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(!std::is_pointer_v<T>, "Pointers are not supported.");
+        static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
         static_assert(
             !HasEncoderTag<Schema, T>::value,
@@ -564,7 +605,7 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
         objectDef.decodeFields(src, value, decoder);
     } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(!std::is_pointer_v<T>, "Pointers are not supported.");
+        static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
         static_assert(
             !HasDecoderTag<Schema, T>::value,
@@ -649,6 +690,15 @@ public:
         using Ctx = FieldContext<Schema, Owner, T>;
         static const Ctx ctx{member};
 
+        for (const auto& field : fields_) {
+            if (std::strcmp(field.name, name) == 0 || field.context == &ctx) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Duplicate field mapping in Schema::Object.");
+                }
+                return;
+            }
+        }
+
         Field f;
         f.name = name;
         f.encode = &encodeFieldThunk<Schema, Owner, T>;
@@ -681,6 +731,15 @@ public:
     {
         using Ctx = FieldContext<Schema, Owner, T>;
         static const Ctx ctx{member};
+
+        for (const auto& field : fields_) {
+            if (std::strcmp(field.name, name) == 0 || field.context == &ctx) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Duplicate field mapping in Schema::Object.");
+                }
+                return;
+            }
+        }
 
         Field f;
         f.name = name;
@@ -719,6 +778,15 @@ public:
     {
         using Ctx = FieldContext<Schema, Owner, T>;
         static const Ctx ctx{member};
+
+        for (const auto& field : fields_) {
+            if (std::strcmp(field.name, name) == 0 || field.context == &ctx) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Duplicate field mapping in Schema::Object.");
+                }
+                return;
+            }
+        }
 
         Field f;
         f.name = name;
@@ -770,6 +838,7 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using EnumTag = void;
     using Base = detail::EnumImpl<Schema, E>;
     using Base::add;
+    using Base::addAlias;
 };
 
 // Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
