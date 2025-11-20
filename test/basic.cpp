@@ -407,7 +407,7 @@ TEST_SUITE("Basic")
             REQUIRE_FALSE(res.errors.empty());
             CHECK(res.errors[0].path == "$");
             CHECK(
-                res.errors[0].message.find("Missing required field: intValue") !=
+                res.errors[0].message.find("Missing required field 'intValue'") !=
                 std::string::npos);
         }
 
@@ -503,7 +503,7 @@ TEST_SUITE("Basic")
             REQUIRE_FALSE(res.errors.empty());
             CHECK(res.errors[0].path == "$");
             CHECK(
-                res.errors[0].message.find("Missing required field: strOpt") != std::string::npos);
+                res.errors[0].message.find("Missing required field 'strOpt'") != std::string::npos);
         }
 
         SUBCASE("foo wrong type")
@@ -780,7 +780,7 @@ TEST_SUITE("Basic")
             CHECK_FALSE(res);
             REQUIRE_FALSE(res.errors.empty());
             CHECK(res.errors[0].path == "$[1]");
-            CHECK(res.errors[0].message.find("Missing required field: id") != std::string::npos);
+            CHECK(res.errors[0].message.find("Missing required field 'id'") != std::string::npos);
         }
     }
 
