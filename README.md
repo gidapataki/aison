@@ -26,6 +26,10 @@ only on JsonCpp.
 - C++17
 - [JsonCpp](https://github.com/open-source-parsers/jsoncpp)
 
+### Documentation
+
+- [Quick Reference](REFERENCE.md)
+
 
 ### Advanced example
 This example shows a realistic usecase where we want to encode text styling info into JSON. It shows how to use
@@ -148,7 +152,6 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
     }
 }
 ```
-
 
 ---
 
