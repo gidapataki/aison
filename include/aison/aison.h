@@ -525,11 +525,16 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
             return;
         }
         if constexpr (std::is_signed_v<T>) {
-            value = static_cast<T>(src.asInt64());
+            auto v = src.asInt64();
+            if (v < std::numeric_limits<T>::min() || v > std::numeric_limits<T>::max()) {
+                decoder.addError("Integer value out of range.");
+                return;
+            }
+            value = static_cast<T>(v);
         } else {
             auto v = src.asUInt64();
             if (v > std::numeric_limits<T>::max()) {
-                decoder.addError("Unsigned integer out of range.");
+                decoder.addError("Unsigned integer out value of range.");
                 return;
             }
             value = static_cast<T>(v);
