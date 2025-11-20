@@ -1,7 +1,9 @@
 # Aison Reference Manual
 
-Aison is a small C++17 library for mapping C++ types to/from JsonCpp.  
-Mappings are defined in a schema using regular C++ without macros, reflection, or code generation.
+Aison is a small C++17 library for mapping well‑structured C++ types to/from JsonCpp.  
+Mappings are defined in a schema using regular C++ — without macros, reflection, or code generation.
+
+This document describes the complete public API.
 
 ---
 
@@ -11,31 +13,28 @@ A schema defines how C++ types map to JSON.
 
 ```cpp
 struct MySchema
-    : aison::Schema<MySchema, aison::EncodeDecode/* optional */, MyConfig/* optional */>
+    : aison::Schema<MySchema, aison::EncodeDecode /* optional facet */, MyConfig /* optional */>
 {
-    template<typename T> struct Object;       // struct mappings
-    template<typename E> struct Enum;         // enum mappings
-    template<typename T> struct Encoder;      // custom encode (optional)
-    template<typename T> struct Decoder;      // custom decode (optional)
+    template<typename T> struct Object;   // struct mappings
+    template<typename E> struct Enum;     // enum mappings
+    template<typename T> struct Encoder;  // custom encode (optional)
+    template<typename T> struct Decoder;  // custom decode (optional)
 };
 ```
 
 ### 1.1 Facets
 
-The schema’s facet controls which operations are allowed:
+The facet defines which operations the schema supports:
 
 | Facet | Meaning |
 |-------|---------|
-| `EncodeOnly` | Only encoding is enabled. Decoding causes compile errors. |
-| `DecodeOnly` | Only decoding is enabled. Encoding causes compile errors. |
-| `EncodeDecode` | Both encode and decode are allowed (default). |
-
-Custom encoders/decoders must match the facet  
-(e.g., decode-only schema requires only `Decoder<T>` specializations).
+| `EncodeOnly`     | Only encoding is allowed; decoding triggers compile‑errors. |
+| `DecodeOnly`     | Only decoding is allowed; encoding triggers compile‑errors. |
+| `EncodeDecode`   | Both encoding and decoding (default). |
 
 ### 1.2 Config
 
-Any schema may define an optional config type:
+A schema may optionally define a config type:
 
 ```cpp
 struct MyConfig {
@@ -43,27 +42,48 @@ struct MyConfig {
 };
 ```
 
-A config object is passed to:
+The config object is passed to:
 
 - custom encoders (`Schema::Encoder<T>`)
 - custom decoders (`Schema::Decoder<T>`)
 
-Example usage:
+Usage:
 
 ```cpp
 MyConfig cfg{ .upperCaseHex = true };
-aison::Result result = aison::decode<MySchema>(json, obj, cfg);
+aison::Result r = aison::decode<MySchema>(json, obj, cfg);
 ```
 
-Config is available as `this->config()` inside custom encode/decode hooks.
+`this->config()` is available from custom encode/decode hooks.
+
+### 1.3 Schema Assertions (`EnableAssert`)
+
+By default:
+
+```cpp
+using EnableAssert = std::true_type;
+```
+
+which means:
+
+- schema mistakes trigger **assert()** in debug mode,
+- and are **skipped silently** otherwise.
+
+Users may disable assertions:
+
+```cpp
+struct MySchema : aison::Schema<MySchema> {
+    using EnableAssert = std::false_type;
+};
+```
 
 ---
 
 ## 2. Object Mapping (`Schema::Object<T>`)
 
-Object mappings describe how C++ struct/class fields appear in JSON.
+Maps struct/class fields into JSON fields.
 
-Example with a graphic **Shape** type:
+Example:
 
 ```cpp
 struct Label {
@@ -93,15 +113,19 @@ struct MySchema::Object<Label>
 
 ### Rules
 
-- Every struct field must be listed with `add(&T::member, "<name>")`.
-- Every listed field is **required** during decoding.
-- Nested objects and arrays work as expected (`std::vector<T>`, `std::optional<T>`).
+- Every field must be added exactly once.
+- All fields are **required** during decoding.
+- Duplicate JSON names or duplicate member pointers cause:
+  - `assert()` (if `EnableAssert == true`)
+  - silent skip if `EnableAssert == false`.
+
+Nested structures, vectors, and optionals are supported.
 
 ---
 
 ## 3. Enum Mapping (`Schema::Enum<T>`)
 
-Enums must be explicitly mapped:
+Example:
 
 ```cpp
 enum class Color { Red, Green, Blue };
@@ -120,43 +144,55 @@ struct MySchema::Enum<Color>
 
 ### Rules
 
-- Must list **every** enum value.
-- Encoding produces the associated string.
-- Decoding fails on unrecognized strings.
-- Decoding fails on non-string JSON values.
+- `add(value, name)` must list **every** enum value exactly once.
+- Duplicate value or duplicate name → `assert()` / skip.
+- Additional names can be added via `addAlias(value, alias)`:
+  - The value **must** already have been added with `add()`.
+  - Alias name must be unique.
+  - Violations → `assert()` / skip.
+
+Example:
+
+```cpp
+addAlias(Color::Red, "brightred");
+```
+
+Encoding uses only the *first* name given via `add`.  
+Decoding accepts all names from `add()` and `addAlias()`.
 
 ---
 
 ## 4. Custom Encoders / Decoders
 
-Use these when the default mapping is insufficient — for example, storing a color struct as a hex string.
+Used for non‑standard mappings (e.g., hex‑encoded colors).
 
 ```cpp
 struct RgbColor { uint8_t r, g, b; };
 ```
 
-### Custom encoder
+### Custom Encoder Example
 
 ```cpp
 template<>
 struct MySchema::Encoder<RgbColor>
     : aison::Encoder<MySchema, RgbColor>
 {
-    void operator()(const RgbColor& src, Json::Value& dst) {
+    void operator()(const RgbColor& c, Json::Value& dst) {
         std::ostringstream ss;
-        if (config().upperCaseHex) {
+        if (config().upperCaseHex)
             ss << std::uppercase;
-        }
+
         ss << "#" << std::hex << std::setfill('0')
-           << std::setw(2) << int(src.r)
-           << std::setw(2) << int(src.g)
-           << std::setw(2) << int(src.b);
+           << std::setw(2) << int(c.r)
+           << std::setw(2) << int(c.g)
+           << std::setw(2) << int(c.b);
+
         dst = ss.str();
     }
 };
 ```
 
-### Custom decoder
+### Custom Decoder Example
 
 ```cpp
 template<>
@@ -184,104 +220,94 @@ struct MySchema::Decoder<RgbColor>
 };
 ```
 
-### Notes
-
-- `addError(msg)` attaches messages at the correct JSON path.
-- `config()` gives access to the config object.
-
 ---
 
-## 5. Encoding / Decoding Functions
+## 5. Encoding / Decoding
 
-### 5.1 With automatic EmptyConfig
+### 5.1 Without Config (EmptyConfig only)
 
 ```cpp
-aison::Result r = aison::decode<MySchema>(json, label);
+aison::Result r1 = aison::encode<MySchema>(obj, json);
+aison::Result r2 = aison::decode<MySchema>(json, obj);
 ```
 
-This can be used only when the schema was defined without a config type:
-```cpp
-struct MySchema : aison::Schema<MySchema> {
-    ...
-}
-```
-
-### 5.2 With explicit config
+### 5.2 With Config
 
 ```cpp
 MyConfig cfg;
-aison::Result r = aison::encode<MySchema>(label, json, cfg);
-aison::Result r = aison::decode<MySchema>(json, label, cfg);
+aison::Result r1 = aison::encode<MySchema>(obj, json, cfg);
+aison::Result r2 = aison::decode<MySchema>(json, obj, cfg);
 ```
 
-`Result` contains *all* errors.
+`Result` collects *all* errors:
 
 ---
 
 ## 6. Error Model
 
-Each error has:
+Each error contains:
 
-- `path` — JSON-style location such as `$.labels[3].color`
-- `message` — human-readable reason
+- `path` — JSON-like path (e.g. `$.shapes[2].color`)
+- `message` — explanation
 
-Examples:
+```cpp
+if (!result) {
+    for (auto& error : result.errors) {
+        std::cerr << error.path << ": " << error.message << "\n";
+    }
+}
 
-- `"Expected float."`
-- `"Missing required field 'fill'."`
-- `"Unknown enum value 'purple'."`
-- `"Invalid color format. Expected '#RRGGBB'."`
-- `"NaN is not allowed here."`
+```
 
-Aison accumulates all errors; it does not stop at the first failure.
+Errors accumulate; decoding never stops early.
 
 ---
 
 ## 7. Type Support Matrix
 
-| Type | Encode | Decode | Notes |
-|------|--------|--------|------|
-| `bool` | ✔ | ✔ | |
-| Integral types | ✔ | ✔ | Range-checked for unsigned |
-| `float`, `double` | ✔ | ✔ | Rejects NaN |
-| `std::string` | ✔ | ✔ | |
-| `std::optional<T>` | ✔ | ✔ | Null = empty optional |
-| `std::vector<T>` | ✔ | ✔ | Recursive support |
-| Enums | ✔ | ✔ | Requires Enum mapping |
-| Structs | ✔ | ✔ | Requires Object mapping |
-| Custom types | ✔ | ✔ | Via custom Encoder/Decoder |
-| Raw pointers | ⚠ Not supported by default | ⚠ Can be handled via custom encoder/decoder |
-
-Pointers can be supported if the user *explicitly* maps them via custom coding.
+| Type | Encode/Decode | Notes |
+|------|---------------|------|
+| `bool` | ✔ | |
+| Integral types | ✔ | Range‑checked |
+| `float`, `double` | ✔ | NaN rejected |
+| `std::string` | ✔ | |
+| `std::optional<T>` | ✔ | null → empty optional |
+| `std::vector<T>` | ✔ | recursive support |
+| enums | ✔ | requires `Enum<T>` |
+| structs | ✔ | requires `Object<T>` |
+| custom types | ✔ | via `Encoder<T>` / `Decoder<T>` |
+| raw pointers | ⚠ allowed only via custom mapping | not automatic |
 
 ---
 
 ## 8. Schema Validation
 
-Aison validates compile-time schema correctness.
+Compile‑time errors include:
 
-Common compile-time failures:
+- Missing Object mapping  
+- Missing Enum mapping  
+- Facet mismatch  
+- Missing custom encoder/decoder
 
-- **Missing Object<T> mapping**  
-  > “Type is not mapped as an object. Either define … or provide a custom encoder.”
+Runtime schema errors include:
 
-- **Missing Enum<E> mapping**  
-  > “No schema enum mapping for this type.”
+- Duplicate object fields  
+- Duplicate enum values  
+- Duplicate enum names  
+- Alias for undefined enum value  
 
-- **Facet mismatch**  
-  > “DecoderImpl<Schema> cannot be used with an EncodeOnly schema facet.”
+These trigger:
 
-- **Missing custom encoder/decoder**  
-  > “Unsupported type. Define a custom encoder as …”
-
+- `assert()` (when `EnableAssert == true`)
+- skip mapping (otherwise)
 
 ---
 
+## 9. Design Principles
 
-## 10. Design Principles
-
-- **Explicit schemas, no inference** — you always see exactly what is serialized.
-- **Full error aggregation** — Aison does not stop early.
+- **Explicit schemas** — all mappings are visible and intentional.
+- **Robust** — strong compile‑time and runtime validation.
 - **No runtime polymorphism** — no virtual functions.
-- **Config-aware custom mappings** — configurable behaviors for advanced types.
-- **Predictable & robust** — strong guards about schema mistakes both during compile-time and runtime.
+- **No reflection** — all behavior is pure C++17.
+- **Full error aggregation** — user receives all encode/decode failures.
+- **Config‑aware custom types** — configurable behaviors for advanced types.
