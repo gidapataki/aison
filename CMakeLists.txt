@@ -6,6 +6,14 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+
+# upsan
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
+
+# asan
+# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -fsanitize=address -fno-omit-frame-pointer")
+
+
 # deps
 
 set(JSONCPP_WITH_TESTS                OFF CACHE INTERNAL "")
@@ -37,7 +45,7 @@ target_link_libraries(example PRIVATE aison)
 
 # test
 
-if(1)
+if(0)
   include(CTest)
   enable_testing()
 

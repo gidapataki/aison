@@ -114,12 +114,13 @@ struct Circle {
 
 struct Rectangle {
     float width = 0;
-    double height = 0;  // TODO: fix static fieldContext issue
+    float height = 0;
 };
 
 using Shape = std::variant<Circle, Rectangle>;
 
-struct ShapeSchema : aison::Schema<ShapeSchema, aison::EncodeOnly> {
+struct ShapeSchema : aison::Schema<ShapeSchema> {
+    static constexpr auto discriminator_field = "__type__";
     template<typename T>
     struct Enum;
 
@@ -218,7 +219,7 @@ void testTextSchema()
 
     Json::Value root;
     Config cfg{.upperCaseHex = true};
-    auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
+    auto res = aison::encode<TextSchema>(para, root, cfg);
 
     if (!res) {
         std::cout << "== Encode error ==\n";
@@ -233,7 +234,7 @@ void testTextSchema()
 
     // Alias
     root["alignment"] = "center2";
-    res = aison::decode<TextSchema, Paragraph>(root, para, cfg);
+    res = aison::decode<TextSchema>(root, para, cfg);
     if (!res) {
         std::cout << "== Decode error ==\n";
         for (auto& err : res.errors) {
@@ -243,7 +244,7 @@ void testTextSchema()
 
     std::cout << "== Decode success ==\n";
     Json::Value value;
-    res = aison::encode<TextSchema, Alignment>(para.alignment, value, cfg);
+    res = aison::encode<TextSchema>(para.alignment, value, cfg);
     std::cout << value.toStyledString() << "\n";
 }
 
@@ -266,10 +267,26 @@ void testShapeSchema()
 
     std::cout << "== Encoded ==\n";
     std::cout << root.toStyledString() << "\n\n";
+
+    shapes = {};
+    res = aison::decode<ShapeSchema>(root, shapes);
+
+    if (!res) {
+        std::cout << "== Decode error ==\n";
+        for (auto& err : res.errors) {
+            std::cout << err.path << ": " << err.message << "\n";
+        }
+        return;
+    }
+
+    std::cout << "== Decoded ==\n";
+    std::cout << shapes.size() << "\n";
 }
 
 int main()
 {
+    testTextSchema();
     testShapeSchema();
+    std::cout << "FINGERS CROSSED\n";
     return 0;
 }
