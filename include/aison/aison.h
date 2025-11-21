@@ -89,6 +89,9 @@ template<typename Schema, typename Variant>
 constexpr void validateVariant();
 
 template<typename Owner, typename T>
+const void* getFieldContextId();
+
+template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
 
 template<typename Schema, typename Owner, typename T, typename Field>
@@ -470,6 +473,7 @@ constexpr void validateVariant()
         VariantValidator<Schema, Variant>::validate();
     }
 }
+
 template<typename T>
 T& getSchemaObject()
 {
@@ -857,6 +861,7 @@ struct EncodeOnlyFieldDesc {
     EncodeFn encode;
     const char* name;
     const void* context;
+    const void* contextId;
 };
 
 // Decode-only descriptor
@@ -868,6 +873,7 @@ struct DecodeOnlyFieldDesc {
     DecodeFn decode;
     const char* name;
     const void* context;
+    const void* contextId;
 };
 
 // Encode+Decode descriptor
@@ -882,6 +888,7 @@ struct EncodeDecodeFieldDesc {
     DecodeFn decode;
     const char* name;
     const void* context;
+    const void* contextId;
 };
 
 template<typename Owner, typename T>
@@ -927,10 +934,13 @@ bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>
     }
 
     using Ctx = FieldContext<Owner, T>;
+    const auto* contextId = getFieldContextId<Owner, T>();
 
     for (const auto& field : fields) {
-        // TODO: check if the same member was mapped twice, not just name issues
-        if (field.name == name) {
+        auto isSameMember =
+            (field.contextId == contextId &&
+             static_cast<const Ctx*>(field.context)->member == member);
+        if (isSameMember || field.name == name) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "Duplicate field mapping in Schema::Object.");
             }
@@ -948,6 +958,13 @@ FieldContextPtr makeFieldContext(T Owner::* member)
     auto* ctx = new Ctx{member};
     auto deleter = +[](void* p) { delete static_cast<Ctx*>(p); };
     return {ctx, deleter};
+}
+
+template<typename Owner, typename T>
+const void* getFieldContextId()
+{
+    static int fieldId = 0xf1e1d1d;
+    return &fieldId;
 }
 
 // Encode-only
@@ -970,6 +987,7 @@ public:
             f.name = name;
             f.encode = &encodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
+            f.contextId = getFieldContextId<Owner, T>();
 
             fields_.push_back(f);
         }
@@ -1006,6 +1024,7 @@ public:
             f.name = name;
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
+            f.contextId = getFieldContextId<Owner, T>();
 
             fields_.push_back(f);
         }
@@ -1048,6 +1067,7 @@ public:
             f.encode = &encodeFieldThunk<Schema, Owner, T>;
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
+            f.contextId = getFieldContextId<Owner, T>();
 
             fields_.push_back(f);
         }
