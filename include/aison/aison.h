@@ -10,8 +10,10 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace aison {
@@ -76,6 +78,8 @@ void decodeValueDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& d
 
 template<typename Schema, typename T>
 constexpr void validateEnumType();
+template<typename Schema, typename Variant>
+constexpr void validateVariant();
 
 template<typename T>
 T& getSchemaObject();
@@ -90,6 +94,9 @@ struct Object;
 
 template<typename Schema, typename T>
 struct Enum;
+
+template<typename Schema, typename T, auto TagValue>
+struct Discriminator;
 
 template<typename Derived, typename FacetTag, typename Config>
 struct Schema;
@@ -129,6 +136,10 @@ struct Schema {
     using FacetType = Facet;
     using ConfigType = Config;
     using EnableAssert = std::true_type;
+
+    // Default discriminator field name for variant-based polymorphism.
+    // User schemas may override this with their own static constexpr member.
+    static constexpr std::string_view discriminator_field = "type";
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -247,6 +258,19 @@ struct IsVector : std::false_type {};
 
 template<typename T, typename A>
 struct IsVector<std::vector<T, A>> : std::true_type {};
+template<typename T>
+struct IsVariant : std::false_type {};
+
+template<typename... Ts>
+struct IsVariant<std::variant<Ts...>> : std::true_type {};
+
+template<typename Schema, typename T, typename = void>
+struct HasDiscriminator : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasDiscriminator<
+    Schema, T, std::void_t<typename Schema::template Discriminator<T>::DiscriminatorTag>>
+    : std::true_type {};
 
 template<typename Schema, typename T, typename>
 struct HasEnumTag : std::false_type {};
@@ -348,6 +372,83 @@ constexpr void validateEnumType()
         "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
 }
 
+// Variant validation //////////////////////////////////////////////////////////////////////
+
+template<typename Schema, typename Variant, typename Enable = void>
+struct VariantValidator {
+    static constexpr void validate() {}
+};
+
+template<typename TagEnum, TagEnum... Values>
+struct VariantTagUniqueCheck;
+
+template<typename TagEnum>
+struct VariantTagUniqueCheck<TagEnum> {
+    static constexpr bool value = true;
+};
+
+template<typename TagEnum, TagEnum First, TagEnum... Rest>
+struct VariantTagUniqueCheck<TagEnum, First, Rest...> {
+    static constexpr bool value =
+        ((First != Rest) && ...) && VariantTagUniqueCheck<TagEnum, Rest...>::value;
+};
+
+template<typename Schema, typename T>
+struct VariantAltCheck {
+    static constexpr void check()
+    {
+        static_assert(
+            HasDiscriminator<Schema, T>::value,
+            "std::variant alternative is missing Schema::Discriminator<T> definition.");
+        static_assert(
+            HasObjectTag<Schema, T>::value,
+            "std::variant alternative is not mapped as an object. "
+            "Define `template<> struct Schema::Object<T> : aison::Object<Schema, T>` "
+            "for each variant alternative.");
+    }
+};
+
+template<typename Schema, typename TagEnum, typename T>
+struct VariantTagEnumConsistencyCheck {
+    static constexpr void check()
+    {
+        static_assert(
+            std::is_same_v<TagEnum, typename Schema::template Discriminator<T>::TagEnum>,
+            "All std::variant alternatives must use the same TagEnum in Schema::Discriminator<T>.");
+    }
+};
+
+template<typename Schema, typename... Ts>
+struct VariantValidator<Schema, std::variant<Ts...>, void> {
+    static constexpr void validate()
+    {
+        // Each alternative must have a discriminator and an object mapping.
+        (VariantAltCheck<Schema, Ts>::check(), ...);
+
+        // TagEnum must be consistent across all alternatives.
+        using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
+        using FirstDisc = typename Schema::template Discriminator<FirstAlt>;
+        using TagEnum = typename FirstDisc::TagEnum;
+
+        (VariantTagEnumConsistencyCheck<Schema, TagEnum, Ts>::check(), ...);
+
+        // Tag values must be unique.
+        constexpr bool unique =
+            VariantTagUniqueCheck<TagEnum, Schema::template Discriminator<Ts>::tag...>::value;
+        static_assert(
+            unique,
+            "Duplicate tag values detected in Schema::Discriminator<T> for std::variant "
+            "alternatives.");
+    }
+};
+
+template<typename Schema, typename Variant>
+constexpr void validateVariant()
+{
+    if constexpr (IsVariant<Variant>::value) {
+        VariantValidator<Schema, Variant>::validate();
+    }
+}
 template<typename T>
 T& getSchemaObject()
 {
@@ -480,6 +581,31 @@ void encodeValueDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& e
         } else {
             encodeValue<Schema, U>(*value, dst, encoder);
         }
+
+    } else if constexpr (IsVariant<T>::value) {
+        // Discriminated polymorphic encoding for std::variant.
+        validateVariant<Schema, T>();
+        dst = Json::objectValue;
+
+        std::visit(
+            [&](const auto& alt) {
+                using Alt = std::decay_t<decltype(alt)>;
+                using Disc = typename Schema::template Discriminator<Alt>;
+                using TagEnum = typename Disc::TagEnum;
+
+                // Encode discriminator using the existing enum machinery.
+                Json::Value tagJson;
+                const TagEnum tagValue = Disc::tag;
+                encodeValueDefault<Schema, TagEnum>(tagValue, tagJson, encoder);
+
+                // Write discriminator field.
+                dst[std::string(Schema::discriminator_field)] = std::move(tagJson);
+
+                // Encode variant-specific fields into the same object.
+                const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
+                objectDef.encodeFields(alt, dst, encoder);
+            },
+            value);
     } else if constexpr (IsVector<T>::value) {
         using U = typename T::value_type;
         dst = Json::arrayValue;
@@ -846,7 +972,16 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::addAlias;
 };
 
-// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
+/// Discriminator base (for variant tag metadata) /////////////////////////////////
+
+template<typename Schema, typename T, auto TagValue>
+struct Discriminator {
+    using DiscriminatorTag = void;
+    using TagEnum = std::decay_t<decltype(TagValue)>;
+    static constexpr TagEnum tag = TagValue;
+};
+
+/// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
 
 template<typename Schema, typename T>
 struct Encoder {
