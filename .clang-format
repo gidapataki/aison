@@ -16,7 +16,7 @@ SpaceAfterTemplateKeyword: false
 
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterClass: false
+  AfterClass: true
   AfterCaseLabel: false
   AfterControlStatement: MultiLine
   AfterEnum: false
@@ -38,3 +38,10 @@ BreakConstructorInitializers: BeforeComma
 BreakInheritanceList: BeforeComma
 PackConstructorInitializers: Never
 AllowShortFunctionsOnASingleLine: Inline
+
+IndentAccessModifiers: false
+ConstructorInitializerIndentWidth: 4
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignOperands: true
+IndentCaseLabels: true

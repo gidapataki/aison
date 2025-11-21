@@ -5,7 +5,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-// #include <iostream>  // TODO remove
 #include <limits>
 #include <memory>
 #include <optional>
@@ -93,7 +92,10 @@ template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
 
 template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(T Owner::* member, const char* name, const std::vector<Field>& fields);
+bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields);
+
+template<typename Schema>
+std::string_view getDiscriminatorField();
 
 template<typename T>
 T& getSchemaObject();
@@ -153,7 +155,7 @@ struct Schema {
 
     // Default discriminator field name for variant-based polymorphism.
     // User schemas may override this with their own static constexpr member.
-    static constexpr std::string_view discriminator_field = "type";
+    static constexpr const char* discriminatorField = "type";
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -199,7 +201,8 @@ struct PathSegment {
     }
 };
 
-class Context {
+class Context
+{
 public:
     std::string buildPath() const
     {
@@ -322,7 +325,8 @@ struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>
 struct EnumBase {};
 
 template<typename Schema, typename E>
-class EnumImpl : public EnumBase {
+class EnumImpl : public EnumBase
+{
     using Entry = std::pair<E, std::string_view>;
     std::vector<Entry> entries_;
 
@@ -473,10 +477,17 @@ T& getSchemaObject()
     return instance;
 }
 
+template<typename Schema>
+std::string_view getDiscriminatorField()
+{
+    return std::string_view(Schema::discriminatorField);
+}
+
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
 
 template<typename Schema>
-class EncoderImpl : public Context {
+class EncoderImpl : public Context
+{
 public:
     using Config = typename Schema::ConfigType;
 
@@ -501,7 +512,8 @@ public:
 };
 
 template<typename Schema>
-class DecoderImpl : public Context {
+class DecoderImpl : public Context
+{
 public:
     using Config = typename Schema::ConfigType;
 
@@ -620,7 +632,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
-                dst[std::string(Schema::discriminator_field)] = std::move(tagJson);
+                dst[getDiscriminatorField<Schema>().data()] = std::move(tagJson);
             },
             value);
     } else if constexpr (IsVector<T>::value) {
@@ -677,7 +689,7 @@ void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decode
         } else {
             auto v = src.asUInt64();
             if (v > std::numeric_limits<T>::max()) {
-                decoder.addError("Unsigned integer out value of range.");
+                decoder.addError("Unsigned integer value out of range.");
                 return;
             }
             value = static_cast<T>(v);
@@ -781,8 +793,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
             return;
         }
 
-        // Get discriminator field name from schema
-        const auto fieldName = std::string(Schema::discriminator_field);
+        auto* fieldName = getDiscriminatorField<Schema>().data();
         if (!src.isMember(fieldName)) {
             decoder.addError(std::string("Missing discriminator field '") + fieldName + "'.");
             return;
@@ -903,11 +914,11 @@ void decodeFieldThunk(
 // Object implementations per facet /////////////////////////////////////////////////////////
 
 template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(T Owner::* member, const char* name, const std::vector<Field>& fields)
+bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields)
 {
-    if constexpr (HasDiscriminator<Schema, T>::value) {
-        const auto discName = Schema::discriminator_field;
-        if (strcmp(name, discName) == 0) {
+    if constexpr (HasDiscriminator<Schema, Owner>::value) {
+        auto discName = getDiscriminatorField<Schema>();
+        if (discName == name) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "Field name is reserved as discriminator for this type.");
             }
@@ -918,9 +929,8 @@ bool checkAdd(T Owner::* member, const char* name, const std::vector<Field>& fie
     using Ctx = FieldContext<Owner, T>;
 
     for (const auto& field : fields) {
-        if (std::strcmp(field.name, name) == 0 ||
-            static_cast<const Ctx*>(field.context)->member == member)
-        {
+        // TODO: check if the same member was mapped twice, not just name issues
+        if (field.name == name) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "Duplicate field mapping in Schema::Object.");
             }
@@ -942,7 +952,8 @@ FieldContextPtr makeFieldContext(T Owner::* member)
 
 // Encode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeOnly> {
+class ObjectImpl<Schema, Owner, EncodeOnly>
+{
     using EncoderType = EncoderImpl<Schema>;
     using Field = EncodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
@@ -977,7 +988,8 @@ public:
 
 // Decode-only
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, DecodeOnly> {
+class ObjectImpl<Schema, Owner, DecodeOnly>
+{
     using DecoderType = DecoderImpl<Schema>;
     using Field = DecodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
@@ -1016,7 +1028,8 @@ public:
 
 // Encode+Decode
 template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeDecode> {
+class ObjectImpl<Schema, Owner, EncodeDecode>
+{
     using EncoderType = EncoderImpl<Schema>;
     using DecoderType = DecoderImpl<Schema>;
     using Field = EncodeDecodeFieldDesc<Schema, Owner>;

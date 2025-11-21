@@ -120,7 +120,8 @@ struct Rectangle {
 using Shape = std::variant<Circle, Rectangle>;
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static constexpr auto discriminator_field = "__type__";
+    static constexpr auto discriminatorField = "__type__";
+
     template<typename T>
     struct Enum;
 
