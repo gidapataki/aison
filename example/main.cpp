@@ -127,9 +127,6 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
 
     template<typename T>
     struct Object;
-
-    template<typename T>
-    struct Discriminator;
 };
 
 template<>
@@ -142,26 +139,22 @@ struct ShapeSchema::Enum<ShapeKind> : aison::Enum<ShapeSchema, ShapeKind> {
 };
 
 template<>
-struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+struct ShapeSchema::Object<Circle>
+    : aison::Object<ShapeSchema, Circle>
+    , aison::Discriminator<ShapeSchema, Circle, ShapeKind::kCircle> {
     Object() { add(&Circle::radius, "radius"); }
 };
 
 template<>
-struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+struct ShapeSchema::Object<Rectangle>
+    : aison::Object<ShapeSchema, Rectangle>
+    , aison::Discriminator<ShapeSchema, Rectangle, ShapeKind::kRectangle> {
     Object()
     {
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }
 };
-
-template<>
-struct ShapeSchema::Discriminator<Circle>
-    : aison::Discriminator<ShapeSchema, Circle, ShapeKind::kCircle> {};
-
-template<>
-struct ShapeSchema::Discriminator<Rectangle>
-    : aison::Discriminator<ShapeSchema, Rectangle, ShapeKind::kRectangle> {};
 
 // Implementation
 
