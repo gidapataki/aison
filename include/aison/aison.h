@@ -484,6 +484,12 @@ T& getSchemaObject()
 template<typename Schema>
 std::string_view getDiscriminatorField()
 {
+    using FieldType = std::decay_t<decltype(Schema::discriminatorField)>;
+
+    static_assert(
+        std::is_same_v<FieldType, const char*> || std::is_same_v<FieldType, std::string_view>,
+        "Schema::discriminatorField must be const char*, or std::string_view.");
+
     return std::string_view(Schema::discriminatorField);
 }
 
@@ -937,12 +943,18 @@ bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>
     const auto* contextId = getFieldContextId<Owner, T>();
 
     for (const auto& field : fields) {
-        auto isSameMember =
-            (field.contextId == contextId &&
-             static_cast<const Ctx*>(field.context)->member == member);
-        if (isSameMember || field.name == name) {
+        if (field.contextId == contextId &&
+            static_cast<const Ctx*>(field.context)->member == member)
+        {
             if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Duplicate field mapping in Schema::Object.");
+                assert(false && "Same member is mapped multiple times in Schema::Object.");
+            }
+            return false;
+        }
+
+        if (field.name == name) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Duplicate field name in Schema::Object.");
             }
             return false;
         }
