@@ -104,6 +104,63 @@ struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
     }
 };
 
+// ShapeSchema
+
+enum class ShapeKind { kCircle, kRectangle };
+
+struct Circle {
+    float radius = 0;
+};
+
+struct Rectangle {
+    float width = 0;
+    double height = 0;  // TODO: fix static fieldContext issue
+};
+
+using Shape = std::variant<Circle, Rectangle>;
+
+struct ShapeSchema : aison::Schema<ShapeSchema, aison::EncodeOnly> {
+    template<typename T>
+    struct Enum;
+
+    template<typename T>
+    struct Object;
+
+    template<typename T>
+    struct Discriminator;
+};
+
+template<>
+struct ShapeSchema::Enum<ShapeKind> : aison::Enum<ShapeSchema, ShapeKind> {
+    Enum()
+    {
+        add(ShapeKind::kCircle, "circle");
+        add(ShapeKind::kRectangle, "rect");
+    }
+};
+
+template<>
+struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object() { add(&Circle::radius, "radius"); }
+};
+
+template<>
+struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+    Object()
+    {
+        add(&Rectangle::width, "width");
+        add(&Rectangle::height, "height");
+    }
+};
+
+template<>
+struct ShapeSchema::Discriminator<Circle>
+    : aison::Discriminator<ShapeSchema, Circle, ShapeKind::kCircle> {};
+
+template<>
+struct ShapeSchema::Discriminator<Rectangle>
+    : aison::Discriminator<ShapeSchema, Rectangle, ShapeKind::kRectangle> {};
+
 // Implementation
 
 std::string toHexColor(const RGBColor& color, bool upperCaseHex)
@@ -142,7 +199,7 @@ std::optional<RGBColor> toRGBColor(const std::string& str)
     return {color};
 }
 
-int main()
+void testTextSchema()
 {
     Paragraph para;
     para.alignment = Alignment::kCenter;
@@ -163,31 +220,56 @@ int main()
     Config cfg{.upperCaseHex = true};
     auto res = aison::encode<TextSchema, Paragraph>(para, root, cfg);
 
-    if (res) {
-        std::cout << "== Encoded ==\n";
-        std::cout << root.toStyledString() << "\n\n";
-
-#if 1
-        root["alignment"] = "center2";
-        auto res2 = aison::decode<TextSchema, Paragraph>(root, para, cfg);
-        if (res2) {
-            std::cout << "== Decode success ==\n";
-            Json::Value value;
-            auto r3 = aison::encode<TextSchema, Alignment>(para.alignment, value, cfg);
-            std::cout << value.toStyledString() << "\n";
-        } else {
-            std::cout << "== Decode error ==\n";
-            for (auto& err : res2.errors) {
-                std::cout << err.path << ": " << err.message << "\n";
-            }
-        }
-#endif
-    } else {
+    if (!res) {
         std::cout << "== Encode error ==\n";
+        for (auto& err : res.errors) {
+            std::cout << err.path << ": " << err.message << "\n";
+        }
+        return;
+    }
+
+    std::cout << "== Encoded ==\n";
+    std::cout << root.toStyledString() << "\n\n";
+
+    // Alias
+    root["alignment"] = "center2";
+    res = aison::decode<TextSchema, Paragraph>(root, para, cfg);
+    if (!res) {
+        std::cout << "== Decode error ==\n";
         for (auto& err : res.errors) {
             std::cout << err.path << ": " << err.message << "\n";
         }
     }
 
+    std::cout << "== Decode success ==\n";
+    Json::Value value;
+    res = aison::encode<TextSchema, Alignment>(para.alignment, value, cfg);
+    std::cout << value.toStyledString() << "\n";
+}
+
+void testShapeSchema()
+{
+    std::vector<Shape> shapes;
+    shapes.push_back(Circle{.radius = 15});
+    shapes.push_back(Rectangle{.width = 10, .height = 20});
+
+    Json::Value root;
+    auto res = aison::encode<ShapeSchema>(shapes, root);
+
+    if (!res) {
+        std::cout << "== Encode error ==\n";
+        for (auto& err : res.errors) {
+            std::cout << err.path << ": " << err.message << "\n";
+        }
+        return;
+    }
+
+    std::cout << "== Encoded ==\n";
+    std::cout << root.toStyledString() << "\n\n";
+}
+
+int main()
+{
+    testShapeSchema();
     return 0;
 }
