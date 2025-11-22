@@ -243,7 +243,62 @@ aison::Result r2 = aison::decode<MySchema>(json, obj, cfg);
 
 ---
 
-## 6. Error Model
+## 6. Polymorphism (`std::variant`)
+
+Aison supports discriminated variants.
+
+### 6.1 Discriminator key
+
+You must define a discriminator key before mapping a variant:
+
+- **Schema-level default (optional):**
+
+  ```cpp
+  struct ShapeSchema : aison::Schema<ShapeSchema> {
+      static constexpr auto discriminatorKey = "__type__";
+      template<typename T> struct Object;
+  };
+  ```
+
+- **Per-object override:** `discriminator(tag, key)` sets both the tag value and the key for that alternative.
+
+If the schema declares `discriminatorKey`, you can omit the key and call `discriminator(tag)` to use the schema default.
+
+Keys must be **non-empty** and **identical across all alternatives**.
+
+### 6.2 Mapping variants
+
+```cpp
+using Shape = std::variant<Circle, Rectangle>;
+
+template<>
+struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object() {
+        add(&Circle::radius, "radius");
+        discriminator("circle");               // uses schema key
+        // discriminator("circle", "__kind__"); // override key per type
+    }
+};
+
+template<>
+struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+    Object() {
+        add(&Rectangle::width, "width");
+        add(&Rectangle::height, "height");
+        discriminator("rect");
+    }
+};
+```
+
+### 6.3 Rules
+
+- Every alternative must call `discriminator(...)`.
+- All alternatives must share the same discriminator key (schema default or per-object override).
+- Missing keys/tags or mismatched keys produce errors; with `EnableAssert == true`, debug builds also assert.
+
+---
+
+## 7. Error Model
 
 Each error contains:
 
@@ -263,7 +318,7 @@ Errors accumulate; decoding never stops early.
 
 ---
 
-## 7. Type Support Matrix
+## 8. Type Support Matrix
 
 | Type | Encode/Decode | Notes |
 |------|---------------|------|
@@ -273,6 +328,7 @@ Errors accumulate; decoding never stops early.
 | `std::string` | ✔ | |
 | `std::optional<T>` | ✔ | null → empty optional |
 | `std::vector<T>` | ✔ | recursive support |
+| `std::variant<Ts...>` | ✔ | requires discriminator per alternative |
 | enums | ✔ | requires `Enum<T>` |
 | structs | ✔ | requires `Object<T>` |
 | custom types | ✔ | via `Encoder<T>` / `Decoder<T>` |
@@ -280,7 +336,7 @@ Errors accumulate; decoding never stops early.
 
 ---
 
-## 8. Schema Validation
+## 9. Schema Validation
 
 Compile‑time errors include:
 
@@ -295,9 +351,10 @@ Runtime schema errors include:
 - Duplicate enum values  
 - Duplicate enum names  
 - Alias for undefined enum value  
+- Missing discriminator key or tag on a variant alternative  
+- Mismatched discriminator keys across variant alternatives  
 
 These trigger:
 
 - `assert()` (when `EnableAssert == true`)
 - skip mapping (otherwise)
-
