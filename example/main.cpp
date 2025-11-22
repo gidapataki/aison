@@ -106,8 +106,6 @@ struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
 
 // ShapeSchema
 
-enum class ShapeKind { kCircle, kRectangle };
-
 struct Circle {
     float radius = 0;
 };
@@ -123,34 +121,23 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
     static constexpr auto discriminatorKey = "__type__";
 
     template<typename T>
-    struct Enum;
-
-    template<typename T>
     struct Object;
 };
 
 template<>
-struct ShapeSchema::Enum<ShapeKind> : aison::Enum<ShapeSchema, ShapeKind> {
-    Enum()
+struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object()
     {
-        add(ShapeKind::kCircle, "circle");
-        add(ShapeKind::kRectangle, "rect");
+        discriminator("circle");
+        add(&Circle::radius, "radius");
     }
 };
 
 template<>
-struct ShapeSchema::Object<Circle>
-    : aison::Object<ShapeSchema, Circle>
-    , aison::Discriminator<ShapeSchema, Circle, ShapeKind::kCircle> {
-    Object() { add(&Circle::radius, "radius"); }
-};
-
-template<>
-struct ShapeSchema::Object<Rectangle>
-    : aison::Object<ShapeSchema, Rectangle>
-    , aison::Discriminator<ShapeSchema, Rectangle, ShapeKind::kRectangle> {
+struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object()
     {
+        discriminator("rect");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }

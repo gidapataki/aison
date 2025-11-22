@@ -103,6 +103,12 @@ std::string_view getDiscriminatorKey();
 template<typename T>
 T& getSchemaObject();
 
+template<typename Schema, typename T, typename = void>
+struct DiscriminatorType;
+
+template<typename Schema, typename T>
+using DiscriminatorTypeT = typename DiscriminatorType<Schema, T>::type;
+
 }  // namespace detail
 
 struct Error;
@@ -296,6 +302,19 @@ struct HasDiscriminator<
     std::void_t<typename Schema::template Object<T>::DiscriminatorTag>> : std::true_type {};
 
 template<typename Schema, typename T, typename>
+struct DiscriminatorType {
+    using type = std::string;
+};
+
+template<typename Schema, typename T>
+struct DiscriminatorType<
+    Schema,
+    T,
+    std::void_t<typename Schema::template Object<T>::DiscriminatorType>> {
+    using type = typename Schema::template Object<T>::DiscriminatorType;
+};
+
+template<typename Schema, typename T, typename>
 struct HasEnumTag : std::false_type {};
 
 template<typename Schema, typename T>
@@ -426,11 +445,6 @@ struct VariantAltCheck {
             "std::variant alternative is not mapped as an object. "
             "Define `template<> struct Schema::Object<T> : aison::Object<Schema, T>` "
             "for each variant alternative.");
-        static_assert(
-            HasDiscriminator<Schema, T>::value,
-            "std::variant alternative type has insufficient object mapping. "
-            "`template<> struct Schema::Object<T>` should also inherit from "
-            "`aison::Discriminator<Schema, T, tagValue>`");
     }
 };
 
@@ -439,7 +453,7 @@ struct VariantTagTypeConsistencyCheck {
     static constexpr void check()
     {
         static_assert(
-            std::is_same_v<TagType, typename Schema::template Object<T>::DiscriminatorType>,
+            std::is_same_v<TagType, DiscriminatorTypeT<Schema, T>>,
             "All std::variant alternatives must use the same discriminator tag type "
             "in Schema::Object<T>.");
     }
@@ -449,21 +463,24 @@ template<typename Schema, typename... Ts>
 struct VariantValidator<Schema, std::variant<Ts...>, void> {
     static constexpr void validate()
     {
-        // Each alternative must have a discriminator and an object mapping.
+        // Each alternative must have an object mapping.
         (VariantAltCheck<Schema, Ts>::check(), ...);
 
         // TagType must be consistent across all alternatives.
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
-        using FirstDisc = typename Schema::template Object<FirstAlt>;
-        using TagType = typename FirstDisc::DiscriminatorType;
+        using TagType = DiscriminatorTypeT<Schema, FirstAlt>;
 
         (VariantTagTypeConsistencyCheck<Schema, TagType, Ts>::check(), ...);
 
-        // Tag values must be unique.
-        constexpr bool unique =
-            VariantTagUniqueCheck<TagType, Schema::template Object<Ts>::tag...>::value;
-        static_assert(
-            unique, "Duplicate discriminator tag values detected for std::variant alternatives.");
+        // Tag values must be unique if all alternatives provide static discriminator tags.
+        constexpr bool allStatic = (HasDiscriminator<Schema, Ts>::value && ...);
+        if constexpr (allStatic) {
+            constexpr bool unique =
+                VariantTagUniqueCheck<TagType, Schema::template Object<Ts>::tag...>::value;
+            static_assert(
+                unique,
+                "Duplicate discriminator tag values detected for std::variant alternatives.");
+        }
     }
 };
 
@@ -630,16 +647,27 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
-                using Disc = typename Schema::template Object<Alt>;
-                using TagType = typename Disc::DiscriminatorType;
+                using TagType = DiscriminatorTypeT<Schema, Alt>;
 
-                // Encode discriminator using the existing enum machinery.
+                // Encode discriminator using the existing machinery.
                 Json::Value tagJson;
-                const TagType tagValue = Disc::tag;
+                TagType tagValue{};
+
+                const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
+                if constexpr (HasDiscriminator<Schema, Alt>::value) {
+                    tagValue = Schema::template Object<Alt>::tag;
+                } else {
+                    if (!objectDef.hasRuntimeDiscriminator()) {
+                        PathScope guard(encoder, getDiscriminatorKey<Schema>().data());
+                        encoder.addError("Variant alternative missing discriminator().");
+                        return;
+                    }
+                    tagValue = objectDef.runtimeDiscriminator();
+                }
+
                 encodeDefault<Schema, TagType>(tagValue, tagJson, encoder);
 
                 // Encode variant-specific fields into the same object.
-                const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
@@ -808,8 +836,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
 
         // Determine TagType from the first alternative
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
-        using FirstDisc = typename Schema::template Object<FirstAlt>;
-        using TagType = typename FirstDisc::DiscriminatorType;
+        using TagType = DiscriminatorTypeT<Schema, FirstAlt>;
 
         // Decode tag value using existing enum/primitive machinery
         TagType tagValue{};
@@ -843,20 +870,31 @@ private:
     template<typename Alt>
     static void tryAlternative(
         const Json::Value& src,
-        const typename Schema::template Object<Alt>::DiscriminatorType& tagValue,
+        const DiscriminatorTypeT<Schema, Alt>& tagValue,
         VariantType& value,
         DecoderImpl<Schema>& decoder,
         bool& matched)
     {
-        using Disc = typename Schema::template Object<Alt>;
-        if (matched || tagValue != Disc::tag) {
-            return;
+        using ObjectSpec = typename Schema::template Object<Alt>;
+        const auto& objectDef = getSchemaObject<ObjectSpec>();
+        if constexpr (HasDiscriminator<Schema, Alt>::value) {
+            if (matched || tagValue != ObjectSpec::tag) {
+                return;
+            }
+        } else {
+            if (!objectDef.hasRuntimeDiscriminator()) {
+                PathScope guard(decoder, getDiscriminatorKey<Schema>().data());
+                decoder.addError("Variant alternative missing discriminator().");
+                return;
+            }
+            if (matched || tagValue != objectDef.runtimeDiscriminator()) {
+                return;
+            }
         }
 
         matched = true;
 
         Alt alt{};
-        const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
         objectDef.decodeFields(src, alt, decoder);
         value = std::move(alt);
     }
@@ -993,6 +1031,8 @@ class ObjectImpl<Schema, Owner, EncodeOnly>
     using Field = EncodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
+    bool hasRuntimeDiscriminator_ = false;
+    std::string runtimeDiscriminator_;
 
 public:
     template<typename T>
@@ -1010,6 +1050,30 @@ public:
             fields_.push_back(f);
         }
     }
+
+    void discriminator(std::string_view tag)
+    {
+        auto discKey = getDiscriminatorKey<Schema>();
+        for (const auto& field : fields_) {
+            if (discKey == field.name) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Discriminator key conflicts with an existing field name.");
+                }
+                return;
+            }
+        }
+        if (hasRuntimeDiscriminator_) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "discriminator(...) already set for this object.");
+            }
+            return;
+        }
+        hasRuntimeDiscriminator_ = true;
+        runtimeDiscriminator_ = std::string(tag);
+    }
+
+    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
+    const std::string& runtimeDiscriminator() const { return runtimeDiscriminator_; }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {
@@ -1030,6 +1094,8 @@ class ObjectImpl<Schema, Owner, DecodeOnly>
     using Field = DecodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
+    bool hasRuntimeDiscriminator_ = false;
+    std::string runtimeDiscriminator_;
 
 public:
     template<typename T>
@@ -1047,6 +1113,30 @@ public:
             fields_.push_back(f);
         }
     }
+
+    void discriminator(std::string_view tag)
+    {
+        auto discKey = getDiscriminatorKey<Schema>();
+        for (const auto& field : fields_) {
+            if (discKey == field.name) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Discriminator key conflicts with an existing field name.");
+                }
+                return;
+            }
+        }
+        if (hasRuntimeDiscriminator_) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "discriminator(...) already set for this object.");
+            }
+            return;
+        }
+        hasRuntimeDiscriminator_ = true;
+        runtimeDiscriminator_ = std::string(tag);
+    }
+
+    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
+    const std::string& runtimeDiscriminator() const { return runtimeDiscriminator_; }
 
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
@@ -1072,6 +1162,8 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
     using Field = EncodeDecodeFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
+    bool hasRuntimeDiscriminator_ = false;
+    std::string runtimeDiscriminator_;
 
 public:
     template<typename T>
@@ -1090,6 +1182,30 @@ public:
             fields_.push_back(f);
         }
     }
+
+    void discriminator(std::string_view tag)
+    {
+        auto discKey = getDiscriminatorKey<Schema>();
+        for (const auto& field : fields_) {
+            if (discKey == field.name) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Discriminator key conflicts with an existing field name.");
+                }
+                return;
+            }
+        }
+        if (hasRuntimeDiscriminator_) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "discriminator(...) already set for this object.");
+            }
+            return;
+        }
+        hasRuntimeDiscriminator_ = true;
+        runtimeDiscriminator_ = std::string(tag);
+    }
+
+    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
+    const std::string& runtimeDiscriminator() const { return runtimeDiscriminator_; }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {

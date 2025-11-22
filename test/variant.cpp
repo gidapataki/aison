@@ -8,10 +8,6 @@
 namespace {
 
 // Simple geometry types for variant tests
-enum class ShapeTag {
-    Circle,
-    Rectangle,
-};
 
 struct Circle {
     double x = 0.0;
@@ -38,43 +34,29 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
 
     template<typename T>
     struct Object;
-    template<typename T>
-    struct Enum;
-};
-
-// Enum mapping for ShapeTag
-template<>
-struct ShapeSchema::Enum<ShapeTag> : aison::Enum<ShapeSchema, ShapeTag> {
-    Enum()
-    {
-        add(ShapeTag::Circle, "circle");
-        add(ShapeTag::Rectangle, "rect");
-    }
 };
 
 // Object mappings
 template<>
-struct ShapeSchema::Object<Circle>
-    : aison::Object<ShapeSchema, Circle>
-    , aison::Discriminator<ShapeSchema, Circle, ShapeTag::Circle> {
+struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object()
     {
         add(&Circle::x, "x");
         add(&Circle::y, "y");
         add(&Circle::radius, "radius");
+        discriminator("circle");
     }
 };
 
 template<>
-struct ShapeSchema::Object<Rectangle>
-    : aison::Object<ShapeSchema, Rectangle>
-    , aison::Discriminator<ShapeSchema, Rectangle, ShapeTag::Rectangle> {
+struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object()
     {
         add(&Rectangle::x, "x");
         add(&Rectangle::y, "y");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
+        discriminator("rect");
     }
 };
 
@@ -188,7 +170,7 @@ TEST_CASE("variant: decode fails on missing discriminator")
 
     // Error path should point to shapes[0].kind
     const auto& err = decResult.errors.front();
-    CHECK(err.path == "$.shapes[0]");
+    CHECK(err.path == "$.shapes[0].kind");
 }
 
 TEST_CASE("variant: decode fails on unknown discriminator value")
@@ -207,7 +189,7 @@ TEST_CASE("variant: decode fails on unknown discriminator value")
     REQUIRE_FALSE(decResult.errors.empty());
 
     const auto& err = decResult.errors.front();
-    CHECK(err.path == "$.shapes[0]");
+    CHECK(err.path == "$.shapes[0].kind");
 }
 
 }  // namespace
