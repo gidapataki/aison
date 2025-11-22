@@ -98,6 +98,7 @@ def cmd_deps(args: argparse.Namespace) -> None:
     run([
         "conan", "install", ".",
         "--output-folder", out_dir,
+        "--deployer=full_deploy",
         "-s", f"build_type={bt}",
         "--build=missing",
     ])
@@ -107,6 +108,8 @@ def cmd_deps(args: argparse.Namespace) -> None:
 def cmd_gen(args: argparse.Namespace) -> None:
     bt = read_build_type()
     print_config(bt)
+    # Ensure deps are installed for this build type
+    cmd_deps(args)
     bdir = build_dir(bt)
     os.makedirs(bdir, exist_ok=True)
 
@@ -123,6 +126,7 @@ def cmd_gen(args: argparse.Namespace) -> None:
     if os.path.isfile(tc_path):
         cmake_cmd.append(f"-DCMAKE_TOOLCHAIN_FILE={tc_path}")
         cmake_cmd.append("-DAISON_USE_BUNDLED_JSONCPP=OFF")
+        cmake_cmd.append("-DAISON_REQUIRE_EXTERNAL_JSONCPP=ON")
 
     run(cmake_cmd)
     print(f"Configured {bt} in {bdir}")
@@ -160,7 +164,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         cmd_gen(args)
     # ensure built
     run(["cmake", "--build", bdir, "--target", "example"])
-    exe_path = os.path.join(bdir, "bin", "example")
+    exe_path = os.path.join(bdir, "example")
     if os.name == "nt":
         exe_path += ".exe"
     run([exe_path, *args.rest])

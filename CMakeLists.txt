@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # deps
 
 option(AISON_USE_BUNDLED_JSONCPP "Use bundled jsoncpp submodule" OFF)
+option(AISON_REQUIRE_EXTERNAL_JSONCPP "Fail if external jsoncpp is not found" OFF)
 
 set(JSONCPP_WITH_TESTS                OFF CACHE INTERNAL "")
 set(JSONCPP_WITH_POST_BUILD_UNITTEST  OFF CACHE INTERNAL "")
@@ -27,20 +28,22 @@ set(AISON_JSONCPP_TARGET "")
 if(NOT AISON_USE_BUNDLED_JSONCPP)
   find_package(jsoncpp 1.9.5 CONFIG QUIET)
   if(jsoncpp_FOUND)
-      message("conan build found")
     if(TARGET jsoncpp_lib)
       set(AISON_JSONCPP_TARGET jsoncpp_lib)
     elseif(TARGET jsoncpp_static)
-      message("Using jsoncpp from conan cache")
       set(AISON_JSONCPP_TARGET jsoncpp_static)
     elseif(TARGET JsonCpp::JsonCpp)
       set(AISON_JSONCPP_TARGET JsonCpp::JsonCpp)
     endif()
   endif()
+  if(AISON_JSONCPP_TARGET STREQUAL "" AND AISON_REQUIRE_EXTERNAL_JSONCPP)
+    message(FATAL_ERROR
+      "External jsoncpp requested but not found. Install jsoncpp/1.9.5 (e.g., via Conan) "
+      "or set AISON_USE_BUNDLED_JSONCPP=ON.")
+  endif()
 endif()
 
 if(AISON_JSONCPP_TARGET STREQUAL "")
-  message("Using jsoncpp from third_party/jsoncpp")
   add_subdirectory(third_party/jsoncpp)
   set(AISON_JSONCPP_TARGET jsoncpp_static)
 endif()
