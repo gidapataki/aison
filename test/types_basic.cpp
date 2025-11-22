@@ -205,13 +205,6 @@ TEST_SUITE("Basic types")
         Document decoded;
         auto dec = aison::decode<BasicSchema>(root, decoded);
 
-        // std::cout << json.toStyledString() << "\n";
-        // for (auto& err : dec.errors) {
-        //     std::cout << err.path << ":" << err.message << "\n";
-        // }
-
-        // std::cout << "---\n\n";
-
         CHECK(dec.errors.size() == 0);
         REQUIRE(dec);
         REQUIRE(dec.errors.empty());
