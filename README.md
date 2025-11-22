@@ -10,17 +10,18 @@ only on JsonCpp.
 - clear struct → JSON mappings
 - strict decoding with useful error messages
 - supports:
-  - integral and floating-point types
-  - `std::string`
-  - structs (via schema)
-  - enums
-  - `std::optional`
-  - `std::vector`
-  - custom encode/decode hooks (optionally using a runtime config)
+    - integral and floating-point types
+    - enums
+    - structs (via schema)
+    - `std::string`
+    - `std::optional`
+    - `std::vector`
+    - `std::variant` via discriminators
+    - custom encode/decode hooks (optionally using a config object)
 - schema properties:
-  - non-intrusive definitions (no changes to your structs)
-  - multiple schemas for the same type
-  - schemas are fully independent
+    - non-intrusive definitions (no changes to your structs)
+    - multiple schemas for the same type
+    - schemas are fully independent
 
 ### Requirements
 - C++17
@@ -151,6 +152,43 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
         std::cerr << "error at " << err.path << ": " << err.message << "\n";
     }
 }
+```
+
+### Polymorphism (`std::variant`)
+
+```C++
+enum class ShapeKind { kCircle, kRectangle };
+
+struct Circle {
+    float radius;
+};
+
+struct Rectangle {
+    float width;
+    float height;
+};
+
+using Shape = std::variant<Circle, Rectangle>;
+
+struct ShapeSchema : aison::Schema<ShapeSchema> {
+    static const auto discriminatorKey = "kind"; // (optional) sets default key for all types
+    template<typename T> struct Object;
+};
+
+template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object() {
+        discriminator("circle");
+        add(&Circle::radius, "radius");
+    }
+};
+
+template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+    Object() {
+        discriminator("rect", "kind"); // (optional) override default key for this type
+        add(&Rectangle::width, "width");
+        add(&Rectangle::height, "height");
+    }
+};
 ```
 
 ### Design principles
