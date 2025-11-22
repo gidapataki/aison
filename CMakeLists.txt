@@ -26,7 +26,7 @@ set(BUILD_OBJECT_LIBS                 OFF CACHE INTERNAL "")
 
 set(AISON_JSONCPP_TARGET "")
 if(NOT AISON_USE_BUNDLED_JSONCPP)
-  find_package(jsoncpp 1.9.5 CONFIG QUIET)
+  find_package(jsoncpp 1.9.4 CONFIG QUIET)
   if(jsoncpp_FOUND)
     if(TARGET jsoncpp_lib)
       set(AISON_JSONCPP_TARGET jsoncpp_lib)
