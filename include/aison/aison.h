@@ -588,16 +588,16 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 using Alt = std::decay_t<decltype(alt)>;
 
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
-                if (!objectDef.hasRuntimeDiscriminator()) {
-                    PathScope guard(encoder, getDiscriminatorKey<Schema>().data());
-                    encoder.addError("Variant alternative missing discriminator().");
-                    return;
-                }
+        if (!objectDef.hasDiscriminatorTag()) {
+            PathScope guard(encoder, getDiscriminatorKey<Schema>().data());
+            encoder.addError("Variant alternative missing discriminator().");
+            return;
+        }
 
-                // Encode discriminator using a string payload.
-                Json::Value tagJson;
-                const std::string tagValue(objectDef.runtimeDiscriminator());
-                encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
+        // Encode discriminator using a string payload.
+        Json::Value tagJson;
+        const std::string tagValue(objectDef.discriminatorTag());
+        encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
 
                 // Encode variant-specific fields into the same object.
                 objectDef.encodeFields(alt, dst, encoder);
@@ -806,12 +806,12 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getSchemaObject<ObjectSpec>();
-        if (!objectDef.hasRuntimeDiscriminator()) {
+        if (!objectDef.hasDiscriminatorTag()) {
             PathScope guard(decoder, getDiscriminatorKey<Schema>().data());
             decoder.addError("Variant alternative missing discriminator().");
             return;
         }
-        if (matched || tagValue != objectDef.runtimeDiscriminator()) {
+        if (matched || tagValue != objectDef.discriminatorTag()) {
             return;
         }
 
@@ -955,8 +955,8 @@ class ObjectImpl<Schema, Owner, EncodeOnly>
     using Field = EncodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
-    bool hasRuntimeDiscriminator_ = false;
-    std::string runtimeDiscriminator_;
+    bool hasDiscriminatorTag_ = false;
+    std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
@@ -979,20 +979,20 @@ public:
     void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
         checkDiscriminatorKey(key);
-        if (hasRuntimeDiscriminator_) {
+        if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
 
-        hasRuntimeDiscriminator_ = true;
+        hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
-        runtimeDiscriminator_ = std::string(tag);
+        discriminatorTag_ = std::string(tag);
     }
 
-    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
-    std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+    std::string_view discriminatorTag() const { return discriminatorTag_; }
     std::string_view discriminatorKey() const { return discriminatorKey_; }
 
 private:
@@ -1027,8 +1027,8 @@ class ObjectImpl<Schema, Owner, DecodeOnly>
     using Field = DecodeOnlyFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
-    bool hasRuntimeDiscriminator_ = false;
-    std::string runtimeDiscriminator_;
+    bool hasDiscriminatorTag_ = false;
+    std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
@@ -1051,19 +1051,19 @@ public:
     void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
         checkDiscriminatorKey(key);
-        if (hasRuntimeDiscriminator_) {
+        if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
         discriminatorKey_ = std::string(key);
-        hasRuntimeDiscriminator_ = true;
-        runtimeDiscriminator_ = std::string(tag);
+        hasDiscriminatorTag_ = true;
+        discriminatorTag_ = std::string(tag);
     }
 
-    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
-    std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+    std::string_view discriminatorTag() const { return discriminatorTag_; }
     std::string_view discriminatorKey() const { return discriminatorKey_; }
 
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
@@ -1103,8 +1103,8 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
     using Field = EncodeDecodeFieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
-    bool hasRuntimeDiscriminator_ = false;
-    std::string runtimeDiscriminator_;
+    bool hasDiscriminatorTag_ = false;
+    std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
@@ -1127,19 +1127,19 @@ public:
 
     void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
-        if (hasRuntimeDiscriminator_) {
+        if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
         discriminatorKey_ = std::string(key);
-        hasRuntimeDiscriminator_ = true;
-        runtimeDiscriminator_ = std::string(tag);
+        hasDiscriminatorTag_ = true;
+        discriminatorTag_ = std::string(tag);
     }
 
-    bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
-    std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+    std::string_view discriminatorTag() const { return discriminatorTag_; }
     std::string_view discriminatorKey() const { return discriminatorKey_; }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
