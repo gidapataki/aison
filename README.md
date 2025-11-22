@@ -29,7 +29,7 @@ only on JsonCpp.
 
 ### Documentation
 
-- [Quick Reference](REFERENCE.md)
+- [Reference Manual](REFERENCE.md)
 
 
 ### Advanced example

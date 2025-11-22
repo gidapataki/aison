@@ -7,6 +7,27 @@ This document describes the complete public API.
 
 ---
 
+## Contents
+- [Schema](#1-schema)
+  - [Facets](#11-facets)
+  - [Config](#12-config)
+  - [Schema Assertions (`EnableAssert`)](#13-schema-assertions-enableassert)
+- [Object Mapping (`Schema::Object<T>`)](#2-object-mapping-schemaobjectt)
+- [Enum Mapping (`Schema::Enum<T>`)](#3-enum-mapping-schemaenumt)
+- [Custom Encoders / Decoders](#4-custom-encoders--decoders)
+- [Encoding / Decoding](#5-encoding--decoding)
+  - [Without Config](#51-without-config-emptyconfig-only)
+  - [With Config](#52-with-config)
+- [Polymorphism (`std::variant`)](#6-polymorphism-stdvariant)
+  - [Discriminator key](#61-discriminator-key)
+  - [Mapping variants](#62-mapping-variants)
+  - [Rules](#63-rules)
+- [Error Model](#7-error-model)
+- [Type Support Matrix](#8-type-support-matrix)
+- [Schema Validation](#9-schema-validation)
+
+---
+
 ## 1. Schema
 
 A schema defines how C++ types map to JSON.
