@@ -11,12 +11,11 @@ only on JsonCpp.
 - strict decoding with useful error messages
 - supports:
     - integral and floating-point types
-    - enums
-    - structs (via schema)
     - `std::string`
     - `std::optional`
     - `std::vector`
-    - `std::variant` via discriminators
+    - custom enums & structs (via schema)
+    - discriminated unions of schema-mapped objects (via `std::variant`)
     - custom encode/decode hooks (optionally using a config object)
 - schema properties:
     - non-intrusive definitions (no changes to your structs)
@@ -204,10 +203,7 @@ template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Re
 
 #### Note on the project's origin
 
-Aison began as an experiment to see how quickly a library can be developed when
-AI-assisted tooling is used to speed up exploration and rewriting. It was
-eye-opening how fast different approaches could be tried and tested.
-
-After a rapid prototyping phase, the library went through a full manual refactor,
-followed by several rounds of review and polishing. The final result reflects
-deliberate engineering decisions.
+Aison was inspired by Circe, and also started as an experiment to see how fast it can evolve
+when AI-assisted tooling is used to speed up exploration and refactoring. It was eye-opening
+to see how much difference it makes if we can quickly jump between different design ideas
+without losing touch with the internal details.
