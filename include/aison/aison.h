@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -115,7 +116,11 @@ template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
 
 template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields);
+bool checkAdd(
+    T Owner::* member,
+    std::string_view name,
+    std::string_view discriminatorKey,
+    const std::vector<Field>& fields);
 
 template<typename Schema>
 std::string_view getDiscriminatorKey();
@@ -598,7 +603,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
-                dst[getDiscriminatorKey<Schema>().data()] = std::move(tagJson);
+                dst[objectDef.discriminatorKey().data()] = std::move(tagJson);
             },
             value);
     } else if constexpr (IsVector<T>::value) {
@@ -759,7 +764,10 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
             return;
         }
 
-        auto* fieldName = getDiscriminatorKey<Schema>().data();
+        using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
+        const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
+        auto fieldNameView = firstObj.discriminatorKey();
+        auto* fieldName = fieldNameView.data();
 
         std::string tagValue;
         {
@@ -783,12 +791,11 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         (tryAlternative<Ts>(src, tagValue, value, decoder, matched), ...);
 
         if (!matched) {
-            detail::PathScope discGuard(decoder, fieldName);
+            PathScope discGuard(decoder, fieldName);
             decoder.addError("Unknown discriminator value for variant.");
         }
     }
 
-private:
     template<typename Alt>
     static void tryAlternative(
         const Json::Value& src,
@@ -887,10 +894,13 @@ void decodeFieldThunk(
 // Object implementations per facet /////////////////////////////////////////////////////////
 
 template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields)
+bool checkAdd(
+    T Owner::* member,
+    std::string_view name,
+    std::string_view discriminatorKey,
+    const std::vector<Field>& fields)
 {
-    auto discName = getDiscriminatorKey<Schema>();
-    if (discName == name) {
+    if (discriminatorKey == name) {
         if constexpr (Schema::EnableAssert::value) {
             assert(false && "Field name is reserved as discriminator for this type.");
         }
@@ -947,12 +957,13 @@ class ObjectImpl<Schema, Owner, EncodeOnly>
     std::vector<Field> fields_;
     bool hasRuntimeDiscriminator_ = false;
     std::string runtimeDiscriminator_;
+    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        if (checkAdd<Schema>(member, name, fields_)) {
+        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
@@ -965,29 +976,37 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
-        auto discKey = getDiscriminatorKey<Schema>();
-        for (const auto& field : fields_) {
-            if (discKey == field.name) {
-                if constexpr (Schema::EnableAssert::value) {
-                    assert(false && "Discriminator key conflicts with an existing field name.");
-                }
-                return;
-            }
-        }
+        checkDiscriminatorKey(key);
         if (hasRuntimeDiscriminator_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
+
         hasRuntimeDiscriminator_ = true;
+        discriminatorKey_ = std::string(key);
         runtimeDiscriminator_ = std::string(tag);
     }
 
     bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
     std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    std::string_view discriminatorKey() const { return discriminatorKey_; }
+
+private:
+    void checkDiscriminatorKey(std::string_view key)
+    {
+        for (const auto& field : fields_) {
+            if (field.name == key) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Discriminator key conflicts with an existing field name.");
+                }
+                return;
+            }
+        }
+    }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {
@@ -1010,12 +1029,13 @@ class ObjectImpl<Schema, Owner, DecodeOnly>
     std::vector<Field> fields_;
     bool hasRuntimeDiscriminator_ = false;
     std::string runtimeDiscriminator_;
+    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        if (checkAdd<Schema>(member, name, fields_)) {
+        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
@@ -1028,29 +1048,23 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
-        auto discKey = getDiscriminatorKey<Schema>();
-        for (const auto& field : fields_) {
-            if (discKey == field.name) {
-                if constexpr (Schema::EnableAssert::value) {
-                    assert(false && "Discriminator key conflicts with an existing field name.");
-                }
-                return;
-            }
-        }
+        checkDiscriminatorKey(key);
         if (hasRuntimeDiscriminator_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
+        discriminatorKey_ = std::string(key);
         hasRuntimeDiscriminator_ = true;
         runtimeDiscriminator_ = std::string(tag);
     }
 
     bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
     std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    std::string_view discriminatorKey() const { return discriminatorKey_; }
 
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
@@ -1063,6 +1077,19 @@ public:
             const Json::Value& node = src[key];
             PathScope guard(decoder, key);
             field.decode(node, dst, decoder, field.context);
+        }
+    }
+
+private:
+    void checkDiscriminatorKey(std::string_view key)
+    {
+        for (const auto& field : fields_) {
+            if (field.name == key) {
+                if constexpr (Schema::EnableAssert::value) {
+                    assert(false && "Discriminator key conflicts with an existing field name.");
+                }
+                return;
+            }
         }
     }
 };
@@ -1078,12 +1105,13 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
     std::vector<Field> fields_;
     bool hasRuntimeDiscriminator_ = false;
     std::string runtimeDiscriminator_;
+    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
     void add(T Owner::* member, const char* name)
     {
-        if (checkAdd<Schema>(member, name, fields_)) {
+        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
@@ -1097,29 +1125,22 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
-        auto discKey = getDiscriminatorKey<Schema>();
-        for (const auto& field : fields_) {
-            if (discKey == field.name) {
-                if constexpr (Schema::EnableAssert::value) {
-                    assert(false && "Discriminator key conflicts with an existing field name.");
-                }
-                return;
-            }
-        }
         if (hasRuntimeDiscriminator_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
+        discriminatorKey_ = std::string(key);
         hasRuntimeDiscriminator_ = true;
         runtimeDiscriminator_ = std::string(tag);
     }
 
     bool hasRuntimeDiscriminator() const { return hasRuntimeDiscriminator_; }
     std::string_view runtimeDiscriminator() const { return runtimeDiscriminator_; }
+    std::string_view discriminatorKey() const { return discriminatorKey_; }
 
     void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
     {
