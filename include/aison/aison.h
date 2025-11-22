@@ -89,6 +89,15 @@ struct HasEncoderTag;
 template<typename Schema, typename T, typename = void>
 struct HasDecoderTag;
 
+template<typename Schema, typename = void>
+struct HasSchemaDiscriminatorKey;
+
+template<typename Schema, typename = void>
+struct SchemaDiscriminatorKey;
+
+template<typename Schema>
+std::string_view getSchemaDiscriminatorKey();
+
 // Functions
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
@@ -120,9 +129,6 @@ bool checkAdd(
     std::string_view name,
     std::string_view discriminatorKey,
     const std::vector<Field>& fields);
-
-template<typename Schema>
-std::string_view getDiscriminatorKey();
 
 template<typename T>
 T& getSchemaObject();
@@ -160,10 +166,6 @@ struct Schema {
     using FacetType = Facet;
     using ConfigType = Config;
     using EnableAssert = std::true_type;
-
-    // Default discriminator field name for variant-based polymorphism.
-    // User schemas may override this with their own static constexpr member.
-    static constexpr const char* discriminatorKey = "type";
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -401,6 +403,11 @@ struct VariantValidator {
     static constexpr void validate() {}
 };
 
+template<typename Schema, typename Context, typename Variant, typename Enable = void>
+struct VariantKeyValidator {
+    static bool validate(Context&) { return true; }
+};
+
 template<typename Schema, typename T>
 struct VariantAltCheck {
     static constexpr void check()
@@ -422,6 +429,46 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
     }
 };
 
+template<typename Schema, typename Context, typename... Ts>
+struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
+    static bool validate(Context& ctx)
+    {
+        using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
+        const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
+        auto firstKey = firstObj.discriminatorKey();
+        if (firstKey.empty()) {
+            ctx.addError("Discriminator key not set for variant.");
+            return false;
+        }
+
+        bool emptyKey = false;
+        bool mismatch = false;
+        ((emptyKey =
+              emptyKey || getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty()),
+         ...);
+        ((mismatch = mismatch ||
+                    (!getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty() &&
+                     getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
+                         firstKey)),
+         ...);
+
+        if (emptyKey) {
+            ctx.addError("Discriminator key not set for variant.");
+            return false;
+        }
+
+        if (mismatch) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Variant alternatives must use the same discriminator key.");
+            }
+            ctx.addError("Variant alternatives must use the same discriminator key.");
+            return false;
+        }
+
+        return true;
+    }
+};
+
 template<typename Schema, typename Variant>
 constexpr void validateVariant()
 {
@@ -437,16 +484,36 @@ T& getSchemaObject()
     return instance;
 }
 
+template<typename Schema, typename>
+struct HasSchemaDiscriminatorKey : std::false_type {};
+
 template<typename Schema>
-std::string_view getDiscriminatorKey()
+struct HasSchemaDiscriminatorKey<Schema, std::void_t<decltype(Schema::discriminatorKey)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaDiscriminatorKey {
+    static std::string_view get() { return {}; }
+};
+
+template<typename Schema>
+struct SchemaDiscriminatorKey<Schema, std::enable_if_t<HasSchemaDiscriminatorKey<Schema>::value>> {
+    static std::string_view get()
+    {
+        using KeyType = std::decay_t<decltype(Schema::discriminatorKey)>;
+
+        static_assert(
+            std::is_same_v<KeyType, const char*> || std::is_same_v<KeyType, std::string_view>,
+            "Schema::discriminatorKey must be const either `char*` or `std::string_view`.");
+
+        return std::string_view(Schema::discriminatorKey);
+    }
+};
+
+template<typename Schema>
+std::string_view getSchemaDiscriminatorKey()
 {
-    using KeyType = std::decay_t<decltype(Schema::discriminatorKey)>;
-
-    static_assert(
-        std::is_same_v<KeyType, const char*> || std::is_same_v<KeyType, std::string_view>,
-        "Schema::discriminatorKey must be const either `char*` or `std::string_view`.");
-
-    return std::string_view(Schema::discriminatorKey);
+    return SchemaDiscriminatorKey<Schema>::get();
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
@@ -580,6 +647,9 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
     } else if constexpr (IsVariant<T>::value) {
         // Discriminated polymorphic encoding for std::variant.
         validateVariant<Schema, T>();
+        if (!VariantKeyValidator<Schema, EncoderImpl<Schema>, T>::validate(encoder)) {
+            return;
+        }
         dst = Json::objectValue;
 
         std::visit(
@@ -766,8 +836,12 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
         const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
         auto fieldNameView = firstObj.discriminatorKey();
+        if (!VariantKeyValidator<Schema, DecoderImpl<Schema>, std::variant<Ts...>>::validate(
+                decoder))
+        {
+            return;
+        }
         auto* fieldName = fieldNameView.data();
-        assertConsistentDiscriminatorKeys(fieldNameView);
 
         std::string tagValue;
         {
@@ -797,20 +871,6 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
     }
 
 private:
-    static void assertConsistentDiscriminatorKeys(std::string_view expected)
-    {
-        bool mismatch = false;
-        ((mismatch = mismatch ||
-                     (getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
-                      expected)),
-         ...);
-        if (mismatch) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Variant alternatives must use the same discriminator key.");
-            }
-        }
-    }
-
     template<typename Alt>
     static void tryAlternative(
         const Json::Value& src,
@@ -915,7 +975,7 @@ bool checkAdd(
     std::string_view discriminatorKey,
     const std::vector<Field>& fields)
 {
-    if (discriminatorKey == name) {
+    if (!discriminatorKey.empty() && discriminatorKey == name) {
         if constexpr (Schema::EnableAssert::value) {
             assert(false && "Field name is reserved as discriminator for this type.");
         }
@@ -972,7 +1032,7 @@ class ObjectImpl<Schema, Owner, EncodeOnly>
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
     std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
+    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
@@ -991,8 +1051,14 @@ public:
         }
     }
 
-    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key)
     {
+        if (key.empty()) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Discriminator key cannot be empty.");
+            }
+            return;
+        }
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
@@ -1004,6 +1070,15 @@ public:
         hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
+    }
+
+    template<
+        typename S = Schema,
+        typename =
+            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
+    void discriminator(std::string_view tag)
+    {
+        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
@@ -1044,7 +1119,7 @@ class ObjectImpl<Schema, Owner, DecodeOnly>
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
     std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
+    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
@@ -1063,8 +1138,14 @@ public:
         }
     }
 
-    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key)
     {
+        if (key.empty()) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Discriminator key cannot be empty.");
+            }
+            return;
+        }
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
@@ -1075,6 +1156,15 @@ public:
         hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
+    }
+
+    template<
+        typename S = Schema,
+        typename =
+            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
+    void discriminator(std::string_view tag)
+    {
+        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
@@ -1120,7 +1210,7 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
     std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getDiscriminatorKey<Schema>());
+    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
 
 public:
     template<typename T>
@@ -1140,8 +1230,14 @@ public:
         }
     }
 
-    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key)
     {
+        if (key.empty()) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Discriminator key cannot be empty.");
+            }
+            return;
+        }
         if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "discriminator(...) already set for this object.");
@@ -1151,6 +1247,15 @@ public:
         hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
+    }
+
+    template<
+        typename S = Schema,
+        typename =
+            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
+    void discriminator(std::string_view tag)
+    {
+        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
