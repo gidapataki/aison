@@ -10,7 +10,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -966,7 +965,7 @@ public:
         }
     }
 
-    void discriminator(detail::DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag)
     {
         auto discKey = getDiscriminatorKey<Schema>();
         for (const auto& field : fields_) {
@@ -1029,7 +1028,7 @@ public:
         }
     }
 
-    void discriminator(detail::DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag)
     {
         auto discKey = getDiscriminatorKey<Schema>();
         for (const auto& field : fields_) {
@@ -1098,7 +1097,7 @@ public:
         }
     }
 
-    void discriminator(detail::DiscriminatorType tag)
+    void discriminator(DiscriminatorType tag)
     {
         auto discKey = getDiscriminatorKey<Schema>();
         for (const auto& field : fields_) {
