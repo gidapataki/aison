@@ -16,31 +16,31 @@ jobs:
 
       - name: Build & Test (Debug)
         run: |
-          cmake -S . -B build/debug -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build/debug -G Ninja -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/debug --config Debug
           ctest --test-dir build/debug --output-on-failure
 
       - name: Build & Test (Release)
         run: |
-          cmake -S . -B build/release -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build/release -G Ninja -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
           cmake --build build/release --config Release
           ctest --test-dir build/release --output-on-failure
 
       - name: Build & Test (Debug + ASan)
         run: |
-          cmake -S . -B build/asan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build/asan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/asan --config Debug
           ctest --test-dir build/asan --output-on-failure
 
       - name: Build & Test (Debug + UBSan)
         run: |
-          cmake -S . -B build/ubsan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_UBSAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build/ubsan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_UBSAN=ON -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/ubsan --config Debug
           ctest --test-dir build/ubsan --output-on-failure
 
       - name: Build & Test (Debug + LSan)  # Linux only
         if: runner.os == 'Linux'
         run: |
-          cmake -S . -B build/lsan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_LSAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake -S . -B build/lsan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_LSAN=ON -DCMAKE_BUILD_TYPE=Debug
           cmake --build build/lsan --config Debug
           ctest --test-dir build/lsan --output-on-failure
