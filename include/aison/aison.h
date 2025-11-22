@@ -588,16 +588,16 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 using Alt = std::decay_t<decltype(alt)>;
 
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
-        if (!objectDef.hasDiscriminatorTag()) {
-            PathScope guard(encoder, getDiscriminatorKey<Schema>().data());
-            encoder.addError("Variant alternative missing discriminator().");
-            return;
-        }
+                if (!objectDef.hasDiscriminatorTag()) {
+                    PathScope guard(encoder, objectDef.discriminatorKey().data());
+                    encoder.addError("Variant alternative missing discriminator().");
+                    return;
+                }
 
-        // Encode discriminator using a string payload.
-        Json::Value tagJson;
-        const std::string tagValue(objectDef.discriminatorTag());
-        encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
+                // Encode discriminator using a string payload.
+                Json::Value tagJson;
+                const std::string tagValue(objectDef.discriminatorTag());
+                encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
 
                 // Encode variant-specific fields into the same object.
                 objectDef.encodeFields(alt, dst, encoder);
@@ -768,6 +768,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
         auto fieldNameView = firstObj.discriminatorKey();
         auto* fieldName = fieldNameView.data();
+        assertConsistentDiscriminatorKeys(fieldNameView);
 
         std::string tagValue;
         {
@@ -796,6 +797,21 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         }
     }
 
+private:
+    static void assertConsistentDiscriminatorKeys(std::string_view expected)
+    {
+        bool mismatch = false;
+        ((mismatch = mismatch ||
+                     (getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
+                      expected)),
+         ...);
+        if (mismatch) {
+            if constexpr (Schema::EnableAssert::value) {
+                assert(false && "Variant alternatives must use the same discriminator key.");
+            }
+        }
+    }
+
     template<typename Alt>
     static void tryAlternative(
         const Json::Value& src,
@@ -807,7 +823,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getSchemaObject<ObjectSpec>();
         if (!objectDef.hasDiscriminatorTag()) {
-            PathScope guard(decoder, getDiscriminatorKey<Schema>().data());
+            PathScope guard(decoder, objectDef.discriminatorKey().data());
             decoder.addError("Variant alternative missing discriminator().");
             return;
         }
