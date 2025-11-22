@@ -1,24 +1,61 @@
-
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
+  push:
+    branches: [ * ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Configure (Debug)
+        run: cmake -S . -B build/debug -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
 
-      - name: Build
-        run: cmake --build build --config Release
+      - name: Build (Debug)
+        run: cmake --build build/debug --config Debug
 
-      - name: Test
-        run: ctest --test-dir build
+      - name: Test (Debug)
+        run: ctest --test-dir build/debug --output-on-failure
+
+      - name: Configure (Release)
+        run: cmake -S . -B build/release -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build (Release)
+        run: cmake --build build/release --config Release
+
+      - name: Test (Release)
+        run: ctest --test-dir build/release --output-on-failure
+
+      - name: Configure (ASan Debug)
+        run: cmake -S . -B build/asan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (ASan Debug)
+        run: cmake --build build/asan --config Debug
+
+      - name: Test (ASan Debug)
+        run: ctest --test-dir build/asan --output-on-failure
+
+      - name: Configure (UBSan Debug)
+        run: cmake -S . -B build/ubsan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_UBSAN=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (UBSan Debug)
+        run: cmake --build build/ubsan --config Debug
+
+      - name: Test (UBSan Debug)
+        run: ctest --test-dir build/ubsan --output-on-failure
+
+      - name: Configure (LSan Debug, Linux only)
+        if: runner.os == 'Linux'
+        run: cmake -S . -B build/lsan -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_LSAN=ON -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build (LSan Debug)
+        if: runner.os == 'Linux'
+        run: cmake --build build/lsan --config Debug
+
+      - name: Test (LSan Debug)
+        if: runner.os == 'Linux'
+        run: ctest --test-dir build/lsan --output-on-failure
