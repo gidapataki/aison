@@ -26,7 +26,11 @@ DEFAULT_GENERATOR = "Ninja"
 
 
 def run(cmd: List[str], cwd: Path | None = None) -> None:
-    print("+", " ".join(cmd))
+    info = []
+    if cwd is not None:
+        info = [f"(cwd = {cwd})"]
+
+    print("+", " ".join(cmd + info))
     subprocess.check_call(cmd, cwd=cwd)
 
 
