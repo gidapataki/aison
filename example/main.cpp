@@ -188,9 +188,9 @@ std::optional<RGBColor> toRGBColor(const std::string& str)
     auto colorValue = std::strtoul(start + 1, &end, 16);
 
     RGBColor color;
-    color.r = (colorValue >> 24) & 0xff;
-    color.g = (colorValue >> 16) & 0xff;
-    color.b = (colorValue >> 8) & 0xff;
+    color.r = (colorValue >> 16) & 0xff;
+    color.g = (colorValue >> 8) & 0xff;
+    color.b = (colorValue >> 0) & 0xff;
     return {color};
 }
 
@@ -281,6 +281,15 @@ int main()
 {
     testTextSchema();
     testShapeSchema();
-    std::cout << "FINGERS CROSSED\n";
+
+    Json::Value root;
+    RGBColor col{0x92, 0xca, 0x30};
+    aison::encode<TextSchema>(col, root, {});
+    std::cout << root.toStyledString() << "\n";
+
+    aison::decode<TextSchema>(root, col, {});
+    aison::encode<TextSchema>(col, root, {});
+    std::cout << root.toStyledString() << "\n";
+
     return 0;
 }

@@ -805,10 +805,6 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         }
 
         auto* fieldName = getDiscriminatorKey<Schema>().data();
-        if (!src.isMember(fieldName)) {
-            decoder.addError(std::string("Missing discriminator field '") + fieldName + "'.");
-            return;
-        }
 
         // Determine TagType from the first alternative
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
@@ -817,11 +813,19 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
 
         // Decode tag value using existing enum/primitive machinery
         TagType tagValue{};
-        auto errorCount = decoder.errorCount();
-        decodeDefault<Schema, TagType>(src[fieldName], tagValue, decoder);
-        if (errorCount != decoder.errorCount()) {
-            // Enum/type mismatch already recorded
-            return;
+        {
+            PathScope discGuard(decoder, fieldName);
+            if (!src.isMember(fieldName)) {
+                decoder.addError("Missing discriminator field.");
+                return;
+            }
+
+            auto errorCount = decoder.errorCount();
+            decodeDefault<Schema, TagType>(src[fieldName], tagValue, decoder);
+            if (errorCount != decoder.errorCount()) {
+                // Enum/type mismatch already recorded
+                return;
+            }
         }
 
         bool matched = false;
@@ -830,6 +834,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
         (tryAlternative<Ts>(src, tagValue, value, decoder, matched), ...);
 
         if (!matched) {
+            detail::PathScope discGuard(decoder, fieldName);
             decoder.addError("Unknown discriminator value for variant.");
         }
     }
