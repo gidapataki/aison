@@ -94,11 +94,13 @@ def cmd_deps(args: argparse.Namespace) -> None:
     bt = read_build_type()
     print_config(bt)
     out_dir = deps_dir(bt)
+    deploy_dir = os.path.join("lib", "deps")
     os.makedirs(out_dir, exist_ok=True)
     run([
         "conan", "install", ".",
         "--output-folder", out_dir,
         "--deployer=full_deploy",
+        "--deployer-folder", deploy_dir,
         "-s", f"build_type={bt}",
         "--build=missing",
     ])
