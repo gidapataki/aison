@@ -16,16 +16,36 @@
 #include <variant>
 #include <vector>
 
-namespace aison {
-
 // Forward declarations ////////////////////////////////////////////////////////////////////////////
+
+namespace aison {
 
 struct EmptyConfig;
 struct EncodeOnly;
 struct DecodeOnly;
 struct EncodeDecode;
 
-namespace detail {
+struct Error;
+struct Result;
+
+template<typename Schema, typename T>
+struct Object;
+
+template<typename Schema, typename T>
+struct Enum;
+
+template<typename Derived, typename FacetTag, typename Config>
+struct Schema;
+
+template<typename Schema, typename T>
+struct Encoder;
+
+template<typename Schema, typename T>
+struct Decoder;
+
+}  // namespace aison
+
+namespace aison::detail {
 
 class Context;
 struct PathSegment;
@@ -34,6 +54,7 @@ struct EnumBase;
 
 using FieldContextDeleter = void (*)(void*);
 using FieldContextPtr = std::unique_ptr<void, FieldContextDeleter>;
+using DiscriminatorType = std::string_view;
 
 template<typename Schema>
 class EncoderImpl;
@@ -103,29 +124,11 @@ std::string_view getDiscriminatorKey();
 template<typename T>
 T& getSchemaObject();
 
-    using DiscriminatorType = std::string_view;
-
-}  // namespace detail
-
-struct Error;
-struct Result;
-
-template<typename Schema, typename T>
-struct Object;
-
-template<typename Schema, typename T>
-struct Enum;
-
-template<typename Derived, typename FacetTag, typename Config>
-struct Schema;
-
-template<typename Schema, typename T>
-struct Encoder;
-
-template<typename Schema, typename T>
-struct Decoder;
+}  // namespace aison::detail
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
+
+namespace aison {
 
 struct Error {
     std::string path;
@@ -165,7 +168,9 @@ struct Schema {
     // template<typename T> struct Decoder;
 };
 
-namespace detail {
+}  // namespace aison
+
+namespace aison::detail {
 
 // Path tracking /////////////////////////////////////////////////////////////////////////////
 
@@ -1142,7 +1147,9 @@ public:
     }
 };
 
-}  // namespace detail
+}  // namespace aison::detail
+
+namespace aison {
 
 // Object / Enum wrappers ///////////////////////////////////////////////////////////////////
 
