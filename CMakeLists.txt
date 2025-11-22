@@ -53,6 +53,7 @@ if(1)
       test/types_basic.cpp
       test/types_variant.cpp
       test/types_custom.cpp
+      test/runtime_asserts.cpp
   )
 
   target_include_directories(aison-test PRIVATE
