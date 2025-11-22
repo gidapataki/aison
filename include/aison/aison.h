@@ -444,12 +444,15 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
         bool emptyKey = false;
         bool mismatch = false;
         ((emptyKey =
-              emptyKey || getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty()),
+              emptyKey ||
+              getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty()),
          ...);
         ((mismatch = mismatch ||
-                    (!getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty() &&
-                     getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
-                         firstKey)),
+                     (!getSchemaObject<typename Schema::template Object<Ts>>()
+                           .discriminatorKey()
+                           .empty() &&
+                      getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
+                          firstKey)),
          ...);
 
         if (emptyKey) {
@@ -907,9 +910,9 @@ struct EncodeOnlyFieldDesc {
         void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
 
     EncodeFn encode;
-    const char* name;
-    const void* context;
-    const void* contextId;
+    std::string name;
+    const void* context = nullptr;
+    const void* contextId = nullptr;
 };
 
 // Decode-only descriptor
@@ -919,9 +922,9 @@ struct DecodeOnlyFieldDesc {
         void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
 
     DecodeFn decode;
-    const char* name;
-    const void* context;
-    const void* contextId;
+    std::string name;
+    const void* context = nullptr;
+    const void* contextId = nullptr;
 };
 
 // Encode+Decode descriptor
@@ -934,9 +937,9 @@ struct EncodeDecodeFieldDesc {
 
     EncodeFn encode;
     DecodeFn decode;
-    const char* name;
-    const void* context;
-    const void* contextId;
+    std::string name;
+    const void* context = nullptr;
+    const void* contextId = nullptr;
 };
 
 template<typename Owner, typename T>
@@ -1036,13 +1039,13 @@ class ObjectImpl<Schema, Owner, EncodeOnly>
 
 public:
     template<typename T>
-    void add(T Owner::* member, const char* name)
+    void add(T Owner::* member, std::string_view name)
     {
         if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
-            f.name = name;
+            f.name = std::string(name);
             f.encode = &encodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
             f.contextId = getFieldContextId<Owner, T>();
@@ -1123,13 +1126,13 @@ class ObjectImpl<Schema, Owner, DecodeOnly>
 
 public:
     template<typename T>
-    void add(T Owner::* member, const char* name)
+    void add(T Owner::* member, std::string_view name)
     {
         if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
-            f.name = name;
+            f.name = std::string(name);
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
             f.contextId = getFieldContextId<Owner, T>();
@@ -1214,13 +1217,13 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
 
 public:
     template<typename T>
-    void add(T Owner::* member, const char* name)
+    void add(T Owner::* member, std::string_view name)
     {
         if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
             auto& ctx = contexts_.emplace_back(makeFieldContext(member));
 
             Field f;
-            f.name = name;
+            f.name = std::string(name);
             f.encode = &encodeFieldThunk<Schema, Owner, T>;
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
