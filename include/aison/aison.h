@@ -246,10 +246,10 @@ protected:
 struct PathScope {
     Context* ctx = nullptr;
 
-    PathScope(Context& context, const char* key)
+    PathScope(Context& context, std::string_view key)
         : ctx(&context)
     {
-        ctx->pathStack_.push_back(PathSegment::makeKey(key));
+        ctx->pathStack_.push_back(PathSegment::makeKey(key.data()));
     }
 
     PathScope(Context& context, std::size_t index)
@@ -1177,7 +1177,7 @@ public:
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
         for (const auto& field : fields_) {
-            const char* key = field.name;
+            const auto& key = field.name;
             if (!src.isMember(key)) {
                 decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
@@ -1278,7 +1278,7 @@ public:
     void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
     {
         for (const auto& field : fields_) {
-            const char* key = field.name;
+            const auto& key = field.name;
             if (!src.isMember(key)) {
                 decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
