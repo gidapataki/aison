@@ -118,7 +118,7 @@ struct Rectangle {
 using Shape = std::variant<Circle, Rectangle>;
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static constexpr auto discriminatorKey = "__type__";
+    static constexpr auto discriminatorKey = "kind";
 
     template<typename T>
     struct Object;
@@ -268,15 +268,6 @@ int main()
 {
     testTextSchema();
     testShapeSchema();
-
-    Json::Value root;
-    RGBColor col{0x92, 0xca, 0x30};
-    aison::encode<TextSchema>(col, root, {});
-    std::cout << root.toStyledString() << "\n";
-
-    aison::decode<TextSchema>(root, col, {});
-    aison::encode<TextSchema>(col, root, {});
-    std::cout << root.toStyledString() << "\n";
 
     return 0;
 }
