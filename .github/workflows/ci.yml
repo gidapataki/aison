@@ -1,24 +1,46 @@
-
 name: CI
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
+  push:
+    branches: [ "**" ]
 
 jobs:
-  build:
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build & Test (Debug)
+        run: |
+          cmake -S . -B build/debug -G Ninja -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/debug --config Debug
+          ctest --test-dir build/debug --output-on-failure
 
-      - name: Build
-        run: cmake --build build --config Release
+      - name: Build & Test (Release)
+        run: |
+          cmake -S . -B build/release -G Ninja -DAISON_BUILD_TESTS=ON -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/release --config Release
+          ctest --test-dir build/release --output-on-failure
 
-      - name: Test
-        run: ctest --test-dir build
+      - name: Build & Test (Debug + ASan)
+        run: |
+          cmake -S . -B build/asan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_ASAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/asan --config Debug
+          ctest --test-dir build/asan --output-on-failure
+
+      - name: Build & Test (Debug + UBSan)
+        run: |
+          cmake -S . -B build/ubsan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_UBSAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/ubsan --config Debug
+          ctest --test-dir build/ubsan --output-on-failure
+
+      - name: Build & Test (Debug + LSan)  # Linux only
+        if: runner.os == 'Linux'
+        run: |
+          cmake -S . -B build/lsan -G Ninja -DAISON_BUILD_TESTS=ON -DAISON_ENABLE_LSAN=ON -DCMAKE_BUILD_TYPE=Debug
+          cmake --build build/lsan --config Debug
+          ctest --test-dir build/lsan --output-on-failure

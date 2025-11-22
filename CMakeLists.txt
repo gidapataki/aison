@@ -6,14 +6,6 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-
-# upsan
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
-
-# asan
-# set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O2 -g -fsanitize=address -fno-omit-frame-pointer")
-
-
 # deps
 
 set(JSONCPP_WITH_TESTS                OFF CACHE INTERNAL "")
@@ -45,15 +37,22 @@ target_link_libraries(example PRIVATE aison)
 
 # test
 
-if(1)
+option(AISON_BUILD_TESTS "Build Aison tests" ON)
+option(AISON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
+option(AISON_ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
+option(AISON_ENABLE_LSAN "Build with LeakSanitizer (Linux only)" OFF)
+
+if(AISON_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
   add_executable(aison-test
-      test/basic.cpp
-      test/variant.cpp
-      test/schema_guards.cpp
-      test/schema_with_config.cpp
+      test/utils.cpp
+      test/types_basic.cpp
+      test/types_variant.cpp
+      test/types_custom.cpp
+      test/runtime_asserts.cpp
+      test/runtime_errors.cpp
   )
 
   target_include_directories(aison-test PRIVATE
@@ -62,6 +61,21 @@ if(1)
   )
 
   target_link_libraries(aison-test PRIVATE aison)
+
+  if(AISON_ENABLE_ASAN)
+    target_compile_options(aison-test PRIVATE -fsanitize=address)
+    target_link_options(aison-test PRIVATE -fsanitize=address)
+  endif()
+
+  if(AISON_ENABLE_UBSAN)
+    target_compile_options(aison-test PRIVATE -fsanitize=undefined)
+    target_link_options(aison-test PRIVATE -fsanitize=undefined)
+  endif()
+
+  if(AISON_ENABLE_LSAN AND NOT APPLE)
+    target_compile_options(aison-test PRIVATE -fsanitize=leak)
+    target_link_options(aison-test PRIVATE -fsanitize=leak)
+  endif()
 
 
   add_test(NAME aison-test COMMAND aison-test)

@@ -10,17 +10,17 @@ only on JsonCpp.
 - clear struct → JSON mappings
 - strict decoding with useful error messages
 - supports:
-  - integral and floating-point types
-  - `std::string`
-  - structs (via schema)
-  - enums
-  - `std::optional`
-  - `std::vector`
-  - custom encode/decode hooks (optionally using a runtime config)
+    - integral and floating-point types
+    - `std::string`
+    - `std::optional`
+    - `std::vector`
+    - custom enums & structs (via schema)
+    - discriminated unions of schema-mapped objects (via `std::variant`)
+    - custom encode/decode hooks (optionally using a config object)
 - schema properties:
-  - non-intrusive definitions (no changes to your structs)
-  - multiple schemas for the same type
-  - schemas are fully independent
+    - non-intrusive definitions (no changes to your structs)
+    - multiple schemas for the same type
+    - schemas are fully independent
 
 ### Requirements
 - C++17
@@ -28,7 +28,7 @@ only on JsonCpp.
 
 ### Documentation
 
-- [Quick Reference](REFERENCE.md)
+- [Reference Manual](REFERENCE.md)
 
 
 ### Advanced example
@@ -153,6 +153,43 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 }
 ```
 
+### Polymorphism (`std::variant`)
+
+```C++
+enum class ShapeKind { kCircle, kRectangle };
+
+struct Circle {
+    float radius;
+};
+
+struct Rectangle {
+    float width;
+    float height;
+};
+
+using Shape = std::variant<Circle, Rectangle>;
+
+struct ShapeSchema : aison::Schema<ShapeSchema> {
+    static const auto discriminatorKey = "kind"; // (optional) sets default key for all types
+    template<typename T> struct Object;
+};
+
+template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object() {
+        discriminator("circle");
+        add(&Circle::radius, "radius");
+    }
+};
+
+template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+    Object() {
+        discriminator("rect", "kind"); // (optional) override default key for this type
+        add(&Rectangle::width, "width");
+        add(&Rectangle::height, "height");
+    }
+};
+```
+
 ### Design principles
 
 - C++ only - no RTTI, no virtual functions
@@ -166,10 +203,7 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 
 #### Note on the project's origin
 
-Aison began as an experiment to see how quickly a library can be developed when
-AI-assisted tooling is used to speed up exploration and rewriting. It was
-eye-opening how fast different approaches could be tried and tested.
-
-After a rapid prototyping phase, the library went through a full manual refactor,
-followed by several rounds of review and polishing. The final result reflects
-deliberate engineering decisions.
+Aison was inspired by Circe, and also started as an experiment to see how fast it can evolve
+when AI-assisted tooling is used to speed up exploration and refactoring. It was eye-opening
+to see how much difference it makes if we can quickly jump between different design ideas
+without losing touch with the internal details.

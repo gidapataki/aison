@@ -106,8 +106,6 @@ struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
 
 // ShapeSchema
 
-enum class ShapeKind { kCircle, kRectangle };
-
 struct Circle {
     float radius = 0;
 };
@@ -120,37 +118,26 @@ struct Rectangle {
 using Shape = std::variant<Circle, Rectangle>;
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static constexpr auto discriminatorKey = "__type__";
-
-    template<typename T>
-    struct Enum;
+    static constexpr auto discriminatorKey = "kind";
 
     template<typename T>
     struct Object;
 };
 
 template<>
-struct ShapeSchema::Enum<ShapeKind> : aison::Enum<ShapeSchema, ShapeKind> {
-    Enum()
+struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    Object()
     {
-        add(ShapeKind::kCircle, "circle");
-        add(ShapeKind::kRectangle, "rect");
+        discriminator("circle");
+        add(&Circle::radius, "radius");
     }
 };
 
 template<>
-struct ShapeSchema::Object<Circle>
-    : aison::Object<ShapeSchema, Circle>
-    , aison::Discriminator<ShapeSchema, Circle, ShapeKind::kCircle> {
-    Object() { add(&Circle::radius, "radius"); }
-};
-
-template<>
-struct ShapeSchema::Object<Rectangle>
-    : aison::Object<ShapeSchema, Rectangle>
-    , aison::Discriminator<ShapeSchema, Rectangle, ShapeKind::kRectangle> {
+struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object()
     {
+        discriminator("rect");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }
@@ -188,9 +175,9 @@ std::optional<RGBColor> toRGBColor(const std::string& str)
     auto colorValue = std::strtoul(start + 1, &end, 16);
 
     RGBColor color;
-    color.r = (colorValue >> 24) & 0xff;
-    color.g = (colorValue >> 16) & 0xff;
-    color.b = (colorValue >> 8) & 0xff;
+    color.r = (colorValue >> 16) & 0xff;
+    color.g = (colorValue >> 8) & 0xff;
+    color.b = (colorValue >> 0) & 0xff;
     return {color};
 }
 
@@ -281,6 +268,6 @@ int main()
 {
     testTextSchema();
     testShapeSchema();
-    std::cout << "FINGERS CROSSED\n";
+
     return 0;
 }
