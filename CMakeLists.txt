@@ -50,10 +50,12 @@ if(1)
   enable_testing()
 
   add_executable(aison-test
+      test/utils.cpp
       test/types_basic.cpp
       test/types_variant.cpp
       test/types_custom.cpp
       test/runtime_asserts.cpp
+      test/runtime_errors.cpp
   )
 
   target_include_directories(aison-test PRIVATE
