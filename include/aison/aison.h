@@ -54,7 +54,6 @@ struct EnumBase;
 
 using FieldContextDeleter = void (*)(void*);
 using FieldContextPtr = std::unique_ptr<void, FieldContextDeleter>;
-using DiscriminatorType = std::string_view;
 
 template<typename Schema>
 class EncoderImpl;
@@ -992,7 +991,7 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
@@ -1064,7 +1063,7 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
@@ -1073,8 +1072,8 @@ public:
             }
             return;
         }
-        discriminatorKey_ = std::string(key);
         hasDiscriminatorTag_ = true;
+        discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
     }
 
@@ -1141,7 +1140,7 @@ public:
         }
     }
 
-    void discriminator(DiscriminatorType tag, std::string_view key = getDiscriminatorKey<Schema>())
+    void discriminator(std::string_view tag, std::string_view key = getDiscriminatorKey<Schema>())
     {
         if (hasDiscriminatorTag_) {
             if constexpr (Schema::EnableAssert::value) {
@@ -1149,8 +1148,8 @@ public:
             }
             return;
         }
-        discriminatorKey_ = std::string(key);
         hasDiscriminatorTag_ = true;
+        discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
     }
 
