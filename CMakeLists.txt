@@ -8,6 +8,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # deps
 
+option(AISON_USE_BUNDLED_JSONCPP "Use bundled jsoncpp submodule" ON)
+
 set(JSONCPP_WITH_TESTS                OFF CACHE INTERNAL "")
 set(JSONCPP_WITH_POST_BUILD_UNITTEST  OFF CACHE INTERNAL "")
 set(JSONCPP_WITH_WARNING_AS_ERROR     OFF CACHE INTERNAL "")
@@ -20,7 +22,24 @@ set(BUILD_SHARED_LIBS                 OFF CACHE INTERNAL "")
 set(BUILD_STATIC_LIBS                 ON  CACHE INTERNAL "")
 set(BUILD_OBJECT_LIBS                 OFF CACHE INTERNAL "")
 
-add_subdirectory(third_party/jsoncpp)
+set(AISON_JSONCPP_TARGET "")
+if(NOT AISON_USE_BUNDLED_JSONCPP)
+  find_package(jsoncpp 1.9.5 CONFIG QUIET)
+  if(jsoncpp_FOUND)
+    if(TARGET jsoncpp_lib)
+      set(AISON_JSONCPP_TARGET jsoncpp_lib)
+    elseif(TARGET jsoncpp_static)
+      set(AISON_JSONCPP_TARGET jsoncpp_static)
+    elseif(TARGET JsonCpp::JsonCpp)
+      set(AISON_JSONCPP_TARGET JsonCpp::JsonCpp)
+    endif()
+  endif()
+endif()
+
+if(AISON_JSONCPP_TARGET STREQUAL "")
+  add_subdirectory(third_party/jsoncpp)
+  set(AISON_JSONCPP_TARGET jsoncpp_static)
+endif()
 
 # aison
 
@@ -28,7 +47,7 @@ add_library(aison INTERFACE)
 target_include_directories(
   aison INTERFACE $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                   $<INSTALL_INTERFACE:include>)
-target_link_libraries(aison INTERFACE jsoncpp_static)
+target_link_libraries(aison INTERFACE ${AISON_JSONCPP_TARGET})
 
 # example
 
@@ -76,7 +95,6 @@ if(AISON_BUILD_TESTS)
     target_compile_options(aison-test PRIVATE -fsanitize=leak)
     target_link_options(aison-test PRIVATE -fsanitize=leak)
   endif()
-
 
   add_test(NAME aison-test COMMAND aison-test)
 endif()

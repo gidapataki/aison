@@ -1,220 +1,174 @@
 #!/usr/bin/env python3
+"""
+Simple build helper for the Aison project.
+
+Commands:
+  - config <debug|release> : set the default build type (stored in .plsconfig)
+  - deps                   : install deps via Conan for the current build type
+  - gen                    : configure CMake (uses Ninja, Conan toolchain if present)
+  - make                   : build via CMake in the current build directory
+
+Defaults:
+  - build type: Debug
+  - build dir:  build/<type>  (e.g., build/debug)
+  - deps dir:   build/deps/<type> (Conan output)
+"""
+
 import argparse
+import json
 import os
 import subprocess
 import sys
+from typing import Optional
 
-# ---- low-level helpers -------------------------------------------------------
+DEFAULT_BUILD_TYPE = "Debug"
+CONFIG_FILE = ".plsconfig"
 
 
-def run_cmd(cmd, cwd=None):
+# --------------------------------------------------------------------------- #
+# Utilities
+# --------------------------------------------------------------------------- #
+
+def run(cmd: list[str], cwd: Optional[str] = None) -> None:
     print("+", " ".join(cmd))
-    try:
-        subprocess.check_call(cmd, cwd=cwd)
-        return True
-    except subprocess.CalledProcessError as err:
-        return False
+    subprocess.check_call(cmd, cwd=cwd)
 
 
-def is_configured(build_dir: str) -> bool:
-    return os.path.isfile(os.path.join(build_dir, "CMakeCache.txt"))
+def read_build_type() -> str:
+    if os.path.isfile(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            bt = data.get("build_type", DEFAULT_BUILD_TYPE)
+            return bt
+        except Exception:
+            pass
+    return DEFAULT_BUILD_TYPE
 
-# ---- core actions: no argparse here, only plain args -------------------------
+
+def write_build_type(bt: str) -> None:
+    with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+        json.dump({"build_type": bt}, f)
 
 
-def do_gen(build_dir: str,
-           build_type: str,
-           generator: str,
-           cmake_defs: list[str]):
-    os.makedirs(build_dir, exist_ok=True)
+def norm_build_type(val: str) -> str:
+    v = val.strip().lower()
+    if v in ("debug", "dbg"):
+        return "Debug"
+    if v in ("release", "rel"):
+        return "Release"
+    raise ValueError("build type must be debug or release")
 
-    cmd = [
+
+def build_dir(bt: str) -> str:
+    return os.path.join("build", bt.lower())
+
+
+def deps_dir(bt: str) -> str:
+    return os.path.join("build", "deps", bt.lower())
+
+
+def conan_toolchain(bt: str) -> str:
+    return os.path.join(deps_dir(bt), "conan_toolchain.cmake")
+
+
+# --------------------------------------------------------------------------- #
+# Commands
+# --------------------------------------------------------------------------- #
+
+def cmd_config(args: argparse.Namespace) -> None:
+    bt = norm_build_type(args.build_type)
+    write_build_type(bt)
+    print(f"Build type set to {bt}")
+
+
+def cmd_deps(args: argparse.Namespace) -> None:
+    bt = read_build_type()
+    out_dir = deps_dir(bt)
+    os.makedirs(out_dir, exist_ok=True)
+    run([
+        "conan", "install", ".",
+        "--output-folder", out_dir,
+        "-s", f"build_type={bt}",
+        "--build=missing",
+    ])
+    print(f"Deps installed for {bt} in {out_dir}")
+
+
+def cmd_gen(args: argparse.Namespace) -> None:
+    bt = read_build_type()
+    bdir = build_dir(bt)
+    os.makedirs(bdir, exist_ok=True)
+
+    cmake_cmd = [
         "cmake",
         "-S", ".",
-        "-B", build_dir,
-        "-G", generator,
-        f"-DCMAKE_BUILD_TYPE={build_type}",
+        "-B", bdir,
+        "-G", "Ninja",
+        f"-DCMAKE_BUILD_TYPE={bt}",
+        "-DAISON_BUILD_TESTS=ON",
     ]
-    # extra -D flags passed as-is
-    for d in cmake_defs:
-        cmd.append(f"-D{d}")
 
-    return run_cmd(cmd)
+    tc_path = conan_toolchain(bt)
+    if os.path.isfile(tc_path):
+        cmake_cmd.append(f"-DCMAKE_TOOLCHAIN_FILE={tc_path}")
+        cmake_cmd.append("-DAISON_USE_BUNDLED_JSONCPP=OFF")
 
-
-def do_make(build_dir: str,
-            build_type: str,
-            generator: str,
-            cmake_defs: list[str],
-            targets: list[str]):
-    # configure if needed
-    if not is_configured(build_dir):
-        if not do_gen(build_dir, build_type, generator, cmake_defs):
-            return False
-
-    cmd = ["cmake", "--build", build_dir]
-    if targets:
-        cmd.extend(["--target", *targets])
-    return run_cmd(cmd)
+    run(cmake_cmd)
+    print(f"Configured {bt} in {bdir}")
 
 
-def do_run(build_dir: str,
-           build_type: str,
-           generator: str,
-           cmake_defs: list[str],
-           executable: str,
-           exe_args: list[str],
-           build_targets: list[str]):
-    # make first (optionally only specific targets)
-    if not do_make(build_dir, build_type, generator, cmake_defs, build_targets):
-        return False
-
-    exe_path = os.path.join(build_dir, "bin", executable)
-    if os.name == "nt":
-        exe_path += ".exe"
-
-    if not os.path.isfile(exe_path):
-        print(f"error: executable '{exe_path}' not found", file=sys.stderr)
-        sys.exit(1)
-
-    return run_cmd([exe_path, *exe_args])
+def cmd_make(args: argparse.Namespace) -> None:
+    bt = read_build_type()
+    bdir = build_dir(bt)
+    if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
+        print("Build directory not configured; running gen first")
+        cmd_gen(args)
+    run(["cmake", "--build", bdir])
 
 
-def do_test(build_dir: str,
-            build_type: str,
-            generator: str,
-            cmake_defs: list[str],
-            label: str | None):
-    # ensure tests are built (let CMake decide what that means)
-    if not do_make(build_dir, build_type, generator, cmake_defs, targets=[]):
-        return False
-
-    cmd = ["ctest", "--output-on-failure"]
-    if label:
-        cmd.extend(["-L", label])
-    return run_cmd(cmd, cwd=build_dir)
-
-# ---- CLI layer: just wiring args to core functions ---------------------------
+def cmd_test(args: argparse.Namespace) -> None:
+    bt = read_build_type()
+    bdir = build_dir(bt)
+    if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
+        print("Build directory not configured; running gen first")
+        cmd_gen(args)
+    run(["ctest", "--output-on-failure"], cwd=bdir)
 
 
-def main():
-    parser = argparse.ArgumentParser(prog="pls")
+# --------------------------------------------------------------------------- #
+# CLI wiring
+# --------------------------------------------------------------------------- #
 
-    # common options shared by all subcommands
-    common = argparse.ArgumentParser(add_help=False)
-    common.add_argument(
-        "-B", "--build-dir",
-        default="build",
-        help="Build directory (default: %(default)s)",
-    )
-    common.add_argument(
-        "-t", "--type",
-        dest="build_type",
-        default="Debug",
-        help="CMAKE_BUILD_TYPE (default: %(default)s)",
-    )
-    common.add_argument(
-        "-G", "--generator",
-        default="Ninja",
-        help="CMake generator (default: %(default)s)",
-    )
-    common.add_argument(
-        "-D",
-        dest="cmake_defs",
-        action="append",
-        default=[],
-        help="Extra -DVAR=VALUE definitions for CMake (can be repeated)",
-    )
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="pls", description="Aison build helper")
+    sub = parser.add_subparsers(dest="cmd", required=True)
 
-    subparsers = parser.add_subparsers(dest="cmd", required=True)
+    p_cfg = sub.add_parser("config", help="Set default build type (debug/release)")
+    p_cfg.add_argument("build_type", help="debug or release")
+    p_cfg.set_defaults(func=cmd_config)
 
-    # pls gen
-    p_gen = subparsers.add_parser("gen", parents=[common],
-                                  help="Configure the CMake project")
-    p_gen.set_defaults(
-        func=lambda a: do_gen(
-            build_dir=a.build_dir,
-            build_type=a.build_type,
-            generator=a.generator,
-            cmake_defs=a.cmake_defs,
-        )
-    )
+    p_deps = sub.add_parser("deps", help="Install dependencies via Conan for current config")
+    p_deps.set_defaults(func=cmd_deps)
 
-    # pls make [targets...]
-    p_make = subparsers.add_parser("make", parents=[common],
-                                   help="Build the project (optionally specific targets)")
-    p_make.add_argument(
-        "targets",
-        nargs="*",
-        help="Targets to build (default: all)",
-    )
-    p_make.set_defaults(
-        func=lambda a: do_make(
-            build_dir=a.build_dir,
-            build_type=a.build_type,
-            generator=a.generator,
-            cmake_defs=a.cmake_defs,
-            targets=a.targets,
-        )
-    )
+    p_gen = sub.add_parser("gen", help="Configure CMake (uses Ninja)")
+    p_gen.set_defaults(func=cmd_gen)
 
-    # pls run [options] -- [args to exe]
-    p_run = subparsers.add_parser("run", parents=[common],
-                                  help="Build and run an executable from the build dir")
-    p_run.add_argument(
-        "executable",
-        default="example",
-        nargs="?",
-        help="Name of the executable in the build dir (default: %(default)s)",
-    )
-    p_run.add_argument(
-        "--build-target",
-        action="append",
-        default=[],
-        help="Specific target(s) to build before running (can be repeated). "
-             "Default: build all.",
-    )
-    p_run.add_argument(
-        "rest",
-        nargs=argparse.REMAINDER,
-        help="Arguments to pass to the executable (prefix with --)",
-    )
+    p_make = sub.add_parser("make", help="Build via CMake in current config")
+    p_make.set_defaults(func=cmd_make)
 
-    def run_wrapper(a):
-        exe_args = a.rest
-        if exe_args and exe_args[0] == "--":
-            exe_args = exe_args[1:]
-        do_run(
-            build_dir=a.build_dir,
-            build_type=a.build_type,
-            generator=a.generator,
-            cmake_defs=a.cmake_defs,
-            executable=a.executable,
-            exe_args=exe_args,
-            build_targets=a.build_target,
-        )
-    p_run.set_defaults(func=run_wrapper)
-
-    # pls test
-    p_test = subparsers.add_parser("test", parents=[common],
-                                   help="Build (if needed) and run ctest")
-    p_test.add_argument(
-        "-L", "--label",
-        help="Only run tests with this label",
-    )
-    p_test.set_defaults(
-        func=lambda a: do_test(
-            build_dir=a.build_dir,
-            build_type=a.build_type,
-            generator=a.generator,
-            cmake_defs=a.cmake_defs,
-            label=a.label,
-        )
-    )
+    p_test = sub.add_parser("test", help="Run ctest in current config (builds if needed)")
+    p_test.set_defaults(func=cmd_test)
 
     args = parser.parse_args()
     args.func(args)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except subprocess.CalledProcessError as exc:
+        sys.exit(exc.returncode)
+    except Exception as exc:  # noqa: BLE001
+        print(f"error: {exc}", file=sys.stderr)
+        sys.exit(1)
