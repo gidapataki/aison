@@ -133,7 +133,10 @@ def cmd_test(args: argparse.Namespace) -> None:
     if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
         print("Build directory not configured; running gen first")
         cmd_gen(args)
-    run(["ctest", "--output-on-failure"], cwd=bdir)
+    cmd = ["ctest", "--output-on-failure"]
+    if args.verbose:
+        cmd.append("--verbose")
+    run(cmd, cwd=bdir)
 
 
 # --------------------------------------------------------------------------- #
@@ -158,6 +161,7 @@ def main() -> None:
     p_make.set_defaults(func=cmd_make)
 
     p_test = sub.add_parser("test", help="Run ctest in current config (builds if needed)")
+    p_test.add_argument("-v", "--verbose", action="store_true", help="Show test stdout/stderr")
     p_test.set_defaults(func=cmd_test)
 
     args = parser.parse_args()
