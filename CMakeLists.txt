@@ -51,8 +51,9 @@ if(1)
 
   add_executable(aison-test
       test/basic.cpp
-      test/schema_with_config.cpp
       test/variant.cpp
+      test/schema_guards.cpp
+      test/schema_with_config.cpp
   )
 
   target_include_directories(aison-test PRIVATE
