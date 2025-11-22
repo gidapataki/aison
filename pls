@@ -30,7 +30,11 @@ CONFIG_FILE = ".plsconfig"
 # --------------------------------------------------------------------------- #
 
 def run(cmd: list[str], cwd: Optional[str] = None) -> None:
-    print("+", " ".join(cmd))
+    info = []
+    if cwd is not None:
+        info = [f"(cwd = {cwd})"]
+
+    print("+", " ".join(cmd + info))
     subprocess.check_call(cmd, cwd=cwd)
 
 
@@ -72,6 +76,10 @@ def conan_toolchain(bt: str) -> str:
     return os.path.join(deps_dir(bt), "conan_toolchain.cmake")
 
 
+def print_config(bt: str) -> None:
+    print(f"Config {bt}")
+
+
 # --------------------------------------------------------------------------- #
 # Commands
 # --------------------------------------------------------------------------- #
@@ -84,6 +92,7 @@ def cmd_config(args: argparse.Namespace) -> None:
 
 def cmd_deps(args: argparse.Namespace) -> None:
     bt = read_build_type()
+    print_config(bt)
     out_dir = deps_dir(bt)
     os.makedirs(out_dir, exist_ok=True)
     run([
@@ -97,6 +106,7 @@ def cmd_deps(args: argparse.Namespace) -> None:
 
 def cmd_gen(args: argparse.Namespace) -> None:
     bt = read_build_type()
+    print_config(bt)
     bdir = build_dir(bt)
     os.makedirs(bdir, exist_ok=True)
 
@@ -120,6 +130,7 @@ def cmd_gen(args: argparse.Namespace) -> None:
 
 def cmd_make(args: argparse.Namespace) -> None:
     bt = read_build_type()
+    print_config(bt)
     bdir = build_dir(bt)
     if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
         print("Build directory not configured; running gen first")
@@ -129,6 +140,7 @@ def cmd_make(args: argparse.Namespace) -> None:
 
 def cmd_test(args: argparse.Namespace) -> None:
     bt = read_build_type()
+    print_config(bt)
     bdir = build_dir(bt)
     if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
         print("Build directory not configured; running gen first")
@@ -137,6 +149,21 @@ def cmd_test(args: argparse.Namespace) -> None:
     if args.verbose:
         cmd.append("--verbose")
     run(cmd, cwd=bdir)
+
+
+def cmd_run(args: argparse.Namespace) -> None:
+    bt = read_build_type()
+    print_config(bt)
+    bdir = build_dir(bt)
+    if not os.path.isfile(os.path.join(bdir, "CMakeCache.txt")):
+        print("Build directory not configured; running gen first")
+        cmd_gen(args)
+    # ensure built
+    run(["cmake", "--build", bdir, "--target", "example"])
+    exe_path = os.path.join(bdir, "bin", "example")
+    if os.name == "nt":
+        exe_path += ".exe"
+    run([exe_path, *args.rest])
 
 
 # --------------------------------------------------------------------------- #
@@ -163,6 +190,10 @@ def main() -> None:
     p_test = sub.add_parser("test", help="Run ctest in current config (builds if needed)")
     p_test.add_argument("-v", "--verbose", action="store_true", help="Show test stdout/stderr")
     p_test.set_defaults(func=cmd_test)
+
+    p_run = sub.add_parser("run", help="Build (if needed) and run the example executable")
+    p_run.add_argument("rest", nargs=argparse.REMAINDER, help="Args to pass to example (prefix with --)")
+    p_run.set_defaults(func=cmd_run)
 
     args = parser.parse_args()
     args.func(args)

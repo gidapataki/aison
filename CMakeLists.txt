@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 project(aison LANGUAGES CXX)
 
+execute_process(COMMAND ln -fsn "${CMAKE_BINARY_DIR}" "${CMAKE_SOURCE_DIR}/build/current")
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +9,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # deps
 
-option(AISON_USE_BUNDLED_JSONCPP "Use bundled jsoncpp submodule" ON)
+option(AISON_USE_BUNDLED_JSONCPP "Use bundled jsoncpp submodule" OFF)
 
 set(JSONCPP_WITH_TESTS                OFF CACHE INTERNAL "")
 set(JSONCPP_WITH_POST_BUILD_UNITTEST  OFF CACHE INTERNAL "")
@@ -26,9 +27,11 @@ set(AISON_JSONCPP_TARGET "")
 if(NOT AISON_USE_BUNDLED_JSONCPP)
   find_package(jsoncpp 1.9.5 CONFIG QUIET)
   if(jsoncpp_FOUND)
+      message("conan build found")
     if(TARGET jsoncpp_lib)
       set(AISON_JSONCPP_TARGET jsoncpp_lib)
     elseif(TARGET jsoncpp_static)
+      message("Using jsoncpp from conan cache")
       set(AISON_JSONCPP_TARGET jsoncpp_static)
     elseif(TARGET JsonCpp::JsonCpp)
       set(AISON_JSONCPP_TARGET JsonCpp::JsonCpp)
@@ -37,6 +40,7 @@ if(NOT AISON_USE_BUNDLED_JSONCPP)
 endif()
 
 if(AISON_JSONCPP_TARGET STREQUAL "")
+  message("Using jsoncpp from third_party/jsoncpp")
   add_subdirectory(third_party/jsoncpp)
   set(AISON_JSONCPP_TARGET jsoncpp_static)
 endif()
@@ -51,7 +55,10 @@ target_link_libraries(aison INTERFACE ${AISON_JSONCPP_TARGET})
 
 # example
 
-add_executable(example example/main.cpp)
+add_executable(example
+  example/main.cpp
+)
+
 target_link_libraries(example PRIVATE aison)
 
 # test
