@@ -98,7 +98,7 @@ template<typename Schema, typename Owner, typename T, typename Field>
 bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields);
 
 template<typename Schema>
-std::string_view getDiscriminatorField();
+std::string_view getDiscriminatorKey();
 
 template<typename T>
 T& getSchemaObject();
@@ -158,7 +158,7 @@ struct Schema {
 
     // Default discriminator field name for variant-based polymorphism.
     // User schemas may override this with their own static constexpr member.
-    static constexpr const char* discriminatorField = "type";
+    static constexpr const char* discriminatorKey = "type";
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -403,18 +403,18 @@ struct VariantValidator {
     static constexpr void validate() {}
 };
 
-template<typename TagEnum, TagEnum... Values>
+template<typename TagType, TagType... Values>
 struct VariantTagUniqueCheck;
 
-template<typename TagEnum>
-struct VariantTagUniqueCheck<TagEnum> {
+template<typename TagType>
+struct VariantTagUniqueCheck<TagType> {
     static constexpr bool value = true;
 };
 
-template<typename TagEnum, TagEnum First, TagEnum... Rest>
-struct VariantTagUniqueCheck<TagEnum, First, Rest...> {
+template<typename TagType, TagType First, TagType... Rest>
+struct VariantTagUniqueCheck<TagType, First, Rest...> {
     static constexpr bool value =
-        ((First != Rest) && ...) && VariantTagUniqueCheck<TagEnum, Rest...>::value;
+        ((First != Rest) && ...) && VariantTagUniqueCheck<TagType, Rest...>::value;
 };
 
 template<typename Schema, typename T>
@@ -434,12 +434,12 @@ struct VariantAltCheck {
     }
 };
 
-template<typename Schema, typename TagEnum, typename T>
-struct VariantTagEnumConsistencyCheck {
+template<typename Schema, typename TagType, typename T>
+struct VariantTagTypeConsistencyCheck {
     static constexpr void check()
     {
         static_assert(
-            std::is_same_v<TagEnum, typename Schema::template Object<T>::DiscriminatorType>,
+            std::is_same_v<TagType, typename Schema::template Object<T>::DiscriminatorType>,
             "All std::variant alternatives must use the same discriminator tag type "
             "in Schema::Object<T>.");
     }
@@ -452,16 +452,16 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
         // Each alternative must have a discriminator and an object mapping.
         (VariantAltCheck<Schema, Ts>::check(), ...);
 
-        // TagEnum must be consistent across all alternatives.
+        // TagType must be consistent across all alternatives.
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
         using FirstDisc = typename Schema::template Object<FirstAlt>;
-        using TagEnum = typename FirstDisc::DiscriminatorType;
+        using TagType = typename FirstDisc::DiscriminatorType;
 
-        (VariantTagEnumConsistencyCheck<Schema, TagEnum, Ts>::check(), ...);
+        (VariantTagTypeConsistencyCheck<Schema, TagType, Ts>::check(), ...);
 
         // Tag values must be unique.
         constexpr bool unique =
-            VariantTagUniqueCheck<TagEnum, Schema::template Object<Ts>::tag...>::value;
+            VariantTagUniqueCheck<TagType, Schema::template Object<Ts>::tag...>::value;
         static_assert(
             unique, "Duplicate discriminator tag values detected for std::variant alternatives.");
     }
@@ -483,15 +483,15 @@ T& getSchemaObject()
 }
 
 template<typename Schema>
-std::string_view getDiscriminatorField()
+std::string_view getDiscriminatorKey()
 {
-    using FieldType = std::decay_t<decltype(Schema::discriminatorField)>;
+    using KeyType = std::decay_t<decltype(Schema::discriminatorKey)>;
 
     static_assert(
-        std::is_same_v<FieldType, const char*> || std::is_same_v<FieldType, std::string_view>,
-        "Schema::discriminatorField must be const either `char*` or `std::string_view`.");
+        std::is_same_v<KeyType, const char*> || std::is_same_v<KeyType, std::string_view>,
+        "Schema::discriminatorKey must be const either `char*` or `std::string_view`.");
 
-    return std::string_view(Schema::discriminatorField);
+    return std::string_view(Schema::discriminatorKey);
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
@@ -631,19 +631,19 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
                 using Disc = typename Schema::template Object<Alt>;
-                using TagEnum = typename Disc::DiscriminatorType;
+                using TagType = typename Disc::DiscriminatorType;
 
                 // Encode discriminator using the existing enum machinery.
                 Json::Value tagJson;
-                const TagEnum tagValue = Disc::tag;
-                encodeDefault<Schema, TagEnum>(tagValue, tagJson, encoder);
+                const TagType tagValue = Disc::tag;
+                encodeDefault<Schema, TagType>(tagValue, tagJson, encoder);
 
                 // Encode variant-specific fields into the same object.
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
-                dst[getDiscriminatorField<Schema>().data()] = std::move(tagJson);
+                dst[getDiscriminatorKey<Schema>().data()] = std::move(tagJson);
             },
             value);
     } else if constexpr (IsVector<T>::value) {
@@ -804,21 +804,21 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
             return;
         }
 
-        auto* fieldName = getDiscriminatorField<Schema>().data();
+        auto* fieldName = getDiscriminatorKey<Schema>().data();
         if (!src.isMember(fieldName)) {
             decoder.addError(std::string("Missing discriminator field '") + fieldName + "'.");
             return;
         }
 
-        // Determine TagEnum from the first alternative's discriminator
+        // Determine TagType from the first alternative
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
         using FirstDisc = typename Schema::template Object<FirstAlt>;
-        using TagEnum = typename FirstDisc::DiscriminatorType;
+        using TagType = typename FirstDisc::DiscriminatorType;
 
         // Decode tag value using existing enum/primitive machinery
-        TagEnum tagValue{};
+        TagType tagValue{};
         auto errorCount = decoder.errorCount();
-        decodeDefault<Schema, TagEnum>(src[fieldName], tagValue, decoder);
+        decodeDefault<Schema, TagType>(src[fieldName], tagValue, decoder);
         if (errorCount != decoder.errorCount()) {
             // Enum/type mismatch already recorded
             return;
@@ -931,7 +931,7 @@ template<typename Schema, typename Owner, typename T, typename Field>
 bool checkAdd(T Owner::* member, std::string_view name, const std::vector<Field>& fields)
 {
     if constexpr (HasDiscriminator<Schema, Owner>::value) {
-        auto discName = getDiscriminatorField<Schema>();
+        auto discName = getDiscriminatorKey<Schema>();
         if (discName == name) {
             if constexpr (Schema::EnableAssert::value) {
                 assert(false && "Field name is reserved as discriminator for this type.");

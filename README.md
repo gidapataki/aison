@@ -153,6 +153,15 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 }
 ```
 
+### Design principles
+
+- C++ only - no RTTI, no virtual functions
+- Non-intrusive and fully explicit schemas
+- Strong compile-time and runtime guards against misuse
+- All errors collected during encode/decode
+- Support for encode-only and decode-only use cases
+- Extensible via config objects and custom encoders / decoders
+
 ---
 
 #### Note on the project's origin

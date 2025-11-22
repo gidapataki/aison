@@ -301,13 +301,3 @@ These trigger:
 - `assert()` (when `EnableAssert == true`)
 - skip mapping (otherwise)
 
----
-
-## 9. Design Principles
-
-- **Explicit schemas** — all mappings are visible and intentional.
-- **Robust** — strong compile‑time and runtime validation.
-- **No runtime polymorphism** — no virtual functions.
-- **No reflection** — all behavior is pure C++17.
-- **Full error aggregation** — user receives all encode/decode failures.
-- **Config‑aware custom types** — configurable behaviors for advanced types.
