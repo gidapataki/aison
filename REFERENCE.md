@@ -12,6 +12,7 @@ This document describes the complete public API.
   - [Facets](#11-facets)
   - [Config](#12-config)
   - [Schema Assertions (`EnableAssert`)](#13-schema-assertions-enableassert)
+  - [Optional Strictness (`strictOptional`)](#14-optional-strictness-strictoptional)
 - [Object Mapping (`Schema::Object<T>`)](#2-object-mapping-schemaobjectt)
 - [Enum Mapping (`Schema::Enum<T>`)](#3-enum-mapping-schemaenumt)
 - [Custom Encoders / Decoders](#4-custom-encoders--decoders)
@@ -92,6 +93,28 @@ struct MySchema : aison::Schema<MySchema> {
 };
 ```
 
+### 1.4 Optional Strictness (`strictOptional`)
+
+By default: `true`
+
+- `strictOptional == true` (default):  
+  - Decoding requires every `std::optional<T>` field to be **present** in JSON.  
+  - Disengaged optionals must appear as explicit `null`.  
+  - Encoding writes `null` for disengaged optionals.
+
+- `strictOptional == false`:  
+  - Missing optional fields decode to `std::nullopt` without errors.  
+  - Encoding **omits** disengaged optionals instead of writing `null`.
+
+Example:
+
+```cpp
+struct MySchema : aison::Schema<MySchema> {
+    static constexpr auto strictOptional = false;
+    template<typename T> struct Object;
+};
+```
+
 ---
 
 ## 2. Object Mapping (`Schema::Object<T>`)
@@ -133,6 +156,7 @@ struct MySchema::Object<Label>
 - Duplicate JSON names or duplicate member pointers cause:
   - `assert()` (if `EnableAssert == true`)
   - silent skip if `EnableAssert == false`.
+- `std::optional<T>` fields follow the schema’s `strictOptional` setting (Section 1.4).
 
 Nested structures, vectors, and optionals are supported.
 
@@ -341,7 +365,7 @@ Errors accumulate; decoding never stops early.
 | Integral types | ✔ | Range‑checked |
 | `float`, `double` | ✔ | NaN rejected |
 | `std::string` | ✔ | |
-| `std::optional<T>` | ✔ | null → empty optional |
+| `std::optional<T>` | ✔ | `strictOptional` controls whether null is required (`true`) or omission is allowed (`false`) |
 | `std::vector<T>` | ✔ | recursive support |
 | `std::variant<Ts...>` | ✔ | requires discriminator per alternative |
 | enums | ✔ | requires `Enum<T>` |
