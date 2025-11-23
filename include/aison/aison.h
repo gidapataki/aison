@@ -102,6 +102,12 @@ struct HasSchemaEnableAssert;
 template<typename Schema, typename = void>
 struct SchemaEnableAssert;
 
+template<typename Schema, typename = void>
+struct HasSchemaStrictOptional;
+
+template<typename Schema, typename = void>
+struct SchemaStrictOptional;
+
 // Functions
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
@@ -143,6 +149,9 @@ std::string_view getSchemaDiscriminatorKey();
 template<typename Schema>
 constexpr bool getSchemaEnableAssert();
 
+template<typename Schema>
+constexpr bool getSchemaStrictOptional();
+
 }  // namespace aison::detail
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
@@ -169,8 +178,9 @@ struct DecodeOnly {};
 struct EncodeDecode {};
 
 struct SchemaDefaults {
-    static constexpr auto enableAssert = true;
     static constexpr auto discriminatorKey = "";
+    static constexpr auto enableAssert = true;
+    static constexpr auto strictOptional = true;
 };
 
 template<typename Derived, typename Facet = EncodeDecode, typename Config = EmptyConfig>
@@ -561,6 +571,36 @@ template<typename Schema>
 constexpr bool getSchemaEnableAssert()
 {
     return SchemaEnableAssert<Schema>::get();
+}
+
+// Optional strictness
+
+template<typename Schema, typename>
+struct HasSchemaStrictOptional : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaStrictOptional {
+    constexpr static bool get() { return SchemaDefaults::strictOptional; }
+};
+
+template<typename Schema>
+struct SchemaStrictOptional<Schema, std::enable_if_t<HasSchemaStrictOptional<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::strictOptional)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::strictOptional must be bool.");
+        return Schema::strictOptional;
+    }
+};
+
+template<typename Schema>
+constexpr bool getSchemaStrictOptional()
+{
+    return SchemaStrictOptional<Schema>::get();
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
