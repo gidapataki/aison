@@ -84,7 +84,8 @@ def do_test(build_dir: str,
             build_type: str,
             generator: str,
             cmake_defs: list[str],
-            label: str | None):
+            label: str | None,
+            verbose: bool):
     # ensure tests are built (let CMake decide what that means)
     if not do_make(build_dir, build_type, generator, cmake_defs, targets=[]):
         return False
@@ -92,6 +93,8 @@ def do_test(build_dir: str,
     cmd = ["ctest", "--output-on-failure"]
     if label:
         cmd.extend(["-L", label])
+    if verbose:
+        cmd.append("--verbose")
     return run_cmd(cmd, cwd=build_dir)
 
 # ---- CLI layer: just wiring args to core functions ---------------------------
@@ -202,6 +205,9 @@ def main():
         "-L", "--label",
         help="Only run tests with this label",
     )
+
+    p_test.add_argument("-v", "--verbose", action="store_true", help="Show test stdout/stderr")
+
     p_test.set_defaults(
         func=lambda a: do_test(
             build_dir=a.build_dir,
@@ -209,6 +215,7 @@ def main():
             generator=a.generator,
             cmake_defs=a.cmake_defs,
             label=a.label,
+            verbose=a.verbose,
         )
     )
 

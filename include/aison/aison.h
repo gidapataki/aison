@@ -27,6 +27,7 @@ struct EncodeDecode;
 
 struct Error;
 struct Result;
+struct SchemaDefaults;
 
 template<typename Schema, typename T>
 struct Object;
@@ -64,7 +65,7 @@ class DecoderImpl;
 template<typename Schema, typename T>
 class EnumImpl;
 
-template<typename Schema, typename Owner, typename FacetTag>
+template<typename Schema, typename Owner>
 class ObjectImpl;
 
 template<typename Schema, typename Variant, typename = void>
@@ -95,8 +96,17 @@ struct HasSchemaDiscriminatorKey;
 template<typename Schema, typename = void>
 struct SchemaDiscriminatorKey;
 
-template<typename Schema>
-std::string_view getSchemaDiscriminatorKey();
+template<typename Schema, typename = void>
+struct HasSchemaEnableAssert;
+
+template<typename Schema, typename = void>
+struct SchemaEnableAssert;
+
+template<typename Schema, typename = void>
+struct HasSchemaStrictOptional;
+
+template<typename Schema, typename = void>
+struct SchemaStrictOptional;
 
 // Functions
 template<typename Schema, typename T>
@@ -111,6 +121,12 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
 template<typename Schema, typename T>
 void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder);
 
+template<typename Schema>
+constexpr bool hasEncodeFacet();
+
+template<typename Schema>
+constexpr bool hasDecodeFacet();
+
 template<typename Schema, typename T>
 constexpr void validateEnumType();
 
@@ -123,15 +139,17 @@ const void* getFieldContextId();
 template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
 
-template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(
-    T Owner::* member,
-    std::string_view name,
-    std::string_view discriminatorKey,
-    const std::vector<Field>& fields);
-
 template<typename T>
 T& getSchemaObject();
+
+template<typename Schema>
+std::string_view getSchemaDiscriminatorKey();
+
+template<typename Schema>
+constexpr bool getSchemaEnableAssert();
+
+template<typename Schema>
+constexpr bool getSchemaStrictOptional();
 
 }  // namespace aison::detail
 
@@ -158,14 +176,17 @@ struct EncodeOnly {};
 struct DecodeOnly {};
 struct EncodeDecode {};
 
-// CRTP schema base: facet + config are template parameters
+struct SchemaDefaults {
+    static constexpr auto discriminatorKey = "";
+    static constexpr auto enableAssert = true;
+    static constexpr auto strictOptional = true;
+};
 
 template<typename Derived, typename Facet = EncodeDecode, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
     using FacetType = Facet;
     using ConfigType = Config;
-    using EnableAssert = std::true_type;
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -346,7 +367,7 @@ public:
         for (const auto& entry : entries_) {
             // Disallow duplicate value or duplicate name
             if (entry.first == value || entry.second == name) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Duplicate enum mapping in Schema::Enum.");
                 }
                 return;
@@ -363,7 +384,7 @@ public:
                 isDefined = true;
             }
             if (entry.second == name) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Duplicate enum name in Schema::Enum::addAlias.");
                 }
                 return;
@@ -371,7 +392,7 @@ public:
         }
 
         if (!isDefined) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
                     false &&
                     "Alias refers to an enum value that was not added with Schema::Enum::add.");
@@ -461,7 +482,7 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
         }
 
         if (mismatch) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Variant alternatives must use the same discriminator key.");
             }
             ctx.addError("Variant alternatives must use the same discriminator key.");
@@ -487,6 +508,8 @@ T& getSchemaObject()
     return instance;
 }
 
+// DiscriminatorKey
+
 template<typename Schema, typename>
 struct HasSchemaDiscriminatorKey : std::false_type {};
 
@@ -496,7 +519,7 @@ struct HasSchemaDiscriminatorKey<Schema, std::void_t<decltype(Schema::discrimina
 
 template<typename Schema, typename>
 struct SchemaDiscriminatorKey {
-    static std::string_view get() { return {}; }
+    static std::string_view get() { return SchemaDefaults::discriminatorKey; }
 };
 
 template<typename Schema>
@@ -517,6 +540,66 @@ template<typename Schema>
 std::string_view getSchemaDiscriminatorKey()
 {
     return SchemaDiscriminatorKey<Schema>::get();
+}
+
+// EnableAssert
+
+template<typename Schema, typename>
+struct HasSchemaEnableAssert : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaEnableAssert {
+    constexpr static bool get() { return SchemaDefaults::enableAssert; }
+};
+
+template<typename Schema>
+struct SchemaEnableAssert<Schema, std::enable_if_t<HasSchemaEnableAssert<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableAssert)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
+        return Schema::enableAssert;
+    }
+};
+
+template<typename Schema>
+constexpr bool getSchemaEnableAssert()
+{
+    return SchemaEnableAssert<Schema>::get();
+}
+
+// Optional strictness
+
+template<typename Schema, typename>
+struct HasSchemaStrictOptional : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaStrictOptional {
+    constexpr static bool get() { return SchemaDefaults::strictOptional; }
+};
+
+template<typename Schema>
+struct SchemaStrictOptional<Schema, std::enable_if_t<HasSchemaStrictOptional<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::strictOptional)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::strictOptional must be bool.");
+        return Schema::strictOptional;
+    }
+};
+
+template<typename Schema>
+constexpr bool getSchemaStrictOptional()
+{
+    return SchemaStrictOptional<Schema>::get();
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
@@ -635,7 +718,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 return;
             }
         }
-
         using U = typename std::underlying_type<T>::type;
         encoder.addError(
             "Unhandled enum value during encode (underlying = " + std::to_string(U(value)) + ").");
@@ -646,7 +728,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         } else {
             encodeValue<Schema, U>(*value, dst, encoder);
         }
-
     } else if constexpr (IsVariant<T>::value) {
         // Discriminated polymorphic encoding for std::variant.
         validateVariant<Schema, T>();
@@ -654,7 +735,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
             return;
         }
         dst = Json::objectValue;
-
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
@@ -901,45 +981,21 @@ private:
     }
 };
 
-// Field descriptors ///////////////////////////////////////////////////////////
+// Field descriptor /////////////////////////////////////////////////////////////
 
-// Encode-only descriptor
 template<typename Schema, typename Owner>
-struct EncodeOnlyFieldDesc {
-    using EncodeFn =
-        void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
-
-    EncodeFn encode;
-    std::string name;
-    const void* context = nullptr;
-    const void* contextId = nullptr;
-};
-
-// Decode-only descriptor
-template<typename Schema, typename Owner>
-struct DecodeOnlyFieldDesc {
-    using DecodeFn =
-        void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
-
-    DecodeFn decode;
-    std::string name;
-    const void* context = nullptr;
-    const void* contextId = nullptr;
-};
-
-// Encode+Decode descriptor
-template<typename Schema, typename Owner>
-struct EncodeDecodeFieldDesc {
+struct FieldDesc {
     using EncodeFn =
         void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
     using DecodeFn =
         void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
 
-    EncodeFn encode;
-    DecodeFn decode;
+    EncodeFn encode = nullptr;
+    DecodeFn decode = nullptr;
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
+    bool isOptional = false;
 };
 
 template<typename Owner, typename T>
@@ -971,44 +1027,6 @@ void decodeFieldThunk(
 
 // Object implementations per facet /////////////////////////////////////////////////////////
 
-template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(
-    T Owner::* member,
-    std::string_view name,
-    std::string_view discriminatorKey,
-    const std::vector<Field>& fields)
-{
-    if (!discriminatorKey.empty() && discriminatorKey == name) {
-        if constexpr (Schema::EnableAssert::value) {
-            assert(false && "Field name is reserved as discriminator for this type.");
-        }
-        return false;
-    }
-
-    using Ctx = FieldContext<Owner, T>;
-    const auto* contextId = getFieldContextId<Owner, T>();
-
-    for (const auto& field : fields) {
-        if (field.contextId == contextId &&
-            static_cast<const Ctx*>(field.context)->member == member)
-        {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Same member is mapped multiple times in Schema::Object.");
-            }
-            return false;
-        }
-
-        if (field.name == name) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Duplicate field name in Schema::Object.");
-            }
-            return false;
-        }
-    }
-
-    return true;
-}
-
 template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member)
 {
@@ -1025,137 +1043,90 @@ const void* getFieldContextId()
     return &fieldId;
 }
 
-// Encode-only
-template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeOnly>
+template<typename Schema>
+constexpr bool hasEncodeFacet()
 {
-    using EncoderType = EncoderImpl<Schema>;
-    using Field = EncodeOnlyFieldDesc<Schema, Owner>;
-    std::vector<FieldContextPtr> contexts_;
-    std::vector<Field> fields_;
-    bool hasDiscriminatorTag_ = false;
-    std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
+    using Facet = typename Schema::FacetType;
+    return std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, EncodeOnly>;
+}
 
+template<typename Schema>
+constexpr bool hasDecodeFacet()
+{
+    using Facet = typename Schema::FacetType;
+    return std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, DecodeOnly>;
+}
+
+template<typename Schema, typename Owner>
+class ObjectImpl
+{
 public:
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
-        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
-            auto& ctx = contexts_.emplace_back(makeFieldContext(member));
-
-            Field f;
-            f.name = std::string(name);
-            f.encode = &encodeFieldThunk<Schema, Owner, T>;
-            f.context = ctx.get();
-            f.contextId = getFieldContextId<Owner, T>();
-
-            fields_.push_back(f);
-        }
-    }
-
-    void discriminator(std::string_view tag, std::string_view key)
-    {
-        if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Discriminator key cannot be empty.");
-            }
-            return;
-        }
-        checkDiscriminatorKey(key);
-        if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "discriminator(...) already set for this object.");
+        // Check if name is used as discriminator key
+        if (!discriminatorKey_.empty() && discriminatorKey_ == name) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Field name is reserved as discriminator for this type.");
             }
             return;
         }
 
-        hasDiscriminatorTag_ = true;
-        discriminatorKey_ = std::string(key);
-        discriminatorTag_ = std::string(tag);
-    }
-
-    template<
-        typename S = Schema,
-        typename =
-            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
-    void discriminator(std::string_view tag)
-    {
-        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
-    }
-
-    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
-    std::string_view discriminatorTag() const { return discriminatorTag_; }
-    std::string_view discriminatorKey() const { return discriminatorKey_; }
-
-private:
-    void checkDiscriminatorKey(std::string_view key)
-    {
+        // Check if member or name is already mapped
+        using Ctx = FieldContext<Owner, T>;
+        const auto* contextId = getFieldContextId<Owner, T>();
         for (const auto& field : fields_) {
-            if (field.name == key) {
-                if constexpr (Schema::EnableAssert::value) {
-                    assert(false && "Discriminator key conflicts with an existing field name.");
+            if (field.contextId == contextId &&
+                static_cast<const Ctx*>(field.context)->member == member)
+            {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
+                    assert(false && "Same member is mapped multiple times in Schema::Object.");
+                }
+                return;
+            }
+
+            if (field.name == name) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
+                    assert(false && "Duplicate field name in Schema::Object.");
                 }
                 return;
             }
         }
-    }
 
-    void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
-    {
-        dst = Json::objectValue;
-        for (const auto& field : fields_) {
-            PathScope guard(encoder, field.name);
-            Json::Value& node = dst[field.name];
-            field.encode(src, node, encoder, field.context);
+        auto& context = contexts_.emplace_back(makeFieldContext(member));
+        auto& field = fields_.emplace_back();
+
+        field.name = std::string(name);
+        field.context = context.get();
+        field.contextId = contextId;
+        field.isOptional = IsOptional<T>::value;
+
+        if constexpr (hasEncodeFacet<Schema>()) {
+            field.encode = &encodeFieldThunk<Schema, Owner, T>;
         }
-    }
-};
-
-// Decode-only
-template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, DecodeOnly>
-{
-    using DecoderType = DecoderImpl<Schema>;
-    using Field = DecodeOnlyFieldDesc<Schema, Owner>;
-    std::vector<FieldContextPtr> contexts_;
-    std::vector<Field> fields_;
-    bool hasDiscriminatorTag_ = false;
-    std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
-
-public:
-    template<typename T>
-    void add(T Owner::* member, std::string_view name)
-    {
-        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
-            auto& ctx = contexts_.emplace_back(makeFieldContext(member));
-
-            Field f;
-            f.name = std::string(name);
-            f.decode = &decodeFieldThunk<Schema, Owner, T>;
-            f.context = ctx.get();
-            f.contextId = getFieldContextId<Owner, T>();
-
-            fields_.push_back(f);
+        if constexpr (hasDecodeFacet<Schema>()) {
+            field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
     }
 
     void discriminator(std::string_view tag, std::string_view key)
     {
         if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Discriminator key cannot be empty.");
             }
             return;
         }
-        checkDiscriminatorKey(key);
+        if (!checkDiscriminatorKey(key)) {
+            return;
+        }
         if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
         }
+
         hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
@@ -1170,15 +1141,32 @@ public:
         discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
-    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
-    std::string_view discriminatorTag() const { return discriminatorTag_; }
-    std::string_view discriminatorKey() const { return discriminatorKey_; }
+    template<typename = std::enable_if_t<hasEncodeFacet<Schema>()>>
+    void encodeFields(const Owner& src, Json::Value& dst, EncoderImpl<Schema>& encoder) const
+    {
+        dst = Json::objectValue;
+        for (const auto& field : fields_) {
+            PathScope guard(encoder, field.name);
+            Json::Value node;
+            field.encode(src, node, encoder, field.context);
+            if (!getSchemaStrictOptional<Schema>() && field.isOptional && node.isNull()) {
+                continue;
+            }
+            dst[field.name] = std::move(node);
+        }
+    }
 
-    void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
+    template<typename = std::enable_if_t<hasDecodeFacet<Schema>()>>
+    void decodeFields(const Json::Value& src, Owner& dst, DecoderImpl<Schema>& decoder) const
     {
         for (const auto& field : fields_) {
             const auto& key = field.name;
             if (!src.isMember(key)) {
+                if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
+                    PathScope guard(decoder, key);
+                    field.decode(Json::nullValue, dst, decoder, field.context);
+                    continue;
+                }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
@@ -1188,106 +1176,31 @@ public:
         }
     }
 
+    std::string_view discriminatorTag() const { return discriminatorTag_; }
+    std::string_view discriminatorKey() const { return discriminatorKey_; }
+    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+
 private:
-    void checkDiscriminatorKey(std::string_view key)
+    bool checkDiscriminatorKey(std::string_view key)
     {
         for (const auto& field : fields_) {
             if (field.name == key) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Discriminator key conflicts with an existing field name.");
                 }
-                return;
+                return false;
             }
         }
+        return true;
     }
-};
 
-// Encode+Decode
-template<typename Schema, typename Owner>
-class ObjectImpl<Schema, Owner, EncodeDecode>
-{
-    using EncoderType = EncoderImpl<Schema>;
-    using DecoderType = DecoderImpl<Schema>;
-    using Field = EncodeDecodeFieldDesc<Schema, Owner>;
+    using Field = FieldDesc<Schema, Owner>;
+
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
-    bool hasDiscriminatorTag_ = false;
     std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
-
-public:
-    template<typename T>
-    void add(T Owner::* member, std::string_view name)
-    {
-        if (checkAdd<Schema>(member, name, discriminatorKey_, fields_)) {
-            auto& ctx = contexts_.emplace_back(makeFieldContext(member));
-
-            Field f;
-            f.name = std::string(name);
-            f.encode = &encodeFieldThunk<Schema, Owner, T>;
-            f.decode = &decodeFieldThunk<Schema, Owner, T>;
-            f.context = ctx.get();
-            f.contextId = getFieldContextId<Owner, T>();
-
-            fields_.push_back(f);
-        }
-    }
-
-    void discriminator(std::string_view tag, std::string_view key)
-    {
-        if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "Discriminator key cannot be empty.");
-            }
-            return;
-        }
-        if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
-                assert(false && "discriminator(...) already set for this object.");
-            }
-            return;
-        }
-        hasDiscriminatorTag_ = true;
-        discriminatorKey_ = std::string(key);
-        discriminatorTag_ = std::string(tag);
-    }
-
-    template<
-        typename S = Schema,
-        typename =
-            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
-    void discriminator(std::string_view tag)
-    {
-        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
-    }
-
-    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
-    std::string_view discriminatorTag() const { return discriminatorTag_; }
-    std::string_view discriminatorKey() const { return discriminatorKey_; }
-
-    void encodeFields(const Owner& src, Json::Value& dst, EncoderType& encoder) const
-    {
-        dst = Json::objectValue;
-        for (const auto& field : fields_) {
-            PathScope guard(encoder, field.name);
-            Json::Value& node = dst[field.name];
-            field.encode(src, node, encoder, field.context);
-        }
-    }
-
-    void decodeFields(const Json::Value& src, Owner& dst, DecoderType& decoder) const
-    {
-        for (const auto& field : fields_) {
-            const auto& key = field.name;
-            if (!src.isMember(key)) {
-                decoder.addError(std::string("Missing required field '") + key + "'.");
-                continue;
-            }
-            const Json::Value& node = src[key];
-            PathScope guard(decoder, key);
-            field.decode(node, dst, decoder, field.context);
-        }
-    }
+    bool hasDiscriminatorTag_ = false;
 };
 
 }  // namespace aison::detail
@@ -1297,16 +1210,19 @@ namespace aison {
 // Object / Enum wrappers ///////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename Owner>
-struct Object : detail::ObjectImpl<Schema, Owner, typename Schema::FacetType> {
+struct Object : detail::ObjectImpl<Schema, Owner> {
     using ObjectTag = void;
-    using Base = detail::ObjectImpl<Schema, Owner, typename Schema::FacetType>;
+    using Base = detail::ObjectImpl<Schema, Owner>;
+
     using Base::add;
+    using Base::discriminator;
 };
 
 template<typename Schema, typename E>
 struct Enum : detail::EnumImpl<Schema, E> {
     using EnumTag = void;
     using Base = detail::EnumImpl<Schema, E>;
+
     using Base::add;
     using Base::addAlias;
 };

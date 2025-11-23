@@ -1,4 +1,3 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 
 #include <aison/aison.h>
 #include <doctest.h>
@@ -41,6 +40,21 @@ struct BasicSchema : aison::Schema<BasicSchema> {
     struct Object;
     template<typename T>
     struct Enum;
+};
+
+// Schema with relaxed optional handling
+
+struct LooseOptionals {
+    int id = 0;
+    std::optional<int> maybeNumber;
+    std::optional<std::string> maybeNote;
+};
+
+struct LooseSchema : aison::Schema<LooseSchema> {
+    static constexpr auto strictOptional = false;
+
+    template<typename T>
+    struct Object;
 };
 
 template<>
@@ -97,6 +111,16 @@ struct BasicSchema::Object<Document> : aison::Object<BasicSchema, Document> {
         add(&Document::scale, "scale");
         add(&Document::items, "items");
         add(&Document::featured, "featured");
+    }
+};
+
+template<>
+struct LooseSchema::Object<LooseOptionals> : aison::Object<LooseSchema, LooseOptionals> {
+    Object()
+    {
+        add(&LooseOptionals::id, "id");
+        add(&LooseOptionals::maybeNumber, "maybeNumber");
+        add(&LooseOptionals::maybeNote, "maybeNote");
     }
 };
 
@@ -235,6 +259,35 @@ TEST_SUITE("Basic types")
         CHECK(outItem["note"].isNull());
         CHECK(outItem["stats"]["deltas"].isNull());
         CHECK(root["featured"].isNull());
+    }
+
+    TEST_CASE("Non-strict optionals can be omitted and reset on decode")
+    {
+        LooseOptionals src;
+        src.id = 7;
+        src.maybeNumber.reset();
+        src.maybeNote.reset();
+
+        Json::Value json;
+        auto enc = aison::encode<LooseSchema>(src, json);
+        REQUIRE(enc);
+        REQUIRE(enc.errors.empty());
+
+        CHECK(json["id"].asInt() == 7);
+        CHECK_FALSE(json.isMember("maybeNumber"));
+        CHECK_FALSE(json.isMember("maybeNote"));
+
+        LooseOptionals dst;
+        dst.maybeNumber = 99;
+        dst.maybeNote = std::string("keep me");
+
+        auto dec = aison::decode<LooseSchema>(json, dst);
+        REQUIRE(dec);
+        REQUIRE(dec.errors.empty());
+
+        CHECK(dst.id == 7);
+        CHECK_FALSE(dst.maybeNumber.has_value());
+        CHECK_FALSE(dst.maybeNote.has_value());
     }
 }
 

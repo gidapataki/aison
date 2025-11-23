@@ -175,6 +175,30 @@ TEST_SUITE("Runtime errors (asserts enabled)")
         CHECK(res.errors[0].message.find("Expected string") != std::string::npos);
     }
 
+    TEST_CASE("Optional missing when strictOptional is true")
+    {
+        Json::Value root(Json::objectValue);
+        root["origin"] = Json::objectValue;
+        root["origin"]["x"] = 0;
+        root["origin"]["y"] = 0;
+        root["mode"] = "off";
+        root["values"] = Json::arrayValue;
+        root["values"].append(1);
+        Json::Value circle(Json::objectValue);
+        circle["kind"] = "circle";
+        circle["r"] = 1.0;
+        root["shape"] = circle;
+        // name omitted entirely
+
+        Doc out{};
+        auto res = aison::decode<ErrorSchema>(root, out);
+
+        CHECK_FALSE(res);
+        REQUIRE_FALSE(res.errors.empty());
+        CHECK(res.errors[0].path == "$");
+        CHECK(res.errors[0].message.find("Missing required field 'name'") != std::string::npos);
+    }
+
     TEST_CASE("Variant discriminator missing, unknown, or payload wrong type")
     {
         Doc out{};
