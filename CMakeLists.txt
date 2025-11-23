@@ -48,6 +48,7 @@ if(AISON_BUILD_TESTS)
   enable_testing()
 
   add_executable(aison-test
+      test/main.cpp
       test/utils.cpp
       test/types_basic.cpp
       test/types_variant.cpp

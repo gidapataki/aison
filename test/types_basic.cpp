@@ -1,4 +1,3 @@
-#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
 
 #include <aison/aison.h>
 #include <doctest.h>
