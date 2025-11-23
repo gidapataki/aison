@@ -1,6 +1,10 @@
 # Changelog
 
 
+## current
+- Optional handling controls: new `strictOptional` schema flag (default true) lets disengaged optionals be omitted on encode/decode
+
+
 ## aison v0.10.0
 - Added discriminated union support via `std::variant`:
     - runtime `discriminator(tag[, key])` on schema objects
