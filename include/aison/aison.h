@@ -982,44 +982,17 @@ private:
     }
 };
 
-// Field descriptors ///////////////////////////////////////////////////////////
+// Field descriptor /////////////////////////////////////////////////////////////
 
-// Encode-only descriptor
 template<typename Schema, typename Owner>
-struct EncodeOnlyFieldDesc {
-    using EncodeFn =
-        void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
-
-    EncodeFn encode;
-    std::string name;
-    const void* context = nullptr;
-    const void* contextId = nullptr;
-    bool isOptional = false;
-};
-
-// Decode-only descriptor
-template<typename Schema, typename Owner>
-struct DecodeOnlyFieldDesc {
-    using DecodeFn =
-        void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
-
-    DecodeFn decode;
-    std::string name;
-    const void* context = nullptr;
-    const void* contextId = nullptr;
-    bool isOptional = false;
-};
-
-// Encode+Decode descriptor
-template<typename Schema, typename Owner>
-struct EncodeDecodeFieldDesc {
+struct FieldDesc {
     using EncodeFn =
         void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
     using DecodeFn =
         void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
 
-    EncodeFn encode;
-    DecodeFn decode;
+    EncodeFn encode = nullptr;
+    DecodeFn decode = nullptr;
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
@@ -1114,7 +1087,7 @@ template<typename Schema, typename Owner>
 class ObjectImpl<Schema, Owner, EncodeOnly>
 {
     using EncoderType = EncoderImpl<Schema>;
-    using Field = EncodeOnlyFieldDesc<Schema, Owner>;
+    using Field = FieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
@@ -1211,7 +1184,7 @@ template<typename Schema, typename Owner>
 class ObjectImpl<Schema, Owner, DecodeOnly>
 {
     using DecoderType = DecoderImpl<Schema>;
-    using Field = DecodeOnlyFieldDesc<Schema, Owner>;
+    using Field = FieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
@@ -1308,7 +1281,7 @@ class ObjectImpl<Schema, Owner, EncodeDecode>
 {
     using EncoderType = EncoderImpl<Schema>;
     using DecoderType = DecoderImpl<Schema>;
-    using Field = EncodeDecodeFieldDesc<Schema, Owner>;
+    using Field = FieldDesc<Schema, Owner>;
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
     bool hasDiscriminatorTag_ = false;
