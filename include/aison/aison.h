@@ -1082,6 +1082,64 @@ const void* getFieldContextId()
     return &fieldId;
 }
 
+template<typename Schema, typename Owner>
+class ObjectImpl2
+{
+public:
+    template<typename T>
+    void add(T Owner::* member, std::string_view name)
+    {
+        // Check if name is used as discriminator key
+        if (!discriminatorKey_.empty() && discriminatorKey_ == name) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Field name is reserved as discriminator for this type.");
+            }
+            return;
+        }
+
+        // Check if member or name is already mapped
+        using Ctx = FieldContext<Owner, T>;
+        const auto* contextId = getFieldContextId<Owner, T>();
+        for (const auto& field : fields_) {
+            if (field.contextId == contextId &&
+                static_cast<const Ctx*>(field.context)->member == member)
+            {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
+                    assert(false && "Same member is mapped multiple times in Schema::Object.");
+                }
+                return;
+            }
+
+            if (field.name == name) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
+                    assert(false && "Duplicate field name in Schema::Object.");
+                }
+                return;
+            }
+        }
+
+        auto& context = contexts_.emplace_back(makeFieldContext(member));
+        auto& field = fields_.emplace_back();
+
+        field.name = std::string(name);
+        field.context = context.get();
+
+        // f.encode = &encodeFieldThunk<Schema, Owner, T>;
+        // f.context = ctx.get();
+        // f.contextId = getFieldContextId<Owner, T>();
+        // f.isOptional = IsOptional<T>::value;
+    }
+
+private:
+    using FieldDesc = FieldDesc<Schema, Owner>;
+
+    std::vector<FieldContextPtr> contexts_;
+    std::vector<FieldDesc> fields_;
+    std::string discriminatorTag_;
+    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
+    bool hasDiscriminatorTag_ = false;
+};
+
 // Encode-only
 template<typename Schema, typename Owner>
 class ObjectImpl<Schema, Owner, EncodeOnly>
