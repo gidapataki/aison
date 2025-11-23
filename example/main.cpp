@@ -30,6 +30,7 @@ struct Span {
 struct Paragraph {
     std::vector<Span> spans;
     Alignment alignment = {};
+    std::optional<RGBColor> bgColor;
 };
 
 struct Config {
@@ -38,6 +39,7 @@ struct Config {
 
 struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     static constexpr auto enableAssert = false;
+    static constexpr auto strictOptional = false;
 
     template<typename T>
     struct Object;
@@ -79,6 +81,7 @@ struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
     {
         add(&Paragraph::spans, "spans");
         add(&Paragraph::alignment, "alignment");
+        add(&Paragraph::bgColor, "bgColor");
     }
 };
 
@@ -187,6 +190,7 @@ void testTextSchema()
 {
     Paragraph para;
     para.alignment = Alignment::kCenter;
+    para.bgColor = RGBColor{0, 0, 100};
 
     if (auto& span = para.spans.emplace_back(); true) {
         span.color = {0x92, 0xca, 0x30};
@@ -217,6 +221,8 @@ void testTextSchema()
 
     // Alias
     root["alignment"] = "center2";
+    root["bgColor"] = Json::nullValue;
+
     res = aison::decode<TextSchema>(root, para, cfg);
     if (!res) {
         std::cout << "== Decode error ==\n";
@@ -227,7 +233,7 @@ void testTextSchema()
 
     std::cout << "== Decode success ==\n";
     Json::Value value;
-    res = aison::encode<TextSchema>(para.alignment, value, cfg);
+    res = aison::encode<TextSchema>(para, value, cfg);
     std::cout << value.toStyledString() << "\n";
 }
 
