@@ -719,7 +719,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 return;
             }
         }
-
         using U = typename std::underlying_type<T>::type;
         encoder.addError(
             "Unhandled enum value during encode (underlying = " + std::to_string(U(value)) + ").");
@@ -730,7 +729,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         } else {
             encodeValue<Schema, U>(*value, dst, encoder);
         }
-
     } else if constexpr (IsVariant<T>::value) {
         // Discriminated polymorphic encoding for std::variant.
         validateVariant<Schema, T>();
@@ -738,7 +736,6 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
             return;
         }
         dst = Json::objectValue;
-
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
@@ -997,6 +994,7 @@ struct EncodeOnlyFieldDesc {
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
+    bool isOptional = false;
 };
 
 // Decode-only descriptor
@@ -1009,6 +1007,7 @@ struct DecodeOnlyFieldDesc {
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
+    bool isOptional = false;
 };
 
 // Encode+Decode descriptor
@@ -1024,6 +1023,7 @@ struct EncodeDecodeFieldDesc {
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
+    bool isOptional = false;
 };
 
 template<typename Owner, typename T>
@@ -1133,6 +1133,7 @@ public:
             f.encode = &encodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
             f.contextId = getFieldContextId<Owner, T>();
+            f.isOptional = IsOptional<T>::value;
 
             fields_.push_back(f);
         }
@@ -1190,8 +1191,17 @@ private:
         dst = Json::objectValue;
         for (const auto& field : fields_) {
             PathScope guard(encoder, field.name);
-            Json::Value& node = dst[field.name];
-            field.encode(src, node, encoder, field.context);
+            if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
+                Json::Value node;
+                field.encode(src, node, encoder, field.context);
+                if (node.isNull()) {
+                    continue;  // skip disengaged optional
+                }
+                dst[field.name] = std::move(node);
+            } else {
+                Json::Value& node = dst[field.name];
+                field.encode(src, node, encoder, field.context);
+            }
         }
     }
 };
@@ -1220,6 +1230,7 @@ public:
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
             f.contextId = getFieldContextId<Owner, T>();
+            f.isOptional = IsOptional<T>::value;
 
             fields_.push_back(f);
         }
@@ -1263,6 +1274,11 @@ public:
         for (const auto& field : fields_) {
             const auto& key = field.name;
             if (!src.isMember(key)) {
+                if (!getSchemaStrictOptional<Schema>()) {
+                    // If field type is optional<T> and strictOptional is false, treat missing as
+                    // disengaged and continue.
+                    using Maybe = decltype(std::declval<Field>().decode);
+                }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
@@ -1312,6 +1328,7 @@ public:
             f.decode = &decodeFieldThunk<Schema, Owner, T>;
             f.context = ctx.get();
             f.contextId = getFieldContextId<Owner, T>();
+            f.isOptional = IsOptional<T>::value;
 
             fields_.push_back(f);
         }
@@ -1354,8 +1371,17 @@ public:
         dst = Json::objectValue;
         for (const auto& field : fields_) {
             PathScope guard(encoder, field.name);
-            Json::Value& node = dst[field.name];
-            field.encode(src, node, encoder, field.context);
+            if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
+                Json::Value node;
+                field.encode(src, node, encoder, field.context);
+                if (node.isNull()) {
+                    continue;  // skip disengaged optional
+                }
+                dst[field.name] = std::move(node);
+            } else {
+                Json::Value& node = dst[field.name];
+                field.encode(src, node, encoder, field.context);
+            }
         }
     }
 
@@ -1364,6 +1390,9 @@ public:
         for (const auto& field : fields_) {
             const auto& key = field.name;
             if (!src.isMember(key)) {
+                if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
+                    continue;
+                }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
