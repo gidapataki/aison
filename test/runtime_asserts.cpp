@@ -42,32 +42,6 @@ struct GuardSchema::Object<DupMember> : aison::Object<GuardSchema, DupMember> {
     }
 };
 
-TEST_CASE("Duplicate field name is ignored when asserts disabled")
-{
-    DupField d{};
-    d.a = 1;
-    d.b = 2;
-    Json::Value json;
-    auto enc = aison::encode<GuardSchema>(d, json);
-    REQUIRE(enc);
-    CHECK(enc.errors.empty());
-    CHECK(json["value"].asInt() == 1);
-}
-
-TEST_CASE("Duplicate member mapping is ignored when asserts disabled")
-{
-    DupMember m{};
-    m.v = 7;
-
-    Json::Value json;
-    auto enc = aison::encode<GuardSchema>(m, json);
-    REQUIRE(enc);
-    CHECK(enc.errors.empty());
-    CHECK(json.isMember("primary"));
-    CHECK_FALSE(json.isMember("alias"));
-    CHECK(json["primary"].asInt() == 7);
-}
-
 // Variant guard scenarios -----------------------------------------------------
 
 struct Circle {
@@ -113,17 +87,6 @@ struct SchemaMissingDiscriminator::Object<SceneBad>
     Object() { add(&SceneBad::shape, "shape"); }
 };
 
-TEST_CASE("Variant alternative missing discriminator yields runtime error when asserts disabled")
-{
-    SceneBad scene;
-    scene.shape = Circle{3.0};
-
-    Json::Value json;
-    auto enc = aison::encode<SchemaMissingDiscriminator>(scene, json);
-    CHECK_FALSE(enc);
-    REQUIRE_FALSE(enc.errors.empty());
-}
-
 // Mismatched keys -------------------------------------------------------------
 
 using ShapeMismatched = std::variant<Circle, Rect>;
@@ -163,18 +126,6 @@ struct SchemaMismatchedKey::Object<SceneMismatch>
     Object() { add(&SceneMismatch::shapes, "shapes"); }
 };
 
-TEST_CASE("Variant alternatives with mismatched discriminator keys fail validation")
-{
-    SceneMismatch scene;
-    scene.shapes.push_back(Circle{1.0});
-    scene.shapes.push_back(Rect{2.0});
-
-    Json::Value json;
-    auto enc = aison::encode<SchemaMismatchedKey>(scene, json);
-    CHECK_FALSE(enc);
-    REQUIRE_FALSE(enc.errors.empty());
-}
-
 // Empty discriminator key -----------------------------------------------------
 
 struct SchemaEmptyKey : aison::Schema<SchemaEmptyKey> {
@@ -207,15 +158,69 @@ struct SchemaEmptyKey::Object<SceneBad> : aison::Object<SchemaEmptyKey, SceneBad
     Object() { add(&SceneBad::shape, "shape"); }
 };
 
-TEST_CASE("Empty discriminator key surfaces validation error when asserts disabled")
+TEST_SUITE("Runtime asserts (asserts disabled)")
 {
-    SceneBad scene;
-    scene.shape = Rect{5.0};
+    TEST_CASE("Duplicate field name is ignored when asserts disabled")
+    {
+        DupField d{};
+        d.a = 1;
+        d.b = 2;
+        Json::Value json;
+        auto enc = aison::encode<GuardSchema>(d, json);
+        REQUIRE(enc);
+        CHECK(enc.errors.empty());
+        CHECK(json["value"].asInt() == 1);
+    }
 
-    Json::Value json;
-    auto enc = aison::encode<SchemaEmptyKey>(scene, json);
-    CHECK_FALSE(enc);
-    REQUIRE_FALSE(enc.errors.empty());
-}
+    TEST_CASE("Duplicate member mapping is ignored when asserts disabled")
+    {
+        DupMember m{};
+        m.v = 7;
+
+        Json::Value json;
+        auto enc = aison::encode<GuardSchema>(m, json);
+        REQUIRE(enc);
+        CHECK(enc.errors.empty());
+        CHECK(json.isMember("primary"));
+        CHECK_FALSE(json.isMember("alias"));
+        CHECK(json["primary"].asInt() == 7);
+    }
+
+    TEST_CASE(
+        "Variant alternative missing discriminator yields runtime error when asserts disabled")
+    {
+        SceneBad scene;
+        scene.shape = Circle{3.0};
+
+        Json::Value json;
+        auto enc = aison::encode<SchemaMissingDiscriminator>(scene, json);
+        CHECK_FALSE(enc);
+        REQUIRE_FALSE(enc.errors.empty());
+    }
+
+    TEST_CASE("Variant alternatives with mismatched discriminator keys fail validation")
+    {
+        SceneMismatch scene;
+        scene.shapes.push_back(Circle{1.0});
+        scene.shapes.push_back(Rect{2.0});
+
+        Json::Value json;
+        auto enc = aison::encode<SchemaMismatchedKey>(scene, json);
+        CHECK_FALSE(enc);
+        REQUIRE_FALSE(enc.errors.empty());
+    }
+
+    TEST_CASE("Empty discriminator key surfaces validation error when asserts disabled")
+    {
+        SceneBad scene;
+        scene.shape = Rect{5.0};
+
+        Json::Value json;
+        auto enc = aison::encode<SchemaEmptyKey>(scene, json);
+        CHECK_FALSE(enc);
+        REQUIRE_FALSE(enc.errors.empty());
+    }
+
+}  // TEST_SUITE
 
 }  // namespace
