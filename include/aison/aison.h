@@ -139,13 +139,6 @@ const void* getFieldContextId();
 template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
 
-template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(
-    T Owner::* member,
-    std::string_view name,
-    std::string_view discriminatorKey,
-    const std::vector<Field>& fields);
-
 template<typename T>
 T& getSchemaObject();
 
@@ -1034,44 +1027,6 @@ void decodeFieldThunk(
 
 // Object implementations per facet /////////////////////////////////////////////////////////
 
-template<typename Schema, typename Owner, typename T, typename Field>
-bool checkAdd(
-    T Owner::* member,
-    std::string_view name,
-    std::string_view discriminatorKey,
-    const std::vector<Field>& fields)
-{
-    if (!discriminatorKey.empty() && discriminatorKey == name) {
-        if constexpr (getSchemaEnableAssert<Schema>()) {
-            assert(false && "Field name is reserved as discriminator for this type.");
-        }
-        return false;
-    }
-
-    using Ctx = FieldContext<Owner, T>;
-    const auto* contextId = getFieldContextId<Owner, T>();
-
-    for (const auto& field : fields) {
-        if (field.contextId == contextId &&
-            static_cast<const Ctx*>(field.context)->member == member)
-        {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Same member is mapped multiple times in Schema::Object.");
-            }
-            return false;
-        }
-
-        if (field.name == name) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Duplicate field name in Schema::Object.");
-            }
-            return false;
-        }
-    }
-
-    return true;
-}
-
 template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member)
 {
@@ -1162,7 +1117,9 @@ public:
             }
             return;
         }
-        checkDiscriminatorKey(key);
+        if (!checkDiscriminatorKey(key)) {
+            return;
+        }
         if (hasDiscriminatorTag_) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "discriminator(...) already set for this object.");
@@ -1206,6 +1163,8 @@ public:
             const auto& key = field.name;
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
+                    PathScope guard(decoder, key);
+                    field.decode(Json::nullValue, dst, decoder, field.context);
                     continue;
                 }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
@@ -1222,22 +1181,23 @@ public:
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
 
 private:
-    void checkDiscriminatorKey(std::string_view key)
+    bool checkDiscriminatorKey(std::string_view key)
     {
         for (const auto& field : fields_) {
             if (field.name == key) {
                 if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Discriminator key conflicts with an existing field name.");
                 }
-                return;
+                return false;
             }
         }
+        return true;
     }
 
-    using FieldDesc = FieldDesc<Schema, Owner>;
+    using Field = FieldDesc<Schema, Owner>;
 
     std::vector<FieldContextPtr> contexts_;
-    std::vector<FieldDesc> fields_;
+    std::vector<Field> fields_;
     std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
     bool hasDiscriminatorTag_ = false;
