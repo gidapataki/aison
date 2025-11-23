@@ -2,7 +2,6 @@
 #include <doctest.h>
 #include <json/json.h>
 
-#include <string>
 #include <variant>
 #include <vector>
 
@@ -10,7 +9,8 @@ namespace {
 
 // Schema with asserts disabled to observe runtime errors instead of aborts.
 struct GuardSchema : aison::Schema<GuardSchema> {
-    using EnableAssert = std::false_type;
+    static constexpr auto enableAssert = false;
+
     template<typename T>
     struct Object;
 };
@@ -86,7 +86,8 @@ struct SceneBad {
 
 // Missing discriminator on Circle triggers validation; asserts disabled to avoid abort.
 struct SchemaMissingDiscriminator : aison::Schema<SchemaMissingDiscriminator> {
-    using EnableAssert = std::false_type;
+    static constexpr auto enableAssert = false;
+
     template<typename T>
     struct Object;
 };
@@ -98,8 +99,7 @@ struct SchemaMissingDiscriminator::Object<Circle>
 };
 
 template<>
-struct SchemaMissingDiscriminator::Object<Rect>
-    : aison::Object<SchemaMissingDiscriminator, Rect> {
+struct SchemaMissingDiscriminator::Object<Rect> : aison::Object<SchemaMissingDiscriminator, Rect> {
     Object()
     {
         discriminator("rect", "kind");
@@ -133,7 +133,8 @@ struct SceneMismatch {
 };
 
 struct SchemaMismatchedKey : aison::Schema<SchemaMismatchedKey> {
-    using EnableAssert = std::false_type;
+    static constexpr auto enableAssert = false;
+
     template<typename T>
     struct Object;
 };
@@ -177,7 +178,8 @@ TEST_CASE("Variant alternatives with mismatched discriminator keys fail validati
 // Empty discriminator key -----------------------------------------------------
 
 struct SchemaEmptyKey : aison::Schema<SchemaEmptyKey> {
-    using EnableAssert = std::false_type;
+    static constexpr auto enableAssert = false;
+
     template<typename T>
     struct Object;
 };

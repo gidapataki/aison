@@ -27,6 +27,7 @@ struct EncodeDecode;
 
 struct Error;
 struct Result;
+struct SchemaDefaults;
 
 template<typename Schema, typename T>
 struct Object;
@@ -95,8 +96,11 @@ struct HasSchemaDiscriminatorKey;
 template<typename Schema, typename = void>
 struct SchemaDiscriminatorKey;
 
-template<typename Schema>
-std::string_view getSchemaDiscriminatorKey();
+template<typename Schema, typename = void>
+struct HasSchemaEnableAssert;
+
+template<typename Schema, typename = void>
+struct SchemaEnableAssert;
 
 // Functions
 template<typename Schema, typename T>
@@ -133,6 +137,12 @@ bool checkAdd(
 template<typename T>
 T& getSchemaObject();
 
+template<typename Schema>
+std::string_view getSchemaDiscriminatorKey();
+
+template<typename Schema>
+constexpr bool getSchemaEnableAssert();
+
 }  // namespace aison::detail
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
@@ -158,14 +168,16 @@ struct EncodeOnly {};
 struct DecodeOnly {};
 struct EncodeDecode {};
 
-// CRTP schema base: facet + config are template parameters
+struct SchemaDefaults {
+    static constexpr auto enableAssert = true;
+    static constexpr auto discriminatorKey = "";
+};
 
 template<typename Derived, typename Facet = EncodeDecode, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
     using FacetType = Facet;
     using ConfigType = Config;
-    using EnableAssert = std::true_type;
 
     // template<typename T> struct Object;
     // template<typename T> struct Enum;
@@ -346,7 +358,7 @@ public:
         for (const auto& entry : entries_) {
             // Disallow duplicate value or duplicate name
             if (entry.first == value || entry.second == name) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Duplicate enum mapping in Schema::Enum.");
                 }
                 return;
@@ -363,7 +375,7 @@ public:
                 isDefined = true;
             }
             if (entry.second == name) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Duplicate enum name in Schema::Enum::addAlias.");
                 }
                 return;
@@ -371,7 +383,7 @@ public:
         }
 
         if (!isDefined) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
                     false &&
                     "Alias refers to an enum value that was not added with Schema::Enum::add.");
@@ -461,7 +473,7 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
         }
 
         if (mismatch) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Variant alternatives must use the same discriminator key.");
             }
             ctx.addError("Variant alternatives must use the same discriminator key.");
@@ -487,6 +499,8 @@ T& getSchemaObject()
     return instance;
 }
 
+// DiscriminatorKey
+
 template<typename Schema, typename>
 struct HasSchemaDiscriminatorKey : std::false_type {};
 
@@ -496,7 +510,7 @@ struct HasSchemaDiscriminatorKey<Schema, std::void_t<decltype(Schema::discrimina
 
 template<typename Schema, typename>
 struct SchemaDiscriminatorKey {
-    static std::string_view get() { return {}; }
+    static std::string_view get() { return SchemaDefaults::discriminatorKey; }
 };
 
 template<typename Schema>
@@ -517,6 +531,36 @@ template<typename Schema>
 std::string_view getSchemaDiscriminatorKey()
 {
     return SchemaDiscriminatorKey<Schema>::get();
+}
+
+// EnableAssert
+
+template<typename Schema, typename>
+struct HasSchemaEnableAssert : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaEnableAssert {
+    constexpr static bool get() { return SchemaDefaults::enableAssert; }
+};
+
+template<typename Schema>
+struct SchemaEnableAssert<Schema, std::enable_if_t<HasSchemaEnableAssert<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableAssert)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
+        return Schema::enableAssert;
+    }
+};
+
+template<typename Schema>
+constexpr bool getSchemaEnableAssert()
+{
+    return SchemaEnableAssert<Schema>::get();
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
@@ -979,7 +1023,7 @@ bool checkAdd(
     const std::vector<Field>& fields)
 {
     if (!discriminatorKey.empty() && discriminatorKey == name) {
-        if constexpr (Schema::EnableAssert::value) {
+        if constexpr (getSchemaEnableAssert<Schema>()) {
             assert(false && "Field name is reserved as discriminator for this type.");
         }
         return false;
@@ -992,14 +1036,14 @@ bool checkAdd(
         if (field.contextId == contextId &&
             static_cast<const Ctx*>(field.context)->member == member)
         {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Same member is mapped multiple times in Schema::Object.");
             }
             return false;
         }
 
         if (field.name == name) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Duplicate field name in Schema::Object.");
             }
             return false;
@@ -1057,14 +1101,14 @@ public:
     void discriminator(std::string_view tag, std::string_view key)
     {
         if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Discriminator key cannot be empty.");
             }
             return;
         }
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
@@ -1093,7 +1137,7 @@ private:
     {
         for (const auto& field : fields_) {
             if (field.name == key) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Discriminator key conflicts with an existing field name.");
                 }
                 return;
@@ -1144,14 +1188,14 @@ public:
     void discriminator(std::string_view tag, std::string_view key)
     {
         if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Discriminator key cannot be empty.");
             }
             return;
         }
         checkDiscriminatorKey(key);
         if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;
@@ -1193,7 +1237,7 @@ private:
     {
         for (const auto& field : fields_) {
             if (field.name == key) {
-                if constexpr (Schema::EnableAssert::value) {
+                if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Discriminator key conflicts with an existing field name.");
                 }
                 return;
@@ -1236,13 +1280,13 @@ public:
     void discriminator(std::string_view tag, std::string_view key)
     {
         if (key.empty()) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Discriminator key cannot be empty.");
             }
             return;
         }
         if (hasDiscriminatorTag_) {
-            if constexpr (Schema::EnableAssert::value) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "discriminator(...) already set for this object.");
             }
             return;

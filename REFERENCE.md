@@ -77,15 +77,9 @@ aison::Result r = aison::decode<MySchema>(json, obj, cfg);
 
 `this->config()` is available from custom encode/decode hooks.
 
-### 1.3 Schema Assertions (`EnableAssert`)
+### 1.3 Schema Assertions (`enableAssert`)
 
-By default:
-
-```cpp
-using EnableAssert = std::true_type;
-```
-
-which means:
+By default: `true`
 
 - schema mistakes trigger **assert()** in debug mode,
 - and are **skipped silently** otherwise.
@@ -94,7 +88,7 @@ Users may disable assertions:
 
 ```cpp
 struct MySchema : aison::Schema<MySchema> {
-    using EnableAssert = std::false_type;
+    static constexpr auto enableAssert = false;
 };
 ```
 

@@ -42,6 +42,7 @@ option(AISON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(AISON_ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
 option(AISON_ENABLE_LSAN "Build with LeakSanitizer (Linux only)" OFF)
 
+
 if(AISON_BUILD_TESTS)
   include(CTest)
   enable_testing()

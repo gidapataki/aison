@@ -37,6 +37,8 @@ struct Config {
 };
 
 struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
+    static constexpr auto enableAssert = false;
+
     template<typename T>
     struct Object;
 
