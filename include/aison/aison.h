@@ -198,8 +198,6 @@ struct Schema {
 
 namespace aison::detail {
 
-// Path tracking /////////////////////////////////////////////////////////////////////////////
-
 struct PathSegment {
     enum class Kind { Key, Index } kind = {};
     union Data {
@@ -267,10 +265,14 @@ protected:
 struct PathScope {
     Context* ctx = nullptr;
 
-    PathScope(Context& context, std::string_view key)
+    PathScope(Context& context, const std::string& key)
+        : PathScope(context, key.c_str())
+    {}
+
+    PathScope(Context& context, const char* key)
         : ctx(&context)
     {
-        ctx->pathStack_.push_back(PathSegment::makeKey(key.data()));
+        ctx->pathStack_.push_back(PathSegment::makeKey(key));
     }
 
     PathScope(Context& context, std::size_t index)
@@ -741,7 +743,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
 
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
                 if (!objectDef.hasDiscriminatorTag()) {
-                    PathScope guard(encoder, objectDef.discriminatorKey().data());
+                    PathScope guard(encoder, objectDef.discriminatorKey());
                     encoder.addError("Variant alternative missing discriminator().");
                     return;
                 }
@@ -755,7 +757,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
-                dst[objectDef.discriminatorKey().data()] = std::move(tagJson);
+                dst[objectDef.discriminatorKey()] = std::move(tagJson);
             },
             value);
     } else if constexpr (IsVector<T>::value) {
@@ -918,13 +920,12 @@ struct VariantDecoder<Schema, std::variant<Ts...>, void> {
 
         using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
         const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
-        auto fieldNameView = firstObj.discriminatorKey();
+        const auto& fieldName = firstObj.discriminatorKey();
         if (!VariantKeyValidator<Schema, DecoderImpl<Schema>, std::variant<Ts...>>::validate(
                 decoder))
         {
             return;
         }
-        auto* fieldName = fieldNameView.data();
 
         std::string tagValue;
         {
@@ -965,7 +966,7 @@ private:
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getSchemaObject<ObjectSpec>();
         if (!objectDef.hasDiscriminatorTag()) {
-            PathScope guard(decoder, objectDef.discriminatorKey().data());
+            PathScope guard(decoder, objectDef.discriminatorKey());
             decoder.addError("Variant alternative missing discriminator().");
             return;
         }
@@ -1141,7 +1142,7 @@ public:
         discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
-    template<typename = std::enable_if_t<hasEncodeFacet<Schema>()>>
+    template<typename S = Schema, typename = std::enable_if_t<hasEncodeFacet<S>()>>
     void encodeFields(const Owner& src, Json::Value& dst, EncoderImpl<Schema>& encoder) const
     {
         dst = Json::objectValue;
@@ -1156,7 +1157,7 @@ public:
         }
     }
 
-    template<typename = std::enable_if_t<hasDecodeFacet<Schema>()>>
+    template<typename S = Schema, typename = std::enable_if_t<hasDecodeFacet<S>()>>
     void decodeFields(const Json::Value& src, Owner& dst, DecoderImpl<Schema>& decoder) const
     {
         for (const auto& field : fields_) {
@@ -1176,8 +1177,8 @@ public:
         }
     }
 
-    std::string_view discriminatorTag() const { return discriminatorTag_; }
-    std::string_view discriminatorKey() const { return discriminatorKey_; }
+    const std::string& discriminatorTag() const { return discriminatorTag_; }
+    const std::string& discriminatorKey() const { return discriminatorKey_; }
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
 
 private:
@@ -1236,11 +1237,16 @@ public:
     using EncoderType = aison::detail::EncoderImpl<Schema>;
 
     Encoder() = default;
-
     void setEncoder(EncoderType& enc) { encoder_ = &enc; }
+
     void addError(const std::string& msg) { encoder_->addError(msg); }
     const auto& config() const { return encoder_->config; }
-    EncoderType& getEncoder() { return *encoder_; }
+
+    template<typename U>
+    void encode(const U& src, Json::Value& dst)
+    {
+        detail::encodeValue(src, dst, *encoder_);
+    }
 
 private:
     EncoderType* encoder_ = nullptr;
@@ -1257,7 +1263,12 @@ public:
     void setDecoder(DecoderType& dec) { decoder_ = &dec; }
     void addError(const std::string& msg) { decoder_->addError(msg); }
     const auto& config() const { return decoder_->config; }
-    DecoderType& getDecoder() { return *decoder_; }
+
+    template<typename U>
+    void decode(const Json::Value& src, U& dst)
+    {
+        detail::decodeValue(src, dst, *decoder_);
+    }
 
 private:
     DecoderType* decoder_ = nullptr;
