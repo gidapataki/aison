@@ -1141,7 +1141,7 @@ public:
         discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
-    template<typename = std::enable_if_t<hasEncodeFacet<Schema>()>>
+    template<typename S = Schema, typename = std::enable_if_t<hasEncodeFacet<S>()>>
     void encodeFields(const Owner& src, Json::Value& dst, EncoderImpl<Schema>& encoder) const
     {
         dst = Json::objectValue;
@@ -1156,7 +1156,7 @@ public:
         }
     }
 
-    template<typename = std::enable_if_t<hasDecodeFacet<Schema>()>>
+    template<typename S = Schema, typename = std::enable_if_t<hasDecodeFacet<S>()>>
     void decodeFields(const Json::Value& src, Owner& dst, DecoderImpl<Schema>& decoder) const
     {
         for (const auto& field : fields_) {
