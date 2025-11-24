@@ -198,8 +198,6 @@ struct Schema {
 
 namespace aison::detail {
 
-// Path tracking /////////////////////////////////////////////////////////////////////////////
-
 struct PathSegment {
     enum class Kind { Key, Index } kind = {};
     union Data {
@@ -1239,11 +1237,16 @@ public:
     using EncoderType = aison::detail::EncoderImpl<Schema>;
 
     Encoder() = default;
-
     void setEncoder(EncoderType& enc) { encoder_ = &enc; }
+
     void addError(const std::string& msg) { encoder_->addError(msg); }
     const auto& config() const { return encoder_->config; }
-    EncoderType& getEncoder() { return *encoder_; }
+
+    template<typename U>
+    void encode(const U& src, Json::Value& dst)
+    {
+        detail::encodeValue(src, dst, *encoder_);
+    }
 
 private:
     EncoderType* encoder_ = nullptr;
@@ -1260,7 +1263,12 @@ public:
     void setDecoder(DecoderType& dec) { decoder_ = &dec; }
     void addError(const std::string& msg) { decoder_->addError(msg); }
     const auto& config() const { return decoder_->config; }
-    DecoderType& getDecoder() { return *decoder_; }
+
+    template<typename U>
+    void decode(const Json::Value& src, U& dst)
+    {
+        detail::decodeValue(src, dst, *decoder_);
+    }
 
 private:
     DecoderType* decoder_ = nullptr;
