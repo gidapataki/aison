@@ -329,6 +329,127 @@ struct IsVariant : std::false_type {};
 template<typename... Ts>
 struct IsVariant<std::variant<Ts...>> : std::true_type {};
 
+enum class FieldKind { Plain, Optional, Vector, Variant };
+
+enum class BasicType {
+    Unknown,
+    Bool,
+    Int8,
+    UInt8,
+    Int16,
+    UInt16,
+    Int32,
+    UInt32,
+    Int64,
+    UInt64,
+    Float,
+    Double,
+    String,
+    Enum,
+    Object,
+    Other,
+};
+
+struct TypeInfo {
+    FieldKind kind = FieldKind::Plain;
+    BasicType basic = BasicType::Unknown;
+    const void* typeId = nullptr;
+    const TypeInfo* element = nullptr;                // optional/vector element
+    const TypeInfo* const* variants = nullptr;        // pointer to array of alternative TypeInfo*
+    std::size_t variantCount = 0;
+};
+
+template<typename Schema, typename T>
+const TypeInfo& makeTypeInfo();
+
+template<typename Schema, typename Variant>
+const TypeInfo& makeVariantTypeInfo();
+
+template<typename Schema, typename Variant, std::size_t... Is>
+inline const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>)
+{
+    static const TypeInfo* const arr[] = {
+        &makeTypeInfo<Schema, std::variant_alternative_t<Is, Variant>>()...};
+    return arr;
+}
+
+template<typename Schema, typename T>
+const TypeInfo& makeTypeInfo()
+{
+    if constexpr (IsOptional<T>::value) {
+        using Inner = typename T::value_type;
+        static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
+        static const TypeInfo info{
+            FieldKind::Optional, inner.basic, typeId<T>(), &inner, nullptr, 0};
+        return info;
+    } else if constexpr (IsVector<T>::value) {
+        using Inner = typename T::value_type;
+        static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
+        static const TypeInfo info{
+            FieldKind::Vector, inner.basic, typeId<T>(), &inner, nullptr, 0};
+        return info;
+    } else if constexpr (IsVariant<T>::value) {
+        return makeVariantTypeInfo<Schema, T>();
+    } else if constexpr (std::is_same_v<T, bool>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Bool, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::int8_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Int8, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::uint8_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::UInt8, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::int16_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Int16, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::uint16_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::UInt16, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::int32_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Int32, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::uint32_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::UInt32, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::int64_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Int64, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::uint64_t>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::UInt64, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, float>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Float, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, double>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Double, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::String, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (std::is_enum_v<T>) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Enum, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else if constexpr (HasObjectTag<Schema, T>::value) {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Object, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    } else {
+        static const TypeInfo info{FieldKind::Plain, BasicType::Other, typeId<T>(), nullptr, nullptr, 0};
+        return info;
+    }
+}
+
+template<typename Schema, typename Variant>
+const TypeInfo& makeVariantTypeInfo()
+{
+    using VariantType = Variant;
+    constexpr auto count = std::variant_size_v<VariantType>;
+    static const TypeInfo* const* altArray =
+        makeVariantAlternatives<Schema, VariantType>(std::make_index_sequence<count>{});
+    static const TypeInfo info{
+        FieldKind::Variant, BasicType::Other, typeId<Variant>(), nullptr, altArray, count};
+    return info;
+}
+
 template<typename Schema, typename T, typename>
 struct HasEnumTag : std::false_type {};
 
@@ -1001,13 +1122,15 @@ struct FieldDesc {
         void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
     using DecodeFn =
         void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
+    using Introspection = const TypeInfo*;
+    using IntrospectFn = const TypeInfo* (*)();
 
     EncodeFn encode = nullptr;
     DecodeFn decode = nullptr;
+    IntrospectFn introspect = nullptr;
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
-    const void* typeId = nullptr;
     bool isOptional = false;
 };
 
@@ -1036,6 +1159,12 @@ void decodeFieldThunk(
     auto& member = ctx->member;
     T& ref = owner.*member;
     decodeValue<Schema, T>(src, ref, decoder);
+}
+
+template<typename Schema, typename Owner, typename T>
+typename FieldDesc<Schema, Owner>::Introspection introspectField()
+{
+    return &makeTypeInfo<Schema, T>();
 }
 
 // Object implementations per facet /////////////////////////////////////////////////////////
@@ -1114,8 +1243,8 @@ public:
         field.name = std::string(name);
         field.context = context.get();
         field.contextId = contextId;
-        field.typeId = typeId<T>();
         field.isOptional = IsOptional<T>::value;
+        field.introspect = &introspectField<Schema, Owner, T>;
 
         if constexpr (hasEncodeFacet<Schema>()) {
             field.encode = &encodeFieldThunk<Schema, Owner, T>;
