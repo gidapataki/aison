@@ -1062,6 +1062,8 @@ template<typename Schema, typename Owner>
 class ObjectImpl
 {
 public:
+    using Field = FieldDesc<Schema, Owner>;
+
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
@@ -1180,6 +1182,7 @@ public:
     const std::string& discriminatorTag() const { return discriminatorTag_; }
     const std::string& discriminatorKey() const { return discriminatorKey_; }
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+    const std::vector<Field>& fields() const { return fields_; }
 
 private:
     bool checkDiscriminatorKey(std::string_view key)
@@ -1194,8 +1197,6 @@ private:
         }
         return true;
     }
-
-    using Field = FieldDesc<Schema, Owner>;
 
     std::vector<FieldContextPtr> contexts_;
     std::vector<Field> fields_;
