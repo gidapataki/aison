@@ -485,7 +485,7 @@ struct EnumBase {};
 template<typename Schema, typename E>
 class EnumImpl : public EnumBase
 {
-    using Entry = std::pair<E, std::string_view>;
+    using Entry = std::pair<E, std::string>;
     std::vector<Entry> entries_;
 
 public:
@@ -507,7 +507,7 @@ public:
                 return;
             }
         }
-        entries_.emplace_back(value, name);
+        entries_.emplace_back(value, std::string(name));
     }
 
     void addAlias(E value, std::string_view name)
@@ -533,7 +533,7 @@ public:
             }
         }
 
-        entries_.emplace_back(value, name);
+        entries_.emplace_back(value, std::string(name));
     }
 };
 
