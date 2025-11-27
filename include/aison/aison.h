@@ -525,6 +525,16 @@ public:
         entry.names = std::move(en.names);
     }
 
+    void addEnumName(const void* typeId, std::string name)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        auto& entry = enums_[typeId];
+        entry.typeId = typeId;
+        entry.names.push_back(std::move(name));
+    }
+
     const std::unordered_map<const void*, ObjectInfo>& objects() const { return objects_; }
     const std::unordered_map<const void*, EnumInfo>& enums() const { return enums_; }
 
@@ -591,46 +601,10 @@ public:
             }
         }
         entries_.emplace_back(value, std::string(name));
-        ensureRegistered();
-    }
-
-    void addAlias(E value, std::string_view name)
-    {
-        bool isDefined = false;
-        for (const auto& entry : entries_) {
-            if (entry.first == value) {
-                isDefined = true;
-            }
-            if (entry.second == name) {
-                if constexpr (getSchemaEnableAssert<Schema>()) {
-                    assert(false && "Duplicate enum name in Schema::Enum::addAlias.");
-                }
-                return;
-            }
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            IntrospectionRegistry<Schema>::instance().addEnumName(
+                typeId<E>(), std::string(name));
         }
-
-        if (!isDefined) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(
-                    false &&
-                    "Alias refers to an enum value that was not added with Schema::Enum::add.");
-            }
-        }
-
-        entries_.emplace_back(value, std::string(name));
-    }
-
-    void ensureRegistered()
-    {
-        if (!getSchemaEnableIntrospection<Schema>()) {
-            return;
-        }
-        EnumInfo info;
-        info.typeId = typeId<E>();
-        for (const auto& entry : entries_) {
-            info.names.push_back(entry.second);
-        }
-        IntrospectionRegistry<Schema>::instance().addEnum(std::move(info));
     }
 };
 
@@ -1498,7 +1472,6 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base = detail::EnumImpl<Schema, E>;
 
     using Base::add;
-    using Base::addAlias;
 };
 
 /// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////

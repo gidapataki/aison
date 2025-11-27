@@ -60,7 +60,6 @@ struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
     {
         add(Alignment::kLeft, "left");
         add(Alignment::kCenter, "center");
-        addAlias(Alignment::kCenter, "center2");
         add(Alignment::kRight, "right");
     }
 };
@@ -255,10 +254,6 @@ void testTextSchema()
 
     std::cout << "== Encoded ==\n";
     std::cout << root.toStyledString() << "\n\n";
-
-    // Alias
-    root["alignment"] = "center2";
-    root["bgColor"] = Json::nullValue;
 
     res = aison::decode<TextSchema>(root, para, cfg);
     if (!res) {

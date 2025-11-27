@@ -64,7 +64,6 @@ struct BasicSchema::Enum<Category> : aison::Enum<BasicSchema, Category> {
         add(Category::Utility, "utility");
         add(Category::Core, "core");
         add(Category::Experimental, "experimental");
-        addAlias(Category::Experimental, "exp");
     }
 };
 
@@ -75,7 +74,6 @@ struct BasicSchema::Enum<Importance> : aison::Enum<BasicSchema, Importance> {
         add(Importance::Low, "low");
         add(Importance::Medium, "medium");
         add(Importance::High, "high");
-        addAlias(Importance::Medium, "med");
     }
 };
 
@@ -198,67 +196,6 @@ TEST_SUITE("Basic types")
         REQUIRE(decoded.featured.has_value());
         CHECK(decoded.featured->name == doc.featured->name);
         CHECK(decoded.featured->category == doc.featured->category);
-    }
-
-    TEST_CASE("Decode alias names and canonicalize on encode")
-    {
-        Json::Value root(Json::objectValue);
-        {
-            root["version"] = 1;
-            root["scale"] = 2.0;
-            root["items"] = Json::arrayValue;
-
-            Json::Value entry(Json::objectValue);
-            entry["name"] = "gamma";
-            entry["category"] = "exp";    // alias
-            entry["importance"] = "med";  // alias
-            entry["stats"] = Json::objectValue;
-            entry["stats"]["count"] = 1;
-            entry["stats"]["mean"] = 5.0;
-            entry["stats"]["buckets"] = Json::arrayValue;
-            entry["stats"]["buckets"].append(5);
-            entry["stats"]["deltas"] = Json::nullValue;
-            entry["tags"] = Json::arrayValue;
-            entry["tags"].append("aliased");
-            entry["note"] = Json::nullValue;
-
-            root["items"].append(entry);
-            root["featured"] = Json::nullValue;
-        }
-
-        Document decoded;
-        auto dec = aison::decode<BasicSchema>(root, decoded);
-
-        CHECK(dec.errors.size() == 0);
-        REQUIRE(dec);
-        REQUIRE(dec.errors.empty());
-
-        CHECK(decoded.version == 1);
-        CHECK(decoded.scale == doctest::Approx(2.0f));
-        REQUIRE(decoded.items.size() == 1);
-        const auto& item = decoded.items.front();
-        CHECK(item.category == Category::Experimental);
-        CHECK(item.importance == Importance::Medium);
-        CHECK_FALSE(item.stats.deltas.has_value());
-        CHECK_FALSE(item.note.has_value());
-        CHECK(decoded.featured == std::nullopt);
-
-        // Encode back and ensure canonical enum names are produced
-
-        root = {};
-        auto enc = aison::encode<BasicSchema>(decoded, root);
-        REQUIRE(enc);
-        REQUIRE(enc.errors.empty());
-
-        const auto& outItem = root["items"][0U];
-        CHECK(outItem["category"].asString() == "experimental");
-        CHECK(outItem["importance"].asString() == "medium");
-        CHECK(outItem.isMember("note"));
-        CHECK(outItem["stats"].isMember("deltas"));
-        CHECK(root.isMember("featured"));
-        CHECK(outItem["note"].isNull());
-        CHECK(outItem["stats"]["deltas"].isNull());
-        CHECK(root["featured"].isNull());
     }
 
     TEST_CASE("Non-strict optionals can be omitted and reset on decode")
