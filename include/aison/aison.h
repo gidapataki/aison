@@ -151,6 +151,9 @@ constexpr bool getSchemaEnableAssert();
 template<typename Schema>
 constexpr bool getSchemaStrictOptional();
 
+template<typename T>
+const void* typeId();
+
 }  // namespace aison::detail
 
 // Implementation //////////////////////////////////////////////////////////////////////////////////
@@ -299,6 +302,13 @@ struct PathScope {
     }
 };
 
+template<typename T>
+const void* typeId()
+{
+    static int id;
+    return &id;
+}
+
 // Traits ///////////////////////////////////////////////////////////////////////////////////
 
 template<typename T>
@@ -312,6 +322,7 @@ struct IsVector : std::false_type {};
 
 template<typename T, typename A>
 struct IsVector<std::vector<T, A>> : std::true_type {};
+
 template<typename T>
 struct IsVariant : std::false_type {};
 
@@ -996,6 +1007,7 @@ struct FieldDesc {
     std::string name;
     const void* context = nullptr;
     const void* contextId = nullptr;
+    const void* typeId = nullptr;
     bool isOptional = false;
 };
 
@@ -1102,6 +1114,7 @@ public:
         field.name = std::string(name);
         field.context = context.get();
         field.contextId = contextId;
+        field.typeId = typeId<T>();
         field.isOptional = IsOptional<T>::value;
 
         if constexpr (hasEncodeFacet<Schema>()) {
