@@ -123,6 +123,9 @@ std::string renderType(const TypeInfo* info)
         case TypeClass::Object:
             return "object(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+        case TypeClass::Custom:
+            return "custom(typeId=" +
+                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
         case TypeClass::Optional:
             return "optional<" + renderType(info->data.optional.type) + ">";
         case TypeClass::Vector:

@@ -252,6 +252,7 @@ enum class TypeClass {
     String,
     Enum,
     Object,
+    Custom,    //< Custom encoder/decoder mapping
     Optional,  //< Inner type available via typeInfo.data.element
     Vector,    //< Inner type available via typeInfo.data.element
     Variant,   //< Inner type available via typeInfo.data.variant
@@ -519,6 +520,9 @@ template<typename Schema, typename T>
 struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>::DecoderTag>>
     : std::true_type {};
 
+template<typename...>
+struct DependentFalse : std::false_type {};
+
 template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration();
 
@@ -611,7 +615,14 @@ const TypeInfo& makeTypeInfo()
     } else if constexpr (HasObjectTag<Schema, T>::value) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Object);
         return info;
+    } else if constexpr (HasEncoderTag<Schema, T>::value || HasDecoderTag<Schema, T>::value) {
+        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Custom);
+        return info;
     } else {
+        static_assert(
+            DependentFalse<T>::value,
+            "Unsupported type for introspection. "
+            "Provide a Schema::Object / Schema::Enum mapping / Schema::Encode / Schema::Decode.");
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Unknown);
         return info;
     }
@@ -719,10 +730,13 @@ constexpr void validateEnumType()
         "No schema enum mapping for this type. "
         "Define `template<> struct Schema::Enum<T> : aison::Enum<Schema, T>` and "
         "list all enum values.");
-    using EnumDef = typename Schema::template Enum<T>;
-    static_assert(
-        std::is_base_of_v<EnumBase, EnumDef>,
-        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+
+    if constexpr (HasEnumTag<Schema, T>::value) {
+        using EnumDef = typename Schema::template Enum<T>;
+        static_assert(
+            std::is_base_of_v<EnumBase, EnumDef>,
+            "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+    }
 }
 
 // Variant validation //////////////////////////////////////////////////////////////////////
@@ -1568,6 +1582,7 @@ public:
     {
         using U = std::decay_t<T>;
         if constexpr (std::is_enum_v<U>) {
+            validateEnumType<Schema, U>();
             registerEnumMapping<Schema, U>();
             collectEnum(getTypeId<U>());
         } else if constexpr (IsOptional<U>::value) {
@@ -1578,12 +1593,17 @@ public:
             ensureVariantAlternatives<Schema, U, U>(
                 std::make_index_sequence<std::variant_size_v<U>>{});
             addVariantAlternatives<U>(std::make_index_sequence<std::variant_size_v<U>>{});
-        } else {
+        } else if constexpr (std::is_class_v<U>) {
             static_assert(
-                HasObjectTag<Schema, U>::value,
-                "add<T>() expects an enum, object mapping, or supported container of those.");
+                HasObjectTag<Schema, U>::value || HasEncoderTag<Schema, U>::value ||
+                    HasDecoderTag<Schema, U>::value,
+                "Type is not part of the schema. Either define Schema::Object<T>, "
+                "Schema::Encoder<T> or Schema::Decoder<T>.");
+
             registerObjectMapping<Schema, U>();
             collectObject(getTypeId<U>());
+        } else {
+            static_assert(!std::is_class_v<U>, "Unsupported type.");
         }
     }
 
