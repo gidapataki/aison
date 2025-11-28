@@ -143,8 +143,8 @@ std::string renderType(const TypeInfo* info)
         case FieldKind::Plain: {
             std::string out = basicToStr(info->basic);
             if (info->basic == BasicType::Enum || info->basic == BasicType::Object) {
-                out += "(typeId=" +
-                       std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+                out += "(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
+                       ")";
             }
             return out;
         }
@@ -156,8 +156,8 @@ std::string renderType(const TypeInfo* info)
             std::string out = "variant<";
             for (std::size_t i = 0; i < info->variantCount; ++i) {
                 if (i) out += " | ";
-                out += info->variants && info->variants[i] ? renderType(info->variants[i]) :
-                                                             "unknown";
+                out +=
+                    info->variants && info->variants[i] ? renderType(info->variants[i]) : "unknown";
             }
             out += ">";
             return out;
@@ -173,8 +173,8 @@ void dump(const aison::Introspection<Schema>& isp)
         const auto& obj = entry.second;
         std::cout << "type: " << reinterpret_cast<std::uintptr_t>(entry.first) << "\n";
         if (obj.hasDiscriminator) {
-            std::cout << " discriminator: key=\"" << obj.discriminatorKey
-                      << "\" tag=\"" << obj.discriminatorTag << "\"\n";
+            std::cout << " discriminator: key=\"" << obj.discriminatorKey << "\" tag=\""
+                      << obj.discriminatorTag << "\"\n";
         }
         for (const auto& f : obj.fields) {
             std::cout << " - " << f.name << ": " << renderType(f.type) << "\n";
@@ -196,7 +196,13 @@ void dump(const aison::Introspection<Schema>& isp)
 int main()
 {
     auto isp = aison::introspection<DemoSchema>();
-    isp.add<Order>();
+    isp.add<Flavor>();
+
+    // auto isp2 = isp;
+    // isp2.add<Order>();
+    // dump(isp2);
+
+    // std::cout << "--\n";
     dump(isp);
     return 0;
 }

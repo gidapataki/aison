@@ -1412,8 +1412,7 @@ public:
             FieldInfo fi;
             fi.name = std::string(name);
             fi.type = field.typeInfo;
-            introspectionRegistry<Schema>().addObjectField(
-                detail::typeId<Owner>(), std::move(fi));
+            introspectionRegistry<Schema>().addObjectField(detail::typeId<Owner>(), std::move(fi));
             detail::ensureTypeRegistration<Schema, Owner, T>();
             if (hasDiscriminatorTag_) {
                 introspectionRegistry<Schema>().setObjectDiscriminator(
@@ -1548,10 +1547,7 @@ template<typename Schema, typename Enable = void>
 struct IntrospectionView {};
 
 template<typename Schema>
-struct IntrospectionView<
-    Schema,
-    std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
-{
+struct IntrospectionView<Schema, std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>> {
     const std::unordered_map<const void*, detail::ObjectInfo>& objects;
     const std::unordered_map<const void*, detail::EnumInfo>& enums;
 };
@@ -1589,19 +1585,25 @@ public:
     template<typename T>
     void add()
     {
-        static_assert(
-            detail::HasObjectTag<Schema, T>::value,
-            "add<T>() expects a mapped object type (Schema::Object specialization).");
-        detail::registerObjectMapping<Schema, T>();
-        collectObject(detail::typeId<T>());
-    }
-
-    template<typename E>
-    void addEnum()
-    {
-        static_assert(std::is_enum_v<E>, "addEnum<E>() expects an enum type.");
-        detail::registerEnumMapping<Schema, E>();
-        collectEnum(detail::typeId<E>());
+        using U = std::decay_t<T>;
+        if constexpr (std::is_enum_v<U>) {
+            detail::registerEnumMapping<Schema, U>();
+            collectEnum(detail::typeId<U>());
+        } else if constexpr (detail::IsOptional<U>::value) {
+            add<typename U::value_type>();
+        } else if constexpr (detail::IsVector<U>::value) {
+            add<typename U::value_type>();
+        } else if constexpr (detail::IsVariant<U>::value) {
+            detail::ensureVariantAlternatives<Schema, U, U>(
+                std::make_index_sequence<std::variant_size_v<U>>{});
+            addVariantAlternatives<U>(std::make_index_sequence<std::variant_size_v<U>>{});
+        } else {
+            static_assert(
+                detail::HasObjectTag<Schema, U>::value,
+                "add<T>() expects an enum, object mapping, or supported container of those.");
+            detail::registerObjectMapping<Schema, U>();
+            collectObject(detail::typeId<U>());
+        }
     }
 
     const auto& objects() const { return objects_; }
@@ -1662,6 +1664,12 @@ private:
                 }
                 break;
         }
+    }
+
+    template<typename Variant, std::size_t... Is>
+    void addVariantAlternatives(std::index_sequence<Is...>)
+    {
+        (add<std::variant_alternative_t<Is, Variant>>(), ...);
     }
 
     std::unordered_map<const void*, detail::ObjectInfo> objects_;
