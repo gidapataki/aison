@@ -39,6 +39,12 @@ struct Enum;
 template<typename Derived, typename FacetTag, typename Config>
 struct Schema;
 
+template<typename Schema, typename T>
+struct Encoder;
+
+template<typename Schema, typename T>
+struct Decoder;
+
 // Introspection types
 
 using TypeId = const void*;
@@ -49,11 +55,8 @@ struct FieldInfo;
 struct ObjectInfo;
 struct EnumInfo;
 
-template<typename Schema, typename T>
-struct Encoder;
-
-template<typename Schema, typename T>
-struct Decoder;
+template<typename Schema, typename = void>
+class Introspection;
 
 }  // namespace aison
 
@@ -81,11 +84,17 @@ class EnumImpl;
 template<typename Schema, typename Owner>
 class ObjectImpl;
 
-template<typename Schema, typename Variant, typename = void>
+template<typename Schema, typename Variant>
 struct VariantDecoder;
 
 template<typename Owner, typename T>
 struct FieldAccessor;
+
+template<typename Schema>
+class IntrospectionRegistry;
+
+template<typename Schema, typename = void>
+class IntrospectionImpl;
 
 // Traits
 template<typename T>
@@ -353,13 +362,6 @@ struct EnumInfo {
 }  // namespace aison
 
 namespace aison::detail {
-
-// using aison::EnumInfo;
-// using aison::FieldInfo;
-// using aison::ObjectInfo;
-// using aison::TypeClass;
-// using aison::TypeId;
-// using aison::TypeInfo;
 
 template<typename T>
 TypeId getTypeId()
@@ -1241,9 +1243,8 @@ void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decode
 
 // Variant decoding /////////////////////////////////////////////////////////////////////////
 
-// Specialization for std::variant<Ts...>
 template<typename Schema, typename... Ts>
-struct VariantDecoder<Schema, std::variant<Ts...>, void> {
+struct VariantDecoder<Schema, std::variant<Ts...>> {
     using VariantType = std::variant<Ts...>;
 
     static void decode(const Json::Value& src, VariantType& value, DecoderImpl<Schema>& decoder)
@@ -1558,10 +1559,8 @@ private:
     bool hasDiscriminatorTag_ = false;
 };
 
-template<
-    typename Schema,
-    typename Enable = std::enable_if_t<getSchemaEnableIntrospection<Schema>()>>
-class IntrospectionImpl
+template<typename Schema>
+class IntrospectionImpl<Schema, std::enable_if_t<getSchemaEnableIntrospection<Schema>()>>
 {
 public:
     template<typename T>
@@ -1731,10 +1730,12 @@ private:
 
 // Introspection ///////////////////////////////////////////////////////////////////////////
 
-template<
-    typename Schema,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+template<typename Schema, typename>
 class Introspection
+{};
+
+template<typename Schema>
+class Introspection<Schema, std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
 {
 public:
     template<typename T>
@@ -1794,11 +1795,13 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
     return detail::DecoderImpl<Schema>(config).decode(src, value);
 }
 
-template<
-    typename Schema,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+template<typename Schema>
 Introspection<Schema> introspect()
 {
+    static_assert(
+        detail::getSchemaEnableIntrospection<Schema>(),
+        "Introspection is disabled for this schema. Set `static constexpr bool "
+        "enableIntrospection = true;` in your Schema to use Introspection.");
     return Introspection<Schema>{};
 }
 

@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
-#include <set>
 #include <string>
 #include <variant>
 #include <vector>
@@ -173,8 +172,14 @@ void dump(const aison::Introspection<Schema>& isp)
 
 int main()
 {
+    Cone cone;
+    Json::Value root;
+    aison::encode<DemoSchema>(cone, root);
+
+    std::cout << root.toStyledString() << "\n";
     auto isp = aison::introspect<DemoSchema>();
     isp.add<Flavor>();
+
 #if 1
     auto isp2 = isp;
     isp2.add<Order>();
