@@ -128,8 +128,8 @@ std::string renderType(const TypeInfo* info)
         case TypeKind::String:
             return "string";
         case TypeKind::Enum:
-            return "enum(typeId=" +
-                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+            return "enum(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
+                   ")";
         case TypeKind::Object:
             return "object(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
@@ -148,7 +148,7 @@ std::string renderType(const TypeInfo* info)
             return out;
         }
         default:
-            return "other";
+            return "unknown";
     }
 }
 

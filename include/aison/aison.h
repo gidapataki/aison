@@ -407,7 +407,6 @@ enum class TypeKind {
     Optional,
     Vector,
     Variant,
-    Other,
 };
 
 struct TypeInfo {
@@ -509,50 +508,42 @@ const TypeInfo& makeTypeInfo()
     } else if constexpr (IsVector<T>::value) {
         using Inner = typename T::value_type;
         static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Vector, getTypeId<T>(), &inner, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Vector, getTypeId<T>(), &inner, nullptr, 0};
         return info;
     } else if constexpr (IsVariant<T>::value) {
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Bool, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Bool, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int8_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Int8, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Int8, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint8_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::UInt8, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::UInt8, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int16_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Int16, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Int16, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint16_t>) {
         static const TypeInfo info =
             TypeInfo{TypeKind::UInt16, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int32_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Int32, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Int32, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint32_t>) {
         static const TypeInfo info =
             TypeInfo{TypeKind::UInt32, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int64_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Int64, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Int64, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint64_t>) {
         static const TypeInfo info =
             TypeInfo{TypeKind::UInt64, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, float>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Float, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Float, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, double>) {
         static const TypeInfo info =
@@ -563,8 +554,7 @@ const TypeInfo& makeTypeInfo()
             TypeInfo{TypeKind::String, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_enum_v<T>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Enum, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = TypeInfo{TypeKind::Enum, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (HasObjectTag<Schema, T>::value) {
         static const TypeInfo info =
@@ -572,7 +562,7 @@ const TypeInfo& makeTypeInfo()
         return info;
     } else {
         static const TypeInfo info =
-            TypeInfo{TypeKind::Other, getTypeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{TypeKind::Unknown, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     }
 }
