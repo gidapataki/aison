@@ -56,6 +56,8 @@ struct EnumBase;
 
 using FieldContextDeleter = void (*)(void*);
 using FieldContextPtr = std::unique_ptr<void, FieldContextDeleter>;
+using FieldContextId = const void*;
+using TypeId = const void*;
 
 template<typename Schema>
 class EncoderImpl;
@@ -141,7 +143,7 @@ template<typename Schema, typename Variant>
 constexpr void validateVariant();
 
 template<typename Owner, typename T>
-const void* getFieldContextId();
+FieldContextId getFieldContextId();
 
 template<typename Owner, typename T>
 FieldContextPtr makeFieldContext(T Owner::* member);
@@ -162,7 +164,7 @@ template<typename Schema>
 constexpr bool getSchemaEnableIntrospection();
 
 template<typename T>
-const void* typeId();
+TypeId getTypeId();
 
 template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration();
@@ -223,6 +225,13 @@ struct Schema {
 }  // namespace aison
 
 namespace aison::detail {
+
+template<typename T>
+TypeId getTypeId()
+{
+    static int id = 0x71931d;
+    return &id;
+}
 
 struct PathSegment {
     enum class Kind { Key, Index } kind = {};
@@ -325,13 +334,6 @@ struct PathScope {
     }
 };
 
-template<typename T>
-const void* typeId()
-{
-    static int id;
-    return &id;
-}
-
 // Traits ///////////////////////////////////////////////////////////////////////////////////
 
 template<typename T>
@@ -351,6 +353,36 @@ struct IsVariant : std::false_type {};
 
 template<typename... Ts>
 struct IsVariant<std::variant<Ts...>> : std::true_type {};
+
+template<typename Schema, typename T, typename>
+struct HasEnumTag : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasEnumTag<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
+    : std::true_type {};
+
+template<typename Schema, typename T, typename>
+struct HasObjectTag : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasObjectTag<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
+    : std::true_type {};
+
+template<typename Schema, typename T, typename>
+struct HasEncoderTag : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasEncoderTag<Schema, T, std::void_t<typename Schema::template Encoder<T>::EncoderTag>>
+    : std::true_type {};
+
+template<typename Schema, typename T, typename>
+struct HasDecoderTag : std::false_type {};
+
+template<typename Schema, typename T>
+struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>::DecoderTag>>
+    : std::true_type {};
+
+// Introspection /////////////////////////////////////////////////////////////////////////////
 
 enum class FieldKind { Plain, Optional, Vector, Variant };
 
@@ -376,7 +408,7 @@ enum class BasicType {
 struct TypeInfo {
     FieldKind kind = FieldKind::Plain;
     BasicType basic = BasicType::Unknown;
-    const void* typeId = nullptr;
+    TypeId typeId = nullptr;
     const TypeInfo* element = nullptr;          // optional/vector element
     const TypeInfo* const* variants = nullptr;  // pointer to array of alternative TypeInfo*
     std::size_t variantCount = 0;
@@ -388,7 +420,7 @@ struct FieldInfo {
 };
 
 struct ObjectInfo {
-    const void* typeId = nullptr;
+    TypeId typeId = nullptr;
     std::vector<FieldInfo> fields;
     std::string discriminatorKey;
     std::string discriminatorTag;
@@ -396,7 +428,7 @@ struct ObjectInfo {
 };
 
 struct EnumInfo {
-    const void* typeId = nullptr;
+    TypeId typeId = nullptr;
     std::vector<std::string> names;
 };
 
@@ -468,75 +500,75 @@ const TypeInfo& makeTypeInfo()
         using Inner = typename T::value_type;
         static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
         static const TypeInfo info =
-            TypeInfo{FieldKind::Optional, inner.basic, typeId<T>(), &inner, nullptr, 0};
+            TypeInfo{FieldKind::Optional, inner.basic, getTypeId<T>(), &inner, nullptr, 0};
         return info;
     } else if constexpr (IsVector<T>::value) {
         using Inner = typename T::value_type;
         static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
         static const TypeInfo info =
-            TypeInfo{FieldKind::Vector, inner.basic, typeId<T>(), &inner, nullptr, 0};
+            TypeInfo{FieldKind::Vector, inner.basic, getTypeId<T>(), &inner, nullptr, 0};
         return info;
     } else if constexpr (IsVariant<T>::value) {
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Bool, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Bool, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int8_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Int8, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Int8, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint8_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::UInt8, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::UInt8, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int16_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Int16, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Int16, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint16_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::UInt16, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::UInt16, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int32_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Int32, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Int32, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint32_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::UInt32, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::UInt32, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::int64_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Int64, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Int64, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::uint64_t>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::UInt64, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::UInt64, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, float>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Float, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Float, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, double>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Double, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Double, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::String, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::String, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (std::is_enum_v<T>) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Enum, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Enum, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else if constexpr (HasObjectTag<Schema, T>::value) {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Object, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Object, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     } else {
         static const TypeInfo info =
-            TypeInfo{FieldKind::Plain, BasicType::Other, typeId<T>(), nullptr, nullptr, 0};
+            TypeInfo{FieldKind::Plain, BasicType::Other, getTypeId<T>(), nullptr, nullptr, 0};
         return info;
     }
 }
@@ -548,8 +580,8 @@ const TypeInfo& makeVariantTypeInfo()
     constexpr auto count = std::variant_size_v<VariantType>;
     static const TypeInfo* const* altArray =
         makeVariantAlternatives<Schema, VariantType>(std::make_index_sequence<count>{});
-    static const TypeInfo info =
-        TypeInfo{FieldKind::Variant, BasicType::Other, typeId<Variant>(), nullptr, altArray, count};
+    static const TypeInfo info = TypeInfo{
+        FieldKind::Variant, BasicType::Other, getTypeId<Variant>(), nullptr, altArray, count};
     return info;
 }
 
@@ -557,7 +589,7 @@ template<typename Schema>
 class IntrospectionRegistry
 {
 public:
-    void addObjectField(const void* typeId, FieldInfo field)
+    void addObjectField(TypeId typeId, FieldInfo field)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
@@ -567,7 +599,7 @@ public:
         entry.fields.push_back(std::move(field));
     }
 
-    void setObjectDiscriminator(const void* typeId, std::string key, std::string tag)
+    void setObjectDiscriminator(TypeId typeId, std::string key, std::string tag)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
@@ -579,7 +611,7 @@ public:
         entry.hasDiscriminator = true;
     }
 
-    void addEnumName(const void* typeId, std::string_view name)
+    void addEnumName(TypeId typeId, std::string_view name)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
@@ -589,12 +621,12 @@ public:
         entry.names.push_back(std::string(name));
     }
 
-    const std::unordered_map<const void*, ObjectInfo>& objects() const { return objects_; }
-    const std::unordered_map<const void*, EnumInfo>& enums() const { return enums_; }
+    const std::unordered_map<TypeId, ObjectInfo>& objects() const { return objects_; }
+    const std::unordered_map<TypeId, EnumInfo>& enums() const { return enums_; }
 
 private:
-    std::unordered_map<const void*, ObjectInfo> objects_;
-    std::unordered_map<const void*, EnumInfo> enums_;
+    std::unordered_map<TypeId, ObjectInfo> objects_;
+    std::unordered_map<TypeId, EnumInfo> enums_;
 };
 
 template<typename Schema>
@@ -603,34 +635,6 @@ inline IntrospectionRegistry<Schema>& introspectionRegistry()
     static IntrospectionRegistry<Schema> reg;
     return reg;
 }
-
-template<typename Schema, typename T, typename>
-struct HasEnumTag : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasEnumTag<Schema, T, std::void_t<typename Schema::template Enum<T>::EnumTag>>
-    : std::true_type {};
-
-template<typename Schema, typename T, typename>
-struct HasObjectTag : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasObjectTag<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
-    : std::true_type {};
-
-template<typename Schema, typename T, typename>
-struct HasEncoderTag : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasEncoderTag<Schema, T, std::void_t<typename Schema::template Encoder<T>::EncoderTag>>
-    : std::true_type {};
-
-template<typename Schema, typename T, typename>
-struct HasDecoderTag : std::false_type {};
-
-template<typename Schema, typename T>
-struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>::DecoderTag>>
-    : std::true_type {};
 
 // Enum impl + validation //////////////////////////////////////////////////////////////////
 
@@ -663,7 +667,7 @@ public:
         }
         entries_.emplace_back(value, std::string(name));
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
-            introspectionRegistry<Schema>().addEnumName(typeId<E>(), name);
+            introspectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
         }
     }
 };
@@ -1333,10 +1337,10 @@ FieldContextPtr makeFieldContext(T Owner::* member)
 }
 
 template<typename Owner, typename T>
-const void* getFieldContextId()
+FieldContextId getFieldContextId()
 {
-    static int fieldId = 0xf1e1d1d;
-    return &fieldId;
+    static int id = 0xf1e1d1d;
+    return &id;
 }
 
 template<typename Schema>
@@ -1372,7 +1376,7 @@ public:
 
         // Check if member or name is already mapped
         using Ctx = FieldContext<Owner, T>;
-        const auto* contextId = getFieldContextId<Owner, T>();
+        auto contextId = getFieldContextId<Owner, T>();
         for (const auto& field : fields_) {
             if (field.contextId == contextId &&
                 static_cast<const Ctx*>(field.context)->member == member)
@@ -1408,15 +1412,15 @@ public:
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
 
-        if constexpr (detail::getSchemaEnableIntrospection<Schema>()) {
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
             FieldInfo fi;
             fi.name = std::string(name);
             fi.type = field.typeInfo;
-            introspectionRegistry<Schema>().addObjectField(detail::typeId<Owner>(), std::move(fi));
-            detail::ensureTypeRegistration<Schema, Owner, T>();
+            introspectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
+            ensureTypeRegistration<Schema, Owner, T>();
             if (hasDiscriminatorTag_) {
                 introspectionRegistry<Schema>().setObjectDiscriminator(
-                    detail::typeId<Owner>(), discriminatorKey_, discriminatorTag_);
+                    detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
             }
         }
     }
@@ -1444,7 +1448,7 @@ public:
         discriminatorTag_ = std::string(tag);
         if constexpr (detail::getSchemaEnableIntrospection<Schema>()) {
             introspectionRegistry<Schema>().setObjectDiscriminator(
-                detail::typeId<Owner>(), discriminatorKey_, discriminatorTag_);
+                detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
         }
     }
 
@@ -1548,8 +1552,8 @@ struct IntrospectionView {};
 
 template<typename Schema>
 struct IntrospectionView<Schema, std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>> {
-    const std::unordered_map<const void*, detail::ObjectInfo>& objects;
-    const std::unordered_map<const void*, detail::EnumInfo>& enums;
+    const std::unordered_map<detail::TypeId, detail::ObjectInfo>& objects;
+    const std::unordered_map<detail::TypeId, detail::EnumInfo>& enums;
 };
 
 template<
@@ -1588,7 +1592,7 @@ public:
         using U = std::decay_t<T>;
         if constexpr (std::is_enum_v<U>) {
             detail::registerEnumMapping<Schema, U>();
-            collectEnum(detail::typeId<U>());
+            collectEnum(detail::getTypeId<U>());
         } else if constexpr (detail::IsOptional<U>::value) {
             add<typename U::value_type>();
         } else if constexpr (detail::IsVector<U>::value) {
@@ -1602,7 +1606,7 @@ public:
                 detail::HasObjectTag<Schema, U>::value,
                 "add<T>() expects an enum, object mapping, or supported container of those.");
             detail::registerObjectMapping<Schema, U>();
-            collectObject(detail::typeId<U>());
+            collectObject(detail::getTypeId<U>());
         }
     }
 
@@ -1610,7 +1614,7 @@ public:
     const auto& enums() const { return enums_; }
 
 private:
-    void collectEnum(const void* typeId)
+    void collectEnum(detail::TypeId typeId)
     {
         if (enums_.count(typeId)) {
             return;
@@ -1623,7 +1627,7 @@ private:
         enums_.emplace(it->first, it->second);
     }
 
-    void collectObject(const void* typeId)
+    void collectObject(detail::TypeId typeId)
     {
         if (objects_.count(typeId)) {
             return;
@@ -1672,8 +1676,8 @@ private:
         (add<std::variant_alternative_t<Is, Variant>>(), ...);
     }
 
-    std::unordered_map<const void*, detail::ObjectInfo> objects_;
-    std::unordered_map<const void*, detail::EnumInfo> enums_;
+    std::unordered_map<detail::TypeId, detail::ObjectInfo> objects_;
+    std::unordered_map<detail::TypeId, detail::EnumInfo> enums_;
 };
 
 template<
