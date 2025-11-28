@@ -238,14 +238,14 @@ struct Schema {
 enum class TypeClass {
     Unknown,
     Integral,  //< Size & signedness available via typeInfo.data.numeric
-    Floating,  //< Size avaialable via typeInfo.data.numeric
+    Floating,  //< Size available via typeInfo.data.numeric
     Bool,
     String,
     Enum,
     Object,
     Optional,  //< Inner type available via typeInfo.data.element
     Vector,    //< Inner type available via typeInfo.data.element
-    Variant,   //< Inner type available via typeInfo.data.variants and typeInfo.variantCount
+    Variant,   //< Inner type available via typeInfo.data.variant
     Other,
 };
 
@@ -253,14 +253,24 @@ struct TypeInfo {
     TypeClass cls = TypeClass::Unknown;
     TypeId typeId = nullptr;
     union Data {
-        const TypeInfo* element;          //< Inner typeInfo for optional and vector
-        const TypeInfo* const* variants;  //< Inner typeInfo array for variant
         struct {
-            std::uint8_t size;  // size in bytes
-            bool isSigned;
-        } numeric;
-    } data{nullptr};
-    std::size_t variantCount = 0;
+            const TypeInfo* type;  //< Inner typeInfo for optional
+        } optional;
+        struct {
+            const TypeInfo* type;  //< Inner typeInfo for vector
+        } vector;
+        struct {
+            const TypeInfo* const* types;  //< Variant alternative types
+            std::size_t count;             //< Variant alternative count
+        } variant;
+        struct {
+            int size;       //< Size in bytes
+            bool isSigned;  //< Signedness
+        } integral;
+        struct {
+            int size;  //< Size in bytes
+        } floating;
+    } data = {};
 
     constexpr TypeInfo() = default;
 
@@ -274,22 +284,42 @@ struct TypeInfo {
     }
 
     template<typename T>
-    static constexpr TypeInfo numeric(TypeClass c, std::uint8_t size, bool isSigned)
+    static constexpr TypeInfo integral()
     {
         TypeInfo t;
-        t.cls = c;
+        t.cls = TypeClass::Integral;
         t.typeId = detail::getTypeId<T>();
-        t.data.numeric = {size, isSigned};
+        t.data.integral = {sizeof(T), std::is_signed_v<T>};
         return t;
     }
 
     template<typename T>
-    static constexpr TypeInfo withElement(TypeClass c, const TypeInfo* elem)
+    static constexpr TypeInfo floating()
     {
         TypeInfo t;
-        t.cls = c;
+        t.cls = TypeClass::Floating;
         t.typeId = detail::getTypeId<T>();
-        t.data.element = elem;
+        t.data.floating = {sizeof(T)};
+        return t;
+    }
+
+    template<typename T>
+    static constexpr TypeInfo optional(const TypeInfo* type)
+    {
+        TypeInfo t;
+        t.cls = TypeClass::Optional;
+        t.typeId = detail::getTypeId<T>();
+        t.data.optional.type = type;
+        return t;
+    }
+
+    template<typename T>
+    static constexpr TypeInfo vector(const TypeInfo* type)
+    {
+        TypeInfo t;
+        t.cls = TypeClass::Vector;
+        t.typeId = detail::getTypeId<T>();
+        t.data.vector.type = type;
         return t;
     }
 
@@ -299,8 +329,7 @@ struct TypeInfo {
         TypeInfo t;
         t.cls = TypeClass::Variant;
         t.typeId = detail::getTypeId<T>();
-        t.data.variants = vars;
-        t.variantCount = count;
+        t.data.variant = {vars, count};
         return t;
     }
 };
@@ -553,49 +582,23 @@ template<typename Schema, typename T>
 const TypeInfo& makeTypeInfo()
 {
     if constexpr (IsOptional<T>::value) {
-        using Inner = typename T::value_type;
         static const TypeInfo info =
-            TypeInfo::withElement<T>(TypeClass::Optional, &makeTypeInfo<Schema, Inner>());
+            TypeInfo::optional<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVector<T>::value) {
-        using Inner = typename T::value_type;
         static const TypeInfo info =
-            TypeInfo::withElement<T>(TypeClass::Vector, &makeTypeInfo<Schema, Inner>());
+            TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVariant<T>::value) {
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
         return info;
-    } else if constexpr (std::is_same_v<T, std::int8_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 1, true);
+    } else if constexpr (std::is_same_v<T, bool> && std::is_integral_v<T>) {
+        static const TypeInfo info = TypeInfo::integral<T>();
         return info;
-    } else if constexpr (std::is_same_v<T, std::uint8_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 1, false);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::int16_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 2, true);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::uint16_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 2, false);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::int32_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 4, true);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::uint32_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 4, false);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::int64_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 8, true);
-        return info;
-    } else if constexpr (std::is_same_v<T, std::uint64_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 8, false);
-        return info;
-    } else if constexpr (std::is_same_v<T, float>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 4, true);
-        return info;
-    } else if constexpr (std::is_same_v<T, double>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 8, true);
+    } else if constexpr (std::is_floating_point_v<T>) {
+        static const TypeInfo info = TypeInfo::floating<T>();
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::String);
@@ -1622,18 +1625,20 @@ public:
         if (!info) return;
         switch (info->cls) {
             case TypeClass::Object:
-                if (info->typeId) collectObject(info->typeId);
+                collectObject(info->typeId);
                 break;
             case TypeClass::Enum:
-                if (info->typeId) collectEnum(info->typeId);
+                collectEnum(info->typeId);
                 break;
             case TypeClass::Optional:
+                traverseType(info->data.optional.type);
+                break;
             case TypeClass::Vector:
-                traverseType(info->data.element);
+                traverseType(info->data.vector.type);
                 break;
             case TypeClass::Variant:
-                for (std::size_t i = 0; i < info->variantCount; ++i) {
-                    traverseType(info->data.variants ? info->data.variants[i] : nullptr);
+                for (std::size_t i = 0; i < info->data.variant.count; ++i) {
+                    traverseType(info->data.variant.types ? info->data.variant.types[i] : nullptr);
                 }
                 break;
             default:

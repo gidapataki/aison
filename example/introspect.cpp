@@ -107,11 +107,11 @@ std::string renderType(const TypeInfo* info)
         case TypeClass::Bool:
             return "bool";
         case TypeClass::Integral: {
-            auto size = static_cast<int>(info->data.numeric.size);
-            return (info->data.numeric.isSigned ? "int" : "uint") + std::to_string(size * 8);
+            auto size = static_cast<int>(info->data.integral.size);
+            return (info->data.integral.isSigned ? "int" : "uint") + std::to_string(size * 8);
         }
         case TypeClass::Floating: {
-            auto size = info->data.numeric.size;
+            auto size = info->data.floating.size;
             if (size == 4) return "float";
             if (size == 8) return "double";
             return "float" + std::to_string(size);
@@ -125,15 +125,15 @@ std::string renderType(const TypeInfo* info)
             return "object(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
         case TypeClass::Optional:
-            return "optional<" + renderType(info->data.element) + ">";
+            return "optional<" + renderType(info->data.optional.type) + ">";
         case TypeClass::Vector:
-            return "vector<" + renderType(info->data.element) + ">";
+            return "vector<" + renderType(info->data.vector.type) + ">";
         case TypeClass::Variant: {
             std::string out = "variant<";
-            for (std::size_t i = 0; i < info->variantCount; ++i) {
+            for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                 if (i) out += " | ";
-                out += info->data.variants && info->data.variants[i]
-                           ? renderType(info->data.variants[i])
+                out += info->data.variant.types && info->data.variant.types[i]
+                           ? renderType(info->data.variant.types[i])
                            : "unknown";
             }
             out += ">";
