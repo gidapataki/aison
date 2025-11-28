@@ -54,10 +54,10 @@ struct PathSegment;
 struct PathScope;
 struct EnumBase;
 
-using FieldContextDeleter = void (*)(void*);
-using FieldContextStorage = std::unique_ptr<void, FieldContextDeleter>;
-using FieldContextPtr = const void*;
-using FieldContextId = const void*;
+using FieldAccessorDeleter = void (*)(void*);
+using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
+using FieldAccessorPtr = const void*;
+using FieldAccessorId = const void*;
 using TypeId = const void*;
 
 template<typename Schema>
@@ -76,7 +76,7 @@ template<typename Schema, typename Variant, typename = void>
 struct VariantDecoder;
 
 template<typename Owner, typename T>
-struct FieldContext;
+struct FieldAccessor;
 
 // Traits
 template<typename T>
@@ -147,10 +147,10 @@ template<typename Schema, typename Variant>
 constexpr void validateVariant();
 
 template<typename Owner, typename T>
-FieldContextId getFieldContextId();
+FieldAccessorId getFieldAccessorId();
 
 template<typename Owner, typename T>
-FieldContextStorage makeFieldContext(T Owner::* member);
+FieldAccessorStorage makeFieldAccessor(T Owner::* member);
 
 template<typename T>
 T& getSchemaObject();
@@ -1288,28 +1288,28 @@ private:
 // Encode/decode thunks /////////////////////////////////////////////////////////////
 
 template<typename Owner, typename T>
-struct FieldContext {
+struct FieldAccessor {
     T Owner::* member;
 };
 
 template<typename Schema, typename Owner, typename T>
 void encodeFieldThunk(
-    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, FieldContextPtr context)
+    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, FieldAccessorPtr ptr)
 {
-    using Ctx = FieldContext<Owner, T>;
-    auto* ctx = static_cast<const Ctx*>(context);
-    auto& member = ctx->member;
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* accessor = static_cast<const Accessor*>(ptr);
+    auto& member = accessor->member;
     const T& ref = owner.*member;
     encodeValue<Schema, T>(ref, dst, encoder);
 }
 
 template<typename Schema, typename Owner, typename T>
 void decodeFieldThunk(
-    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, FieldContextPtr context)
+    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, FieldAccessorPtr ptr)
 {
-    using Ctx = FieldContext<Owner, T>;
-    auto* ctx = static_cast<const Ctx*>(context);
-    auto& member = ctx->member;
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* accessor = static_cast<const Accessor*>(ptr);
+    auto& member = accessor->member;
     T& ref = owner.*member;
     decodeValue<Schema, T>(src, ref, decoder);
 }
@@ -1317,16 +1317,16 @@ void decodeFieldThunk(
 // Object implementation /////////////////////////////////////////////////////////
 
 template<typename Owner, typename T>
-FieldContextStorage makeFieldContext(T Owner::* member)
+FieldAccessorStorage makeFieldAccessor(T Owner::* member)
 {
-    using Ctx = FieldContext<Owner, T>;
-    auto* ctx = new Ctx{member};
-    auto deleter = +[](void* p) { delete static_cast<Ctx*>(p); };
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* ctx = new Accessor{member};
+    auto deleter = +[](void* p) { delete static_cast<Accessor*>(p); };
     return {ctx, deleter};
 }
 
 template<typename Owner, typename T>
-FieldContextId getFieldContextId()
+FieldAccessorId getFieldAccessorId()
 {
     static int id = 0xf1e1d1d;
     return &id;
@@ -1352,16 +1352,16 @@ class ObjectImpl
 private:
     struct FieldDef {
         using EncodeFn =
-            void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, FieldContextPtr context);
+            void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, FieldAccessorPtr ptr);
         using DecodeFn =
-            void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, FieldContextPtr context);
+            void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, FieldAccessorPtr ptr);
 
-        FieldDef(FieldContextStorage&& ctx)
-            : context(std::move(ctx))
+        FieldDef(FieldAccessorStorage&& accessor)
+            : accessor(std::move(accessor))
         {}
 
-        FieldContextStorage context;
-        FieldContextId contextId = nullptr;
+        FieldAccessorStorage accessor;
+        FieldAccessorId accessorId = nullptr;  // Note: this is needed to avoid UB casts
         EncodeFn encode = nullptr;
         DecodeFn decode = nullptr;
 
@@ -1382,11 +1382,11 @@ public:
         }
 
         // Check if member or name is already mapped
-        auto contextId = getFieldContextId<Owner, T>();
+        auto accessorId = getFieldAccessorId<Owner, T>();
         for (const auto& field : fields_) {
-            using Ctx = FieldContext<Owner, T>;
-            if (field.contextId == contextId &&
-                reinterpret_cast<const Ctx*>(field.context.get())->member == member)
+            using Ctx = FieldAccessor<Owner, T>;
+            if (field.accessorId == accessorId &&
+                reinterpret_cast<const Ctx*>(field.accessor.get())->member == member)
             {
                 if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Same member is mapped multiple times in Schema::Object.");
@@ -1402,10 +1402,10 @@ public:
             }
         }
 
-        auto& field = fields_.emplace_back(makeFieldContext(member));
+        auto& field = fields_.emplace_back(makeFieldAccessor(member));
 
         field.name = std::string(name);
-        field.contextId = contextId;
+        field.accessorId = accessorId;
         field.isOptional = IsOptional<T>::value;
 
         if constexpr (hasEncodeFacet<Schema>()) {
@@ -1472,7 +1472,7 @@ public:
         for (const auto& field : fields_) {
             PathScope guard(encoder, field.name);
             Json::Value node;
-            field.encode(src, node, encoder, field.context.get());
+            field.encode(src, node, encoder, field.accessor.get());
             if (!getSchemaStrictOptional<Schema>() && field.isOptional && node.isNull()) {
                 continue;
             }
@@ -1488,7 +1488,7 @@ public:
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
                     PathScope guard(decoder, key);
-                    field.decode(Json::nullValue, dst, decoder, field.context.get());
+                    field.decode(Json::nullValue, dst, decoder, field.accessor.get());
                     continue;
                 }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
@@ -1496,7 +1496,7 @@ public:
             }
             const Json::Value& node = src[key];
             PathScope guard(decoder, key);
-            field.decode(node, dst, decoder, field.context.get());
+            field.decode(node, dst, decoder, field.accessor.get());
         }
     }
 
