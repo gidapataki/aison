@@ -97,7 +97,8 @@ struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
 
 // Introspection demo ---------------------------------------------------------
 
-using namespace aison::detail;
+using aison::TypeClass;
+using aison::TypeInfo;
 
 std::string renderType(const TypeInfo* info)
 {
@@ -105,11 +106,11 @@ std::string renderType(const TypeInfo* info)
     switch (info->cls) {
         case TypeClass::Bool:
             return "bool";
-        case TypeClass::Integer: {
+        case TypeClass::Integral: {
             auto size = static_cast<int>(info->data.numeric.size);
             return (info->data.numeric.isSigned ? "int" : "uint") + std::to_string(size * 8);
         }
-        case TypeClass::Float: {
+        case TypeClass::Floating: {
             auto size = info->data.numeric.size;
             if (size == 4) return "float";
             if (size == 8) return "double";

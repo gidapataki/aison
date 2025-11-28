@@ -39,6 +39,16 @@ struct Enum;
 template<typename Derived, typename FacetTag, typename Config>
 struct Schema;
 
+// Introspection types
+
+using TypeId = const void*;
+
+enum class TypeClass;
+struct TypeInfo;
+struct FieldInfo;
+struct ObjectInfo;
+struct EnumInfo;
+
 template<typename Schema, typename T>
 struct Encoder;
 
@@ -58,7 +68,6 @@ using FieldAccessorDeleter = void (*)(void*);
 using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
 using FieldAccessorPtr = const void*;
 using FieldAccessorId = const void*;
-using TypeId = const void*;
 
 template<typename Schema>
 class EncoderImpl;
@@ -226,9 +235,102 @@ struct Schema {
     // template<typename T> struct Decoder;
 };
 
+enum class TypeClass {
+    Unknown,
+    Integral,  //< Size & signedness available via typeInfo.data.numeric
+    Floating,  //< Size avaialable via typeInfo.data.numeric
+    Bool,
+    String,
+    Enum,
+    Object,
+    Optional,  //< Inner type available via typeInfo.data.element
+    Vector,    //< Inner type available via typeInfo.data.element
+    Variant,   //< Inner type available via typeInfo.data.variants and typeInfo.variantCount
+    Other,
+};
+
+struct TypeInfo {
+    TypeClass cls = TypeClass::Unknown;
+    TypeId typeId = nullptr;
+    union Data {
+        const TypeInfo* element;          //< Inner typeInfo for optional and vector
+        const TypeInfo* const* variants;  //< Inner typeInfo array for variant
+        struct {
+            std::uint8_t size;  // size in bytes
+            bool isSigned;
+        } numeric;
+    } data{nullptr};
+    std::size_t variantCount = 0;
+
+    constexpr TypeInfo() = default;
+
+    template<typename T>
+    static constexpr TypeInfo scalar(TypeClass c)
+    {
+        TypeInfo t;
+        t.cls = c;
+        t.typeId = detail::getTypeId<T>();
+        return t;
+    }
+
+    template<typename T>
+    static constexpr TypeInfo numeric(TypeClass c, std::uint8_t size, bool isSigned)
+    {
+        TypeInfo t;
+        t.cls = c;
+        t.typeId = detail::getTypeId<T>();
+        t.data.numeric = {size, isSigned};
+        return t;
+    }
+
+    template<typename T>
+    static constexpr TypeInfo withElement(TypeClass c, const TypeInfo* elem)
+    {
+        TypeInfo t;
+        t.cls = c;
+        t.typeId = detail::getTypeId<T>();
+        t.data.element = elem;
+        return t;
+    }
+
+    template<typename T>
+    static constexpr TypeInfo variant(const TypeInfo* const* vars, std::size_t count)
+    {
+        TypeInfo t;
+        t.cls = TypeClass::Variant;
+        t.typeId = detail::getTypeId<T>();
+        t.data.variants = vars;
+        t.variantCount = count;
+        return t;
+    }
+};
+
+struct FieldInfo {
+    std::string name;
+    const TypeInfo* type = nullptr;
+};
+
+struct ObjectInfo {
+    std::vector<FieldInfo> fields;
+    std::string discriminatorKey;
+    std::string discriminatorTag;
+    bool hasDiscriminator = false;
+};
+
+struct EnumInfo {
+    std::vector<std::string> names;
+};
+
 }  // namespace aison
 
 namespace aison::detail {
+
+// using aison::EnumInfo;
+// using aison::FieldInfo;
+// using aison::ObjectInfo;
+// using aison::TypeClass;
+// using aison::TypeId;
+// using aison::TypeInfo;
 
 template<typename T>
 TypeId getTypeId()
@@ -386,93 +488,6 @@ template<typename Schema, typename T>
 struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>::DecoderTag>>
     : std::true_type {};
 
-// Introspection /////////////////////////////////////////////////////////////////////////////
-
-enum class TypeClass {
-    Unknown,
-    Bool,
-    Integer,
-    Float,
-    String,
-    Enum,
-    Object,
-    Optional,
-    Vector,
-    Variant,
-};
-
-struct TypeInfo {
-    TypeClass cls = TypeClass::Unknown;
-    TypeId typeId = nullptr;
-    union {
-        const TypeInfo* element;          // optional/vector element
-        const TypeInfo* const* variants;  // pointer to array of alternative TypeInfo*
-        struct {
-            std::uint8_t size;  // size in bytes
-            bool isSigned;
-        } numeric;
-    } data{nullptr};
-    std::size_t variantCount = 0;
-
-    constexpr TypeInfo() = default;
-
-    template<typename T>
-    static constexpr TypeInfo scalar(TypeClass c)
-    {
-        TypeInfo t;
-        t.cls = c;
-        t.typeId = getTypeId<T>();
-        return t;
-    }
-
-    template<typename T>
-    static constexpr TypeInfo numeric(TypeClass c, std::uint8_t size, bool isSigned)
-    {
-        TypeInfo t;
-        t.cls = c;
-        t.typeId = getTypeId<T>();
-        t.data.numeric = {size, isSigned};
-        return t;
-    }
-
-    template<typename T>
-    static constexpr TypeInfo withElement(TypeClass c, const TypeInfo* elem)
-    {
-        TypeInfo t;
-        t.cls = c;
-        t.typeId = getTypeId<T>();
-        t.data.element = elem;
-        return t;
-    }
-
-    template<typename T>
-    static constexpr TypeInfo variant(const TypeInfo* const* vars, std::size_t count)
-    {
-        TypeInfo t;
-        t.cls = TypeClass::Variant;
-        t.typeId = getTypeId<T>();
-        t.data.variants = vars;
-        t.variantCount = count;
-        return t;
-    }
-};
-
-struct FieldInfo {
-    std::string name;
-    const TypeInfo* type = nullptr;
-};
-
-struct ObjectInfo {
-    std::vector<FieldInfo> fields;
-    std::string discriminatorKey;
-    std::string discriminatorTag;
-    bool hasDiscriminator = false;
-};
-
-struct EnumInfo {
-    std::vector<std::string> names;
-};
-
 template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration();
 
@@ -553,34 +568,34 @@ const TypeInfo& makeTypeInfo()
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
         return info;
     } else if constexpr (std::is_same_v<T, std::int8_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 1, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 1, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::uint8_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 1, false);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 1, false);
         return info;
     } else if constexpr (std::is_same_v<T, std::int16_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 2, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 2, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::uint16_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 2, false);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 2, false);
         return info;
     } else if constexpr (std::is_same_v<T, std::int32_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 4, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 4, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::uint32_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 4, false);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 4, false);
         return info;
     } else if constexpr (std::is_same_v<T, std::int64_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 8, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 8, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::uint64_t>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 8, false);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integral, 8, false);
         return info;
     } else if constexpr (std::is_same_v<T, float>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Float, 4, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 4, true);
         return info;
     } else if constexpr (std::is_same_v<T, double>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Float, 8, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 8, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::String);
@@ -1606,17 +1621,17 @@ public:
     {
         if (!info) return;
         switch (info->cls) {
-            case detail::TypeClass::Object:
+            case TypeClass::Object:
                 if (info->typeId) collectObject(info->typeId);
                 break;
-            case detail::TypeClass::Enum:
+            case TypeClass::Enum:
                 if (info->typeId) collectEnum(info->typeId);
                 break;
-            case detail::TypeClass::Optional:
-            case detail::TypeClass::Vector:
+            case TypeClass::Optional:
+            case TypeClass::Vector:
                 traverseType(info->data.element);
                 break;
-            case detail::TypeClass::Variant:
+            case TypeClass::Variant:
                 for (std::size_t i = 0; i < info->variantCount; ++i) {
                     traverseType(info->data.variants ? info->data.variants[i] : nullptr);
                 }
