@@ -596,7 +596,7 @@ const TypeInfo& makeTypeInfo()
     } else if constexpr (std::is_same_v<T, bool>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
         return info;
-    } else if constexpr (std::is_same_v<T, bool> && std::is_integral_v<T>) {
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
         static const TypeInfo info = TypeInfo::integral<T>();
         return info;
     } else if constexpr (std::is_floating_point_v<T>) {
