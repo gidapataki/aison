@@ -1552,10 +1552,6 @@ public:
         }
     }
 
-    const auto& objects() const { return objects_; }
-    const auto& enums() const { return enums_; }
-
-private:
     void collectEnum(TypeId typeId)
     {
         if (enums_.count(typeId)) {
@@ -1618,6 +1614,10 @@ private:
         (add<std::variant_alternative_t<Is, Variant>>(), ...);
     }
 
+    const auto& objects() const { return objects_; }
+    const auto& enums() const { return enums_; }
+
+private:
     std::unordered_map<TypeId, ObjectInfo> objects_;
     std::unordered_map<TypeId, EnumInfo> enums_;
 };
@@ -1645,7 +1645,7 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::add;
 };
 
-/// Encoder / Decoder bases ///////////////////////////////////////////////////////////////
+// Encoder / Decoder bases ///////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 struct Encoder {

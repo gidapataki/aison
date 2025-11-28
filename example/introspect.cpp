@@ -197,12 +197,13 @@ int main()
 {
     auto isp = aison::introspect<DemoSchema>();
     isp.add<Flavor>();
+#if 0
+    auto isp2 = isp;
+    isp2.add<Order>();
+    dump(isp2);
+    std::cout << "--\n";
+#endif
 
-    // auto isp2 = isp;
-    // isp2.add<Order>();
-    // dump(isp2);
-
-    // std::cout << "--\n";
     dump(isp);
     return 0;
 }
