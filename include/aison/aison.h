@@ -55,7 +55,8 @@ struct PathScope;
 struct EnumBase;
 
 using FieldContextDeleter = void (*)(void*);
-using FieldContextPtr = std::unique_ptr<void, FieldContextDeleter>;
+using FieldContextStorage = std::unique_ptr<void, FieldContextDeleter>;
+using FieldContextPtr = const void*;
 using FieldContextId = const void*;
 using TypeId = const void*;
 
@@ -146,7 +147,7 @@ template<typename Owner, typename T>
 FieldContextId getFieldContextId();
 
 template<typename Owner, typename T>
-FieldContextPtr makeFieldContext(T Owner::* member);
+FieldContextStorage makeFieldContext(T Owner::* member);
 
 template<typename T>
 T& getSchemaObject();
@@ -1281,22 +1282,7 @@ private:
     }
 };
 
-// Field descriptor /////////////////////////////////////////////////////////////
-
-template<typename Schema, typename Owner>
-struct FieldDesc {
-    using EncodeFn =
-        void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, const void* context);
-    using DecodeFn =
-        void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, const void* context);
-    EncodeFn encode = nullptr;
-    DecodeFn decode = nullptr;
-    std::string name;
-    const void* context = nullptr;
-    const void* contextId = nullptr;
-    const TypeInfo* typeInfo = nullptr;
-    bool isOptional = false;
-};
+// Encode/decode thunks /////////////////////////////////////////////////////////////
 
 template<typename Owner, typename T>
 struct FieldContext {
@@ -1305,7 +1291,7 @@ struct FieldContext {
 
 template<typename Schema, typename Owner, typename T>
 void encodeFieldThunk(
-    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, const void* context)
+    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, FieldContextPtr context)
 {
     using Ctx = FieldContext<Owner, T>;
     auto* ctx = static_cast<const Ctx*>(context);
@@ -1316,7 +1302,7 @@ void encodeFieldThunk(
 
 template<typename Schema, typename Owner, typename T>
 void decodeFieldThunk(
-    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, const void* context)
+    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, FieldContextPtr context)
 {
     using Ctx = FieldContext<Owner, T>;
     auto* ctx = static_cast<const Ctx*>(context);
@@ -1325,10 +1311,10 @@ void decodeFieldThunk(
     decodeValue<Schema, T>(src, ref, decoder);
 }
 
-// Object implementations per facet /////////////////////////////////////////////////////////
+// Object implementation /////////////////////////////////////////////////////////
 
 template<typename Owner, typename T>
-FieldContextPtr makeFieldContext(T Owner::* member)
+FieldContextStorage makeFieldContext(T Owner::* member)
 {
     using Ctx = FieldContext<Owner, T>;
     auto* ctx = new Ctx{member};
@@ -1360,9 +1346,22 @@ constexpr bool hasDecodeFacet()
 template<typename Schema, typename Owner>
 class ObjectImpl
 {
-public:
-    using Field = FieldDesc<Schema, Owner>;
+private:
+    struct FieldDef {
+        using EncodeFn =
+            void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, FieldContextPtr context);
+        using DecodeFn =
+            void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, FieldContextPtr context);
 
+        EncodeFn encode = nullptr;
+        DecodeFn decode = nullptr;
+        std::string name;
+        FieldContextId contextId = nullptr;
+        FieldContextPtr context = nullptr;
+        bool isOptional = false;
+    };
+
+public:
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
@@ -1379,7 +1378,7 @@ public:
         auto contextId = getFieldContextId<Owner, T>();
         for (const auto& field : fields_) {
             if (field.contextId == contextId &&
-                static_cast<const Ctx*>(field.context)->member == member)
+                reinterpret_cast<const Ctx*>(field.context)->member == member)
             {
                 if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Same member is mapped multiple times in Schema::Object.");
@@ -1401,7 +1400,6 @@ public:
         field.name = std::string(name);
         field.context = context.get();
         field.contextId = contextId;
-        field.typeInfo = &makeTypeInfo<Schema, T>();
         field.isOptional = IsOptional<T>::value;
 
         if constexpr (hasEncodeFacet<Schema>()) {
@@ -1415,7 +1413,7 @@ public:
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             FieldInfo fi;
             fi.name = std::string(name);
-            fi.type = field.typeInfo;
+            fi.type = &makeTypeInfo<Schema, T>();
             getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
             ensureTypeRegistration<Schema, Owner, T>();
             if (hasDiscriminatorTag_) {
@@ -1499,7 +1497,7 @@ public:
     const std::string& discriminatorTag() const { return discriminatorTag_; }
     const std::string& discriminatorKey() const { return discriminatorKey_; }
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
-    const std::vector<Field>& fields() const { return fields_; }
+    const std::vector<FieldDef>& fields() const { return fields_; }
 
 private:
     bool checkDiscriminatorKey(std::string_view key)
@@ -1515,8 +1513,8 @@ private:
         return true;
     }
 
-    std::vector<FieldContextPtr> contexts_;
-    std::vector<Field> fields_;
+    std::vector<FieldContextStorage> contexts_;
+    std::vector<FieldDef> fields_;
     std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
     bool hasDiscriminatorTag_ = false;
