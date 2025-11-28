@@ -102,57 +102,42 @@ using namespace aison::detail;
 std::string renderType(const TypeInfo* info)
 {
     if (!info) return "unknown";
-    auto basicToStr = [](BasicType b) -> std::string {
-        switch (b) {
-            case BasicType::Bool:
-                return "bool";
-            case BasicType::Int8:
-                return "int8";
-            case BasicType::UInt8:
-                return "uint8";
-            case BasicType::Int16:
-                return "int16";
-            case BasicType::UInt16:
-                return "uint16";
-            case BasicType::Int32:
-                return "int32";
-            case BasicType::UInt32:
-                return "uint32";
-            case BasicType::Int64:
-                return "int64";
-            case BasicType::UInt64:
-                return "uint64";
-            case BasicType::Float:
-                return "float";
-            case BasicType::Double:
-                return "double";
-            case BasicType::String:
-                return "string";
-            case BasicType::Enum:
-                return "enum";
-            case BasicType::Object:
-                return "object";
-            case BasicType::Other:
-                return "other";
-            default:
-                return "unknown";
-        }
-    };
-
     switch (info->kind) {
-        case FieldKind::Plain: {
-            std::string out = basicToStr(info->basic);
-            if (info->basic == BasicType::Enum || info->basic == BasicType::Object) {
-                out += "(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
-                       ")";
-            }
-            return out;
-        }
-        case FieldKind::Optional:
+        case TypeKind::Bool:
+            return "bool";
+        case TypeKind::Int8:
+            return "int8";
+        case TypeKind::UInt8:
+            return "uint8";
+        case TypeKind::Int16:
+            return "int16";
+        case TypeKind::UInt16:
+            return "uint16";
+        case TypeKind::Int32:
+            return "int32";
+        case TypeKind::UInt32:
+            return "uint32";
+        case TypeKind::Int64:
+            return "int64";
+        case TypeKind::UInt64:
+            return "uint64";
+        case TypeKind::Float:
+            return "float";
+        case TypeKind::Double:
+            return "double";
+        case TypeKind::String:
+            return "string";
+        case TypeKind::Enum:
+            return "enum(typeId=" +
+                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+        case TypeKind::Object:
+            return "object(typeId=" +
+                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+        case TypeKind::Optional:
             return "optional<" + renderType(info->element) + ">";
-        case FieldKind::Vector:
+        case TypeKind::Vector:
             return "vector<" + renderType(info->element) + ">";
-        case FieldKind::Variant: {
+        case TypeKind::Variant: {
             std::string out = "variant<";
             for (std::size_t i = 0; i < info->variantCount; ++i) {
                 if (i) out += " | ";
@@ -162,8 +147,9 @@ std::string renderType(const TypeInfo* info)
             out += ">";
             return out;
         }
+        default:
+            return "other";
     }
-    return "unknown";
 }
 
 template<typename Schema>
