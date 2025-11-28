@@ -75,6 +75,9 @@ class ObjectImpl;
 template<typename Schema, typename Variant, typename = void>
 struct VariantDecoder;
 
+template<typename Owner, typename T>
+struct FieldContext;
+
 // Traits
 template<typename T>
 struct IsOptional;
@@ -1353,11 +1356,16 @@ private:
         using DecodeFn =
             void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, FieldContextPtr context);
 
+        FieldDef(FieldContextStorage&& ctx)
+            : context(std::move(ctx))
+        {}
+
+        FieldContextStorage context;
+        FieldContextId contextId = nullptr;
         EncodeFn encode = nullptr;
         DecodeFn decode = nullptr;
+
         std::string name;
-        FieldContextId contextId = nullptr;
-        FieldContextPtr context = nullptr;
         bool isOptional = false;
     };
 
@@ -1374,11 +1382,11 @@ public:
         }
 
         // Check if member or name is already mapped
-        using Ctx = FieldContext<Owner, T>;
         auto contextId = getFieldContextId<Owner, T>();
         for (const auto& field : fields_) {
+            using Ctx = FieldContext<Owner, T>;
             if (field.contextId == contextId &&
-                reinterpret_cast<const Ctx*>(field.context)->member == member)
+                reinterpret_cast<const Ctx*>(field.context.get())->member == member)
             {
                 if constexpr (getSchemaEnableAssert<Schema>()) {
                     assert(false && "Same member is mapped multiple times in Schema::Object.");
@@ -1394,11 +1402,9 @@ public:
             }
         }
 
-        auto& context = contexts_.emplace_back(makeFieldContext(member));
-        auto& field = fields_.emplace_back();
+        auto& field = fields_.emplace_back(makeFieldContext(member));
 
         field.name = std::string(name);
-        field.context = context.get();
         field.contextId = contextId;
         field.isOptional = IsOptional<T>::value;
 
@@ -1466,7 +1472,7 @@ public:
         for (const auto& field : fields_) {
             PathScope guard(encoder, field.name);
             Json::Value node;
-            field.encode(src, node, encoder, field.context);
+            field.encode(src, node, encoder, field.context.get());
             if (!getSchemaStrictOptional<Schema>() && field.isOptional && node.isNull()) {
                 continue;
             }
@@ -1482,7 +1488,7 @@ public:
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
                     PathScope guard(decoder, key);
-                    field.decode(Json::nullValue, dst, decoder, field.context);
+                    field.decode(Json::nullValue, dst, decoder, field.context.get());
                     continue;
                 }
                 decoder.addError(std::string("Missing required field '") + key + "'.");
@@ -1490,7 +1496,7 @@ public:
             }
             const Json::Value& node = src[key];
             PathScope guard(decoder, key);
-            field.decode(node, dst, decoder, field.context);
+            field.decode(node, dst, decoder, field.context.get());
         }
     }
 
@@ -1513,7 +1519,6 @@ private:
         return true;
     }
 
-    std::vector<FieldContextStorage> contexts_;
     std::vector<FieldDef> fields_;
     std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
