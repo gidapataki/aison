@@ -392,7 +392,7 @@ enum class TypeClass {
     Unknown,
     Bool,
     Integer,
-    Floating,
+    Float,
     String,
     Enum,
     Object,
@@ -408,7 +408,7 @@ struct TypeInfo {
         const TypeInfo* element;          // optional/vector element
         const TypeInfo* const* variants;  // pointer to array of alternative TypeInfo*
         struct {
-            std::uint8_t width;
+            std::uint8_t size;  // size in bytes
             bool isSigned;
         } numeric;
     } data{nullptr};
@@ -426,12 +426,12 @@ struct TypeInfo {
     }
 
     template<typename T>
-    static constexpr TypeInfo numeric(TypeClass c, std::uint8_t width, bool isSigned)
+    static constexpr TypeInfo numeric(TypeClass c, std::uint8_t size, bool isSigned)
     {
         TypeInfo t;
         t.cls = c;
         t.typeId = getTypeId<T>();
-        t.data.numeric = {width, isSigned};
+        t.data.numeric = {size, isSigned};
         return t;
     }
 
@@ -577,10 +577,10 @@ const TypeInfo& makeTypeInfo()
         static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Integer, 8, false);
         return info;
     } else if constexpr (std::is_same_v<T, float>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 4, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Float, 4, true);
         return info;
     } else if constexpr (std::is_same_v<T, double>) {
-        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Floating, 8, true);
+        static const TypeInfo info = TypeInfo::numeric<T>(TypeClass::Float, 8, true);
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::String);

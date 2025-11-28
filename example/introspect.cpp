@@ -106,14 +106,14 @@ std::string renderType(const TypeInfo* info)
         case TypeClass::Bool:
             return "bool";
         case TypeClass::Integer: {
-            auto width = static_cast<int>(info->data.numeric.width);
-            return (info->data.numeric.isSigned ? "int" : "uint") + std::to_string(width);
+            auto size = static_cast<int>(info->data.numeric.size);
+            return (info->data.numeric.isSigned ? "int" : "uint") + std::to_string(size * 8);
         }
-        case TypeClass::Floating: {
-            auto width = static_cast<int>(info->data.numeric.width);
-            if (width == 32) return "float";
-            if (width == 64) return "double";
-            return "float" + std::to_string(width);
+        case TypeClass::Float: {
+            auto size = info->data.numeric.size;
+            if (size == 4) return "float";
+            if (size == 8) return "double";
+            return "float" + std::to_string(size);
         }
         case TypeClass::String:
             return "string";
@@ -131,9 +131,9 @@ std::string renderType(const TypeInfo* info)
             std::string out = "variant<";
             for (std::size_t i = 0; i < info->variantCount; ++i) {
                 if (i) out += " | ";
-                out += info->data.variants && info->data.variants[i] ?
-                           renderType(info->data.variants[i]) :
-                           "unknown";
+                out += info->data.variants && info->data.variants[i]
+                           ? renderType(info->data.variants[i])
+                           : "unknown";
             }
             out += ">";
             return out;
