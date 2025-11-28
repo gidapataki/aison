@@ -388,19 +388,11 @@ struct HasDecoderTag<Schema, T, std::void_t<typename Schema::template Decoder<T>
 
 // Introspection /////////////////////////////////////////////////////////////////////////////
 
-enum class TypeKind {
+enum class TypeClass {
     Unknown,
     Bool,
-    Int8,
-    UInt8,
-    Int16,
-    UInt16,
-    Int32,
-    UInt32,
-    Int64,
-    UInt64,
-    Float,
-    Double,
+    Integer,
+    Floating,
     String,
     Enum,
     Object,
@@ -410,10 +402,16 @@ enum class TypeKind {
 };
 
 struct TypeInfo {
-    TypeKind kind = TypeKind::Unknown;
+    TypeClass cls = TypeClass::Unknown;
     TypeId typeId = nullptr;
-    const TypeInfo* element = nullptr;          // optional/vector element
-    const TypeInfo* const* variants = nullptr;  // pointer to array of alternative TypeInfo*
+    union {
+        const TypeInfo* element;          // optional/vector element
+        const TypeInfo* const* variants;  // pointer to array of alternative TypeInfo*
+        struct {
+            std::uint8_t width;
+            bool isSigned;
+        } numeric;
+    } data{nullptr};
     std::size_t variantCount = 0;
 };
 
@@ -423,7 +421,6 @@ struct FieldInfo {
 };
 
 struct ObjectInfo {
-    TypeId typeId = nullptr;
     std::vector<FieldInfo> fields;
     std::string discriminatorKey;
     std::string discriminatorTag;
@@ -431,7 +428,6 @@ struct ObjectInfo {
 };
 
 struct EnumInfo {
-    TypeId typeId = nullptr;
     std::vector<std::string> names;
 };
 
@@ -502,67 +498,156 @@ const TypeInfo& makeTypeInfo()
     if constexpr (IsOptional<T>::value) {
         using Inner = typename T::value_type;
         static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Optional, getTypeId<T>(), &inner, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Optional;
+            ti.typeId = getTypeId<T>();
+            ti.data.element = &inner;
+            return ti;
+        }();
         return info;
     } else if constexpr (IsVector<T>::value) {
         using Inner = typename T::value_type;
         static const TypeInfo inner = makeTypeInfo<Schema, Inner>();
-        static const TypeInfo info = TypeInfo{TypeKind::Vector, getTypeId<T>(), &inner, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Vector;
+            ti.typeId = getTypeId<T>();
+            ti.data.element = &inner;
+            return ti;
+        }();
         return info;
     } else if constexpr (IsVariant<T>::value) {
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Bool, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Bool;
+            ti.typeId = getTypeId<T>();
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::int8_t>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Int8, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {8, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::uint8_t>) {
-        static const TypeInfo info = TypeInfo{TypeKind::UInt8, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {8, false};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::int16_t>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Int16, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {16, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::uint16_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::UInt16, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {16, false};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::int32_t>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Int32, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {32, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::uint32_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::UInt32, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {32, false};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::int64_t>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Int64, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {64, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::uint64_t>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::UInt64, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Integer;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {64, false};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, float>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Float, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Floating;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {32, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, double>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Double, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Floating;
+            ti.typeId = getTypeId<T>();
+            ti.data.numeric = {64, true};
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::String, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::String;
+            ti.typeId = getTypeId<T>();
+            return ti;
+        }();
         return info;
     } else if constexpr (std::is_enum_v<T>) {
-        static const TypeInfo info = TypeInfo{TypeKind::Enum, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Enum;
+            ti.typeId = getTypeId<T>();
+            return ti;
+        }();
         return info;
     } else if constexpr (HasObjectTag<Schema, T>::value) {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Object, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Object;
+            ti.typeId = getTypeId<T>();
+            return ti;
+        }();
         return info;
     } else {
-        static const TypeInfo info =
-            TypeInfo{TypeKind::Unknown, getTypeId<T>(), nullptr, nullptr, 0};
+        static const TypeInfo info = [] {
+            TypeInfo ti;
+            ti.cls = TypeClass::Unknown;
+            ti.typeId = getTypeId<T>();
+            return ti;
+        }();
         return info;
     }
 }
@@ -574,8 +659,14 @@ const TypeInfo& makeVariantTypeInfo()
     constexpr auto count = std::variant_size_v<VariantType>;
     static const TypeInfo* const* altArray =
         makeVariantAlternatives<Schema, VariantType>(std::make_index_sequence<count>{});
-    static const TypeInfo info =
-        TypeInfo{TypeKind::Variant, getTypeId<Variant>(), nullptr, altArray, count};
+    static const TypeInfo info = [] {
+        TypeInfo ti;
+        ti.cls = TypeClass::Variant;
+        ti.typeId = getTypeId<Variant>();
+        ti.data.variants = altArray;
+        ti.variantCount = count;
+        return ti;
+    }();
     return info;
 }
 
@@ -589,7 +680,6 @@ public:
             return;
         }
         auto& entry = objects_[typeId];
-        entry.typeId = typeId;
         entry.fields.push_back(std::move(field));
     }
 
@@ -599,7 +689,6 @@ public:
             return;
         }
         auto& entry = objects_[typeId];
-        entry.typeId = typeId;
         entry.discriminatorKey = std::move(key);
         entry.discriminatorTag = std::move(tag);
         entry.hasDiscriminator = true;
@@ -611,7 +700,6 @@ public:
             return;
         }
         auto& entry = enums_[typeId];
-        entry.typeId = typeId;
         entry.names.push_back(std::string(name));
     }
 
@@ -1580,20 +1668,20 @@ public:
     void traverseType(const TypeInfo* info)
     {
         if (!info) return;
-        switch (info->kind) {
-            case detail::TypeKind::Object:
+        switch (info->cls) {
+            case detail::TypeClass::Object:
                 if (info->typeId) collectObject(info->typeId);
                 break;
-            case detail::TypeKind::Enum:
+            case detail::TypeClass::Enum:
                 if (info->typeId) collectEnum(info->typeId);
                 break;
-            case detail::TypeKind::Optional:
-            case detail::TypeKind::Vector:
-                traverseType(info->element);
+            case detail::TypeClass::Optional:
+            case detail::TypeClass::Vector:
+                traverseType(info->data.element);
                 break;
-            case detail::TypeKind::Variant:
+            case detail::TypeClass::Variant:
                 for (std::size_t i = 0; i < info->variantCount; ++i) {
-                    traverseType(info->variants ? info->variants[i] : nullptr);
+                    traverseType(info->data.variants ? info->data.variants[i] : nullptr);
                 }
                 break;
             default:

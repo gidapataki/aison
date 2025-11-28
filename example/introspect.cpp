@@ -102,47 +102,38 @@ using namespace aison::detail;
 std::string renderType(const TypeInfo* info)
 {
     if (!info) return "unknown";
-    switch (info->kind) {
-        case TypeKind::Bool:
+    switch (info->cls) {
+        case TypeClass::Bool:
             return "bool";
-        case TypeKind::Int8:
-            return "int8";
-        case TypeKind::UInt8:
-            return "uint8";
-        case TypeKind::Int16:
-            return "int16";
-        case TypeKind::UInt16:
-            return "uint16";
-        case TypeKind::Int32:
-            return "int32";
-        case TypeKind::UInt32:
-            return "uint32";
-        case TypeKind::Int64:
-            return "int64";
-        case TypeKind::UInt64:
-            return "uint64";
-        case TypeKind::Float:
-            return "float";
-        case TypeKind::Double:
-            return "double";
-        case TypeKind::String:
+        case TypeClass::Integer: {
+            auto width = static_cast<int>(info->data.numeric.width);
+            return (info->data.numeric.isSigned ? "int" : "uint") + std::to_string(width);
+        }
+        case TypeClass::Floating: {
+            auto width = static_cast<int>(info->data.numeric.width);
+            if (width == 32) return "float";
+            if (width == 64) return "double";
+            return "float" + std::to_string(width);
+        }
+        case TypeClass::String:
             return "string";
-        case TypeKind::Enum:
+        case TypeClass::Enum:
             return "enum(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
                    ")";
-        case TypeKind::Object:
+        case TypeClass::Object:
             return "object(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
-        case TypeKind::Optional:
-            return "optional<" + renderType(info->element) + ">";
-        case TypeKind::Vector:
-            return "vector<" + renderType(info->element) + ">";
-        case TypeKind::Variant: {
+        case TypeClass::Optional:
+            return "optional<" + renderType(info->data.element) + ">";
+        case TypeClass::Vector:
+            return "vector<" + renderType(info->data.element) + ">";
+        case TypeClass::Variant: {
             std::string out = "variant<";
             for (std::size_t i = 0; i < info->variantCount; ++i) {
                 if (i) out += " | ";
-                out +=
-                    info->variants && info->variants[i] ? renderType(info->variants[i]) : "unknown";
+                out += info->data.variants && info->data.variants[i] ?
+                           renderType(info->data.variants[i]) :
+                           "unknown";
             }
             out += ">";
             return out;
