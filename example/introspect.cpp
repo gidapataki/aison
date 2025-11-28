@@ -229,8 +229,8 @@ std::string renderType(const aison::detail::TypeInfo& info)
         case FieldKind::Plain: {
             std::string out = basicToStr(info.basic);
             if (info.basic == BasicType::Enum || info.basic == BasicType::Object) {
-                out += "(typeId=" +
-                       std::to_string(reinterpret_cast<std::uintptr_t>(info.typeId)) + ")";
+                out += "(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info.typeId)) +
+                       ")";
             }
             return out;
         }
@@ -263,7 +263,8 @@ void dispatchEnum(const void* typeId, std::set<const void*>& seenEnums)
 {
     if (typeId == aison::detail::typeId<Flavor>()) {
         if (seenEnums.insert(typeId).second) {
-            const auto& en = aison::detail::getSchemaObject<typename Schema::template Enum<Flavor>>();
+            const auto& en =
+                aison::detail::getSchemaObject<typename Schema::template Enum<Flavor>>();
             std::cout << "enum (typeId=" << reinterpret_cast<std::uintptr_t>(typeId) << "):";
             for (const auto& entry : en) {
                 std::cout << " " << entry.second;

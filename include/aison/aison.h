@@ -378,6 +378,9 @@ struct FieldInfo {
 struct ObjectInfo {
     const void* typeId = nullptr;
     std::vector<FieldInfo> fields;
+    std::string discriminatorKey;
+    std::string discriminatorTag;
+    bool hasDiscriminator = false;
 };
 
 struct EnumInfo {
@@ -495,44 +498,36 @@ template<typename Schema>
 class IntrospectionRegistry
 {
 public:
-    static IntrospectionRegistry& instance()
-    {
-        static IntrospectionRegistry reg;
-        return reg;
-    }
-
-    void addObject(ObjectInfo obj)
+    void addObjectField(const void* typeId, FieldInfo field)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
         }
-        auto& entry = objects_[obj.typeId];
-        if (!entry.typeId) {
-            entry.typeId = obj.typeId;
-        }
-        for (auto& f : obj.fields) {
-            entry.fields.push_back(std::move(f));
-        }
+        auto& entry = objects_[typeId];
+        entry.typeId = typeId;
+        entry.fields.push_back(std::move(field));
     }
 
-    void addEnum(EnumInfo en)
+    void setObjectDiscriminator(const void* typeId, std::string key, std::string tag)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
         }
-        auto& entry = enums_[en.typeId];
-        entry.typeId = en.typeId;
-        entry.names = std::move(en.names);
+        auto& entry = objects_[typeId];
+        entry.typeId = typeId;
+        entry.discriminatorKey = std::move(key);
+        entry.discriminatorTag = std::move(tag);
+        entry.hasDiscriminator = true;
     }
 
-    void addEnumName(const void* typeId, std::string name)
+    void addEnumName(const void* typeId, std::string_view name)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
             return;
         }
         auto& entry = enums_[typeId];
         entry.typeId = typeId;
-        entry.names.push_back(std::move(name));
+        entry.names.push_back(std::string(name));
     }
 
     const std::unordered_map<const void*, ObjectInfo>& objects() const { return objects_; }
@@ -542,6 +537,13 @@ private:
     std::unordered_map<const void*, ObjectInfo> objects_;
     std::unordered_map<const void*, EnumInfo> enums_;
 };
+
+template<typename Schema>
+inline IntrospectionRegistry<Schema>& introspectionRegistry()
+{
+    static IntrospectionRegistry<Schema> reg;
+    return reg;
+}
 
 template<typename Schema, typename T, typename>
 struct HasEnumTag : std::false_type {};
@@ -602,8 +604,7 @@ public:
         }
         entries_.emplace_back(value, std::string(name));
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
-            IntrospectionRegistry<Schema>::instance().addEnumName(
-                typeId<E>(), std::string(name));
+            introspectionRegistry<Schema>().addEnumName(typeId<E>(), name);
         }
     }
 };
@@ -1343,6 +1344,7 @@ public:
         if constexpr (hasEncodeFacet<Schema>()) {
             field.encode = &encodeFieldThunk<Schema, Owner, T>;
         }
+
         if constexpr (hasDecodeFacet<Schema>()) {
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
@@ -1351,10 +1353,12 @@ public:
             FieldInfo fi;
             fi.name = std::string(name);
             fi.type = field.typeInfo;
-            ObjectInfo obj;
-            obj.typeId = detail::typeId<Owner>();
-            obj.fields.push_back(std::move(fi));
-            IntrospectionRegistry<Schema>::instance().addObject(std::move(obj));
+            introspectionRegistry<Schema>().addObjectField(
+                detail::typeId<Owner>(), std::move(fi));
+            if (hasDiscriminatorTag_) {
+                introspectionRegistry<Schema>().setObjectDiscriminator(
+                    detail::typeId<Owner>(), discriminatorKey_, discriminatorTag_);
+            }
         }
     }
 
@@ -1379,6 +1383,10 @@ public:
         hasDiscriminatorTag_ = true;
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
+        if constexpr (detail::getSchemaEnableIntrospection<Schema>()) {
+            introspectionRegistry<Schema>().setObjectDiscriminator(
+                detail::typeId<Owner>(), discriminatorKey_, discriminatorTag_);
+        }
     }
 
     template<
@@ -1473,6 +1481,29 @@ struct Enum : detail::EnumImpl<Schema, E> {
 
     using Base::add;
 };
+
+// Introspection access (enabled only when Schema::enableIntrospection == true) /////////////////
+
+template<typename Schema, typename Enable = void>
+struct IntrospectionView {};
+
+template<typename Schema>
+struct IntrospectionView<
+    Schema,
+    std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+{
+    const std::unordered_map<const void*, detail::ObjectInfo>& objects;
+    const std::unordered_map<const void*, detail::EnumInfo>& enums;
+};
+
+template<
+    typename Schema,
+    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+inline IntrospectionView<Schema> introspect()
+{
+    const auto& reg = detail::introspectionRegistry<Schema>();
+    return IntrospectionView<Schema>{reg.objects(), reg.enums()};
+}
 
 /// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
 
