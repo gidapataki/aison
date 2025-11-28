@@ -1545,40 +1545,6 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base::add;
 };
 
-// Introspection access (enabled only when Schema::enableIntrospection == true) /////////////////
-
-template<typename Schema, typename Enable = void>
-struct IntrospectionView {};
-
-template<typename Schema>
-struct IntrospectionView<Schema, std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>> {
-    const std::unordered_map<detail::TypeId, detail::ObjectInfo>& objects;
-    const std::unordered_map<detail::TypeId, detail::EnumInfo>& enums;
-};
-
-template<
-    typename Schema,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
-inline IntrospectionView<Schema> introspect()
-{
-    const auto& reg = detail::introspectionRegistry<Schema>();
-    return IntrospectionView<Schema>{reg.objects(), reg.enums()};
-}
-
-template<
-    typename Schema,
-    typename Root,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
-inline IntrospectionView<Schema> introspect()
-{
-    static_assert(
-        detail::HasObjectTag<Schema, Root>::value,
-        "Root type is not mapped as an object in this schema.");
-    detail::registerObjectMapping<Schema, Root>();
-    const auto& reg = detail::introspectionRegistry<Schema>();
-    return IntrospectionView<Schema>{reg.objects(), reg.enums()};
-}
-
 // Introspection builder that collects only reachable types from chosen roots.
 template<
     typename Schema,
