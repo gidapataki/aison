@@ -195,7 +195,7 @@ void dump(const aison::Introspection<Schema>& isp)
 
 int main()
 {
-    auto isp = aison::introspection<DemoSchema>();
+    auto isp = aison::introspect<DemoSchema>();
     isp.add<Flavor>();
 
     // auto isp2 = isp;

@@ -630,7 +630,7 @@ private:
 };
 
 template<typename Schema>
-inline IntrospectionRegistry<Schema>& introspectionRegistry()
+inline IntrospectionRegistry<Schema>& getIntrospectionRegistry()
 {
     static IntrospectionRegistry<Schema> reg;
     return reg;
@@ -667,7 +667,7 @@ public:
         }
         entries_.emplace_back(value, std::string(name));
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
-            introspectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
+            getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
         }
     }
 };
@@ -1416,10 +1416,10 @@ public:
             FieldInfo fi;
             fi.name = std::string(name);
             fi.type = field.typeInfo;
-            introspectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
+            getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
             ensureTypeRegistration<Schema, Owner, T>();
             if (hasDiscriminatorTag_) {
-                introspectionRegistry<Schema>().setObjectDiscriminator(
+                getIntrospectionRegistry<Schema>().setObjectDiscriminator(
                     detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
             }
         }
@@ -1447,7 +1447,7 @@ public:
         discriminatorKey_ = std::string(key);
         discriminatorTag_ = std::string(tag);
         if constexpr (detail::getSchemaEnableIntrospection<Schema>()) {
-            introspectionRegistry<Schema>().setObjectDiscriminator(
+            getIntrospectionRegistry<Schema>().setObjectDiscriminator(
                 detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
         }
     }
@@ -1522,34 +1522,10 @@ private:
     bool hasDiscriminatorTag_ = false;
 };
 
-}  // namespace aison::detail
-
-namespace aison {
-
-// Object / Enum wrappers ///////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename Owner>
-struct Object : detail::ObjectImpl<Schema, Owner> {
-    using ObjectTag = void;
-    using Base = detail::ObjectImpl<Schema, Owner>;
-
-    using Base::add;
-    using Base::discriminator;
-};
-
-template<typename Schema, typename E>
-struct Enum : detail::EnumImpl<Schema, E> {
-    using EnumTag = void;
-    using Base = detail::EnumImpl<Schema, E>;
-
-    using Base::add;
-};
-
-// Introspection builder that collects only reachable types from chosen roots.
 template<
     typename Schema,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
-class Introspection
+    typename Enable = std::enable_if_t<getSchemaEnableIntrospection<Schema>()>>
+class IntrospectionImpl
 {
 public:
     template<typename T>
@@ -1557,22 +1533,22 @@ public:
     {
         using U = std::decay_t<T>;
         if constexpr (std::is_enum_v<U>) {
-            detail::registerEnumMapping<Schema, U>();
-            collectEnum(detail::getTypeId<U>());
-        } else if constexpr (detail::IsOptional<U>::value) {
+            registerEnumMapping<Schema, U>();
+            collectEnum(getTypeId<U>());
+        } else if constexpr (IsOptional<U>::value) {
             add<typename U::value_type>();
-        } else if constexpr (detail::IsVector<U>::value) {
+        } else if constexpr (IsVector<U>::value) {
             add<typename U::value_type>();
-        } else if constexpr (detail::IsVariant<U>::value) {
-            detail::ensureVariantAlternatives<Schema, U, U>(
+        } else if constexpr (IsVariant<U>::value) {
+            ensureVariantAlternatives<Schema, U, U>(
                 std::make_index_sequence<std::variant_size_v<U>>{});
             addVariantAlternatives<U>(std::make_index_sequence<std::variant_size_v<U>>{});
         } else {
             static_assert(
-                detail::HasObjectTag<Schema, U>::value,
+                HasObjectTag<Schema, U>::value,
                 "add<T>() expects an enum, object mapping, or supported container of those.");
-            detail::registerObjectMapping<Schema, U>();
-            collectObject(detail::getTypeId<U>());
+            registerObjectMapping<Schema, U>();
+            collectObject(getTypeId<U>());
         }
     }
 
@@ -1580,12 +1556,12 @@ public:
     const auto& enums() const { return enums_; }
 
 private:
-    void collectEnum(detail::TypeId typeId)
+    void collectEnum(TypeId typeId)
     {
         if (enums_.count(typeId)) {
             return;
         }
-        const auto& reg = detail::introspectionRegistry<Schema>();
+        const auto& reg = getIntrospectionRegistry<Schema>();
         auto it = reg.enums().find(typeId);
         if (it == reg.enums().end()) {
             return;
@@ -1593,12 +1569,12 @@ private:
         enums_.emplace(it->first, it->second);
     }
 
-    void collectObject(detail::TypeId typeId)
+    void collectObject(TypeId typeId)
     {
         if (objects_.count(typeId)) {
             return;
         }
-        const auto& reg = detail::introspectionRegistry<Schema>();
+        const auto& reg = getIntrospectionRegistry<Schema>();
         auto it = reg.objects().find(typeId);
         if (it == reg.objects().end()) {
             return;
@@ -1612,7 +1588,7 @@ private:
         }
     }
 
-    void traverseType(const detail::TypeInfo* info)
+    void traverseType(const TypeInfo* info)
     {
         if (!info) return;
         using namespace detail;
@@ -1642,19 +1618,34 @@ private:
         (add<std::variant_alternative_t<Is, Variant>>(), ...);
     }
 
-    std::unordered_map<detail::TypeId, detail::ObjectInfo> objects_;
-    std::unordered_map<detail::TypeId, detail::EnumInfo> enums_;
+    std::unordered_map<TypeId, ObjectInfo> objects_;
+    std::unordered_map<TypeId, EnumInfo> enums_;
 };
 
-template<
-    typename Schema,
-    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
-inline Introspection<Schema> introspection()
-{
-    return Introspection<Schema>{};
-}
+}  // namespace aison::detail
 
-/// Encoder / Decoder bases (with setEncoder / setDecoder) ///////////////////////
+namespace aison {
+
+// Object / Enum bases ///////////////////////////////////////////////////////////////////
+
+template<typename Schema, typename Owner>
+struct Object : detail::ObjectImpl<Schema, Owner> {
+    using ObjectTag = void;
+    using Base = detail::ObjectImpl<Schema, Owner>;
+
+    using Base::add;
+    using Base::discriminator;
+};
+
+template<typename Schema, typename E>
+struct Enum : detail::EnumImpl<Schema, E> {
+    using EnumTag = void;
+    using Base = detail::EnumImpl<Schema, E>;
+
+    using Base::add;
+};
+
+/// Encoder / Decoder bases ///////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 struct Encoder {
@@ -1700,7 +1691,28 @@ private:
     DecoderType* decoder_ = nullptr;
 };
 
-// Free encode/decode helpers ///////////////////////////////////////////////////////////////
+// Introspection ///////////////////////////////////////////////////////////////////////////
+
+template<
+    typename Schema,
+    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+class Introspection
+{
+public:
+    template<typename T>
+    void add()
+    {
+        impl_.template add<T>();
+    }
+
+    const auto& objects() const { return impl_.objects(); }
+    const auto& enums() const { return impl_.enums(); }
+
+private:
+    detail::IntrospectionImpl<Schema> impl_;
+};
+
+// API functions //////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 Result encode(const T& value, Json::Value& dst)
@@ -1742,6 +1754,14 @@ template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config)
 {
     return detail::DecoderImpl<Schema>(config).decode(src, value);
+}
+
+template<
+    typename Schema,
+    typename Enable = std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+Introspection<Schema> introspect()
+{
+    return Introspection<Schema>{};
 }
 
 }  // namespace aison
