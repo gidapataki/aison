@@ -148,6 +148,43 @@ struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     }
 };
 
+// ColorSchema
+
+struct Channels {
+    std::vector<uint8_t> r, g, b;
+};
+
+struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeOnly> {
+    template<typename T>
+    struct Object;
+
+    template<typename T>
+    struct Encoder;
+};
+
+template<>
+struct ColorSchema::Encoder<Channels> : aison::Encoder<ColorSchema, Channels> {
+    void operator()(const Channels& src, Json::Value& dst)
+    {
+        auto size = src.r.size();
+        if (src.g.size() != size || src.b.size() != size) {
+            addError("Color channels should have the same number of entries");
+            return;
+        }
+
+        dst = Json::arrayValue;
+        for (auto i = 0u; i < size; ++i) {
+            auto& node = dst.append({});
+            encode(RGBColor{src.r[i], src.g[i], src.b[i]}, node);
+        }
+    }
+};
+
+template<>
+struct ColorSchema::Encoder<RGBColor> : aison::Encoder<ColorSchema, RGBColor> {
+    void operator()(const RGBColor& src, Json::Value& dst) { dst = toHexColor(src, true); }
+};
+
 // Implementation
 
 std::string toHexColor(const RGBColor& color, bool upperCaseHex)
@@ -272,10 +309,34 @@ void testShapeSchema()
     std::cout << shapes.size() << "\n";
 }
 
+void testColorSchema()
+{
+    Channels chan;
+    for (auto i = 0; i < 6; ++i) {
+        chan.r.push_back(i * 48 % 256);
+        chan.g.push_back((32 + i * 72) % 256);
+        chan.b.push_back((96 + i * 42) % 256);
+    }
+
+    Json::Value root;
+    auto res = aison::encode<ColorSchema>(chan, root);
+
+    if (!res) {
+        std::cout << "== Encode error ==\n";
+        for (auto& err : res.errors) {
+            std::cout << err.path << ": " << err.message << "\n";
+        }
+        return;
+    }
+    std::cout << "== Encoded ==\n";
+    std::cout << root.toStyledString() << "\n\n";
+}
+
 int main()
 {
-    testTextSchema();
-    testShapeSchema();
+    // testTextSchema();
+    // testShapeSchema();
+    testColorSchema();
 
     return 0;
 }
