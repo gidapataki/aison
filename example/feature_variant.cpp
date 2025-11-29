@@ -20,7 +20,7 @@ struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
     Variant()
     {
         name("Shape");
-        discriminator("kind");
+        discriminator("__type__");
     }
 };
 
@@ -28,7 +28,7 @@ template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object()
     {
-        name("circle");
+        name("Circle");
         add(&Circle::radius, "radius");
     }
 };
@@ -37,7 +37,7 @@ template<>
 struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object()
     {
-        name("rect");
+        name("Rectangle");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }
@@ -78,5 +78,13 @@ void variantExample1()
 
     std::cout << "== Decoded ==\n";
     std::cout << shapes.size() << "\n";
+
+    //
+
+    Circle circ{.radius = 32};
+    res = aison::encode<ShapeSchema>(circ, root = {});
+
+    std::cout << "\n== Circle only ==\n" << root.toStyledString() << "\n";
 }
+
 }  // namespace example

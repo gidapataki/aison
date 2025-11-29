@@ -50,7 +50,7 @@ template<>
 struct DemoSchema::Object<Cone> : aison::Object<DemoSchema, Cone> {
     Object()
     {
-        name("cone");
+        name("Cone");
         add(&Cone::scoops, "scoops");
         add(&Cone::flavor, "flavor");
         add(&Cone::toppings, "toppings");
@@ -61,7 +61,7 @@ template<>
 struct DemoSchema::Object<Cup> : aison::Object<DemoSchema, Cup> {
     Object()
     {
-        name("cup");
+        name("Cup");
         add(&Cup::sprinkles, "sprinkles");
         add(&Cup::drizzle, "drizzle");
     }
