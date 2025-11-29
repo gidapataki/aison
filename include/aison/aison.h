@@ -173,6 +173,9 @@ FieldAccessorStorage makeFieldAccessor(T Owner::* member);
 template<typename T>
 T& getInstance();
 
+template<typename Schema, typename T>
+auto& getVariantInstance();
+
 template<typename Schema>
 constexpr bool getSchemaEnableAssert();
 
@@ -920,6 +923,26 @@ public:
         }
     }
 
+    const std::string* find(E value) const
+    {
+        for (auto& entry : entries_) {
+            if (entry.first == value) {
+                return &entry.second;
+            }
+        }
+        return nullptr;
+    }
+
+    const E* find(const std::string& value) const
+    {
+        for (auto& entry : entries_) {
+            if (entry.second == value) {
+                return &entry.first;
+            }
+        }
+        return nullptr;
+    }
+
     const EntryVec& entries() const { return entries_; }
     const std::string& name() const { return name_; }
     bool hasName() const { return hasName_; }
@@ -930,10 +953,12 @@ private:
     bool hasName_ = false;
 };
 
-template<typename Schema, typename Variant>
-class VariantImpl
+template<typename Schema, typename... Ts>
+class VariantImpl<Schema, std::variant<Ts...>>
 {
 public:
+    using VariantType = std::variant<Ts...>;
+
     void name(std::string_view value)
     {
         if (value.empty()) {
@@ -951,7 +976,7 @@ public:
         hasName_ = true;
         name_ = std::string(value);
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
-            setTypeName<Schema, Variant>(name_);
+            setTypeName<Schema, VariantType>(name_);
         }
     }
 
@@ -971,6 +996,15 @@ public:
         }
         hasDiscriminator_ = true;
         discriminator_ = std::string(key);
+    }
+
+    bool hasNamesInAlternatives() const
+    {
+        bool hasNames = true;
+        ((hasNames = hasNames && getInstance<typename Schema::template Object<Ts>>().hasName()),
+         ...);
+
+        return hasNames;
     }
 
     const std::string& name() const { return name_; }
@@ -1095,6 +1129,15 @@ T& getInstance()
     return instance;
 }
 
+template<typename Schema, typename T>
+auto& getVariantInstance()
+{
+    using VariantSpec = typename Schema::template Variant<T>;
+    auto& instance = getInstance<VariantSpec>();
+
+    return instance;
+}
+
 // EnableAssert
 
 template<typename Schema, typename>
@@ -1207,7 +1250,6 @@ public:
     EncodeContext(const Config& cfg)
         : config_(cfg)
     {
-        validateSchemaBase<Schema>();
         using Facet = typename Schema::FacetType;
         static_assert(
             hasEncodeFacet<Schema>(),
@@ -1254,25 +1296,101 @@ private:
     const Config& config_;
 };
 
-// Custom encoder/decoder dispatch /////////////////////////////////////////////////////////
+// Encode ///////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
+void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
         using CustomSpec = typename Schema::template Custom<T>;
         static_assert(
-            std::is_base_of_v<Custom<Schema, T>, CustomSpec>,
-            "Schema::Custom<T> must inherit aison::Custom<Schema, T>.");
-        static_assert(
             HasCustomEncode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
         auto& custom = getInstance<CustomSpec>();
-        custom.encode(value, dst, ctx);
+        custom.encode(src, dst, ctx);
+
+    } else if constexpr (HasObjectTag<Schema, T>::value) {
+        const auto& obj = getInstance<typename Schema::template Object<T>>();
+        obj.encodeFields(src, dst, ctx);
+
+    } else if constexpr (HasEnumTag<Schema, T>::value) {
+        using EnumSpec = typename Schema::template Enum<T>;
+        auto& obj = getInstance<EnumSpec>();
+        auto* str = obj.find(src);
+        if (str) {
+            dst = *str;
+        } else {
+            using U = typename std::underlying_type<T>::type;
+            ctx.addError(
+                "Unhandled enum value during encode (underlying = " + std::to_string(U(src)) +
+                ").");
+        }
+
+    } else if constexpr (HasVariantTag<Schema, T>::value) {
+        auto& var = getVariantInstance<Schema, T>();
+        dst = Json::objectValue;
+        if (!var.hasNamesInAlternatives()) {
+            ctx.addError("Variant alternative missing name.");
+        }
+        if (!var.hasDiscriminator()) {
+            ctx.addError("Discriminator key not set.");
+        }
+        std::visit(
+            [&](const auto& alt) {
+                using Alt = std::decay_t<decltype(alt)>;
+                auto& obj = getInstance<typename Schema::template Object<Alt>>();
+                obj.encodeFields(alt, dst, ctx);
+                dst[var.discriminator()] = obj.name();
+            },
+            src);
+    } else if constexpr (std::is_same_v<T, bool>) {
+        dst = src;
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(src);
+    } else if constexpr (std::is_same_v<T, float>) {
+        if (std::isnan(src)) {
+            ctx.addError("NaN is not allowed here.");
+            return;
+        }
+        dst = src;
+    } else if constexpr (std::is_same_v<T, double>) {
+        if (std::isnan(src)) {
+            ctx.addError("NaN is not allowed here.");
+            return;
+        }
+        dst = src;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        dst = src;
+    } else if constexpr (std::is_enum_v<T>) {
+        validateEnumType<Schema, T>();
+
+    } else if constexpr (IsOptional<T>::value) {
+        using U = typename T::value_type;
+        if (!src) {
+            dst = Json::nullValue;
+        } else {
+            encodeValue<Schema, U>(*src, dst, ctx);
+        }
+    } else if constexpr (IsVector<T>::value) {
+        using U = typename T::value_type;
+        dst = Json::arrayValue;
+        std::size_t index = 0;
+        for (const auto& elem : src) {
+            PathGuard guard(ctx, index++);
+            Json::Value v;
+            encodeValue<Schema, U>(elem, v, ctx);
+            dst.append(v);
+        }
+    } else if constexpr (std::is_pointer_v<T>) {
+        static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
-        encodeDefault<Schema, T>(value, dst, ctx);
+        static_assert(
+            DependentFalse<T>::value,
+            "Unsupported type. Define Schema::Custom<T> to provide an encoder.");
     }
 }
+
+// Decode //////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
@@ -1291,106 +1409,6 @@ void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
         decodeDefault<Schema, T>(src, value, ctx);
     }
 }
-
-// Encode defaults ///////////////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename T>
-void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
-{
-    if constexpr (std::is_same_v<T, bool>) {
-        dst = value;
-    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(value);
-    } else if constexpr (std::is_same_v<T, float>) {
-        if (std::isnan(value)) {
-            ctx.addError("NaN is not allowed here.");
-            return;
-        }
-        dst = value;
-    } else if constexpr (std::is_same_v<T, double>) {
-        if (std::isnan(value)) {
-            ctx.addError("NaN is not allowed here.");
-            return;
-        }
-        dst = value;
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        dst = value;
-    } else if constexpr (std::is_enum_v<T>) {
-        validateEnumType<Schema, T>();
-
-        using EnumSpec = typename Schema::template Enum<T>;
-        const auto& entries = getInstance<EnumSpec>().entries();
-        for (const auto& entry : entries) {
-            if (entry.first == value) {
-                dst = Json::Value(std::string(entry.second));
-                return;
-            }
-        }
-        using U = typename std::underlying_type<T>::type;
-        ctx.addError(
-            "Unhandled enum value during encode (underlying = " + std::to_string(U(value)) + ").");
-    } else if constexpr (IsOptional<T>::value) {
-        using U = typename T::value_type;
-        if (!value) {
-            dst = Json::nullValue;
-        } else {
-            encodeValue<Schema, U>(*value, dst, ctx);
-        }
-    } else if constexpr (IsVariant<T>::value) {
-        // Discriminated polymorphic encoding for std::variant.
-        validateVariant<Schema, T>();
-        if (!VariantKeyValidator<Schema, EncodeContext<Schema>, T>::validate(ctx)) {
-            return;
-        }
-        const auto& variantDef = getInstance<typename Schema::template Variant<T>>();
-        dst = Json::objectValue;
-        std::visit(
-            [&](const auto& alt) {
-                using Alt = std::decay_t<decltype(alt)>;
-
-                const auto& objectDef = getInstance<typename Schema::template Object<Alt>>();
-                if (!objectDef.hasVariantTag()) {
-                    PathGuard guard(ctx, variantDef.discriminator());
-                    ctx.addError("Variant alternative missing name().");
-                    return;
-                }
-
-                // Encode discriminator using a string payload.
-                Json::Value tagJson;
-                const std::string tagValue(objectDef.variantTag());
-                encodeDefault<Schema, std::string>(tagValue, tagJson, ctx);
-
-                // Encode variant-specific fields into the same object.
-                objectDef.encodeFields(alt, dst, ctx);
-
-                // Write discriminator field.
-                dst[variantDef.discriminator()] = std::move(tagJson);
-            },
-            value);
-    } else if constexpr (IsVector<T>::value) {
-        using U = typename T::value_type;
-        dst = Json::arrayValue;
-        std::size_t index = 0;
-        for (const auto& elem : value) {
-            PathGuard guard(ctx, index++);
-            Json::Value v;
-            encodeValue<Schema, U>(elem, v, ctx);
-            dst.append(v);
-        }
-    } else if constexpr (std::is_class_v<T>) {
-        validateObjectType<Schema, T>();
-        const auto& objectDef = getInstance<typename Schema::template Object<T>>();
-        objectDef.encodeFields(value, dst, ctx);
-    } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
-    } else {
-        static_assert(
-            DependentFalse<T>::value,
-            "Unsupported type. Define Schema::Custom<T> to provide an encoder.");
-    }
-}
-
-// Decode defaults //////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
 void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
@@ -2009,6 +2027,7 @@ public:
             std::is_base_of_v<Custom, typename Schema::template Custom<T>>,
             "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
     }
+
     void name(std::string_view value)
     {
         if (value.empty()) {
