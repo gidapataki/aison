@@ -157,10 +157,16 @@ template<typename Schema>
 constexpr bool hasDecodeFacet();
 
 template<typename Schema, typename T>
-constexpr void validateEnumType();
+constexpr void validateEnumSpec();
+
+template<typename Schema, typename T>
+constexpr void validateObjectSpec();
+
+template<typename Schema, typename T>
+constexpr void validateCustomSpec();
 
 template<typename Schema, typename Variant>
-constexpr void validateVariant();
+constexpr void validateVariantSpec();
 
 template<typename Owner, typename T>
 FieldAccessorId getFieldAccessorId();
@@ -576,6 +582,48 @@ struct HasCustomDecode<
 template<typename...>
 struct DependentFalse : std::false_type {};
 
+template<typename Schema, typename T>
+constexpr bool isSupportedFieldType();
+
+template<typename Schema, typename Variant, std::size_t... Is>
+constexpr bool isSupportedVariantAlternatives(std::index_sequence<Is...>)
+{
+    return (HasObjectTag<Schema, std::variant_alternative_t<Is, Variant>>::value && ...);
+}
+
+template<typename Schema, typename T>
+constexpr bool isSupportedFieldType()
+{
+    using U = std::decay_t<T>;
+    if constexpr (IsOptional<U>::value) {
+        return isSupportedFieldType<Schema, typename U::value_type>();
+    } else if constexpr (IsVector<U>::value) {
+        return isSupportedFieldType<Schema, typename U::value_type>();
+    } else if constexpr (IsVariant<U>::value) {
+        if constexpr (!HasVariantTag<Schema, U>::value) {
+            return false;
+        }
+        return isSupportedVariantAlternatives<Schema, U>(
+            std::make_index_sequence<std::variant_size_v<U>>{});
+    } else if constexpr (HasObjectTag<Schema, U>::value) {
+        return true;
+    } else if constexpr (HasEnumTag<Schema, U>::value) {
+        return true;
+    } else if constexpr (HasCustomTag<Schema, U>::value) {
+        return true;
+    } else if constexpr (std::is_same_v<U, bool>) {
+        return true;
+    } else if constexpr (std::is_integral_v<U>) {
+        return !std::is_same_v<U, bool>;
+    } else if constexpr (std::is_same_v<U, float> || std::is_same_v<U, double>) {
+        return true;
+    } else if constexpr (std::is_same_v<U, std::string>) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration();
 
@@ -741,7 +789,7 @@ TypeInfo& makeTypeInfo()
         static TypeInfo info = TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVariant<T>::value) {
-        validateVariant<Schema, T>();
+        validateVariantSpec<Schema, T>();
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
         static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
@@ -1022,23 +1070,9 @@ private:
 };
 
 template<typename Schema, typename T>
-constexpr void validateEnumType()
-{
-    static_assert(
-        HasEnumTag<Schema, T>::value,
-        "No schema enum mapping for this type. "
-        "Define `template<> struct Schema::Enum<T> : aison::Enum<Schema, T>` and "
-        "list all enum values.");
-}
-
-template<typename Schema, typename T>
 constexpr void validateObjectType()
 {
-    static_assert(
-        HasObjectTag<Schema, T>::value,
-        "Type is not mapped as an object. Either define "
-        "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
-        "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
+    validateObjectSpec<Schema, T>();
 }
 
 // Variant validation //////////////////////////////////////////////////////////////////////
@@ -1084,12 +1118,152 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
     }
 };
 
-template<typename Schema, typename Variant>
-constexpr void validateVariant()
+template<typename Key>
+bool shouldReportSchemaError()
 {
-    if constexpr (IsVariant<Variant>::value) {
-        VariantValidator<Schema, Variant>::validate();
+    static bool reported = false;
+    if (reported) {
+        return false;
     }
+    reported = true;
+    return true;
+}
+
+template<typename...>
+struct SchemaErrorKeyTag {};
+
+template<typename Key>
+void addSchemaErrorOnce(Context& ctx, const std::string& message)
+{
+    if (shouldReportSchemaError<Key>()) {
+        ctx.addError(message);
+    }
+}
+
+template<typename Schema, typename T>
+constexpr void validateObjectSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasObjectTag<Schema, Type>::value,
+        "No schema object mapping for this type. Define `template<> struct Schema::Object<T> : "
+        "aison::Object<Schema, T>` and map its fields.");
+    using ObjectSpec = typename Schema::template Object<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Object<Schema, Type>, ObjectSpec>,
+        "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+}
+
+template<typename Schema, typename T>
+void validateObjectSchema(Context& ctx, const typename Schema::template Object<T>& obj)
+{
+    validateObjectSpec<Schema, T>();
+    if constexpr (getSchemaEnableIntrospection<Schema>()) {
+        if (!obj.hasName()) {
+            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
+            addSchemaErrorOnce<Key>(
+                ctx,
+                "(Schema error) Schema::Object<T>::name(...) is required when "
+                "introspection is enabled.");
+        }
+    }
+}
+
+template<typename Schema, typename T>
+constexpr void validateEnumSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasEnumTag<Schema, Type>::value,
+        "No schema enum mapping for this type. Define `template<> struct Schema::Enum<T> : "
+        "aison::Enum<Schema, T>` and list all enum values.");
+    using EnumSpec = typename Schema::template Enum<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Enum<Schema, Type>, EnumSpec>,
+        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+}
+
+template<typename Schema, typename T>
+void validateEnumSchema(Context& ctx, const typename Schema::template Enum<T>& enumDef)
+{
+    validateEnumSpec<Schema, T>();
+    if constexpr (getSchemaEnableIntrospection<Schema>()) {
+        if (!enumDef.hasName()) {
+            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
+            addSchemaErrorOnce<Key>(
+                ctx,
+                "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
+                "enabled.");
+        }
+    }
+}
+
+template<typename Schema, typename T>
+constexpr void validateCustomSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasCustomTag<Schema, Type>::value,
+        "No schema custom mapping for this type. Define `template<> struct Schema::Custom<T> : "
+        "aison::Custom<Schema, T>`.");
+    using CustomSpec = typename Schema::template Custom<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Custom<Schema, Type>, CustomSpec>,
+        "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
+}
+
+template<typename Schema, typename T>
+void validateCustomSchema(Context& ctx, const typename Schema::template Custom<T>& custom)
+{
+    validateCustomSpec<Schema, T>();
+    if constexpr (getSchemaEnableIntrospection<Schema>()) {
+        if (!custom.hasName()) {
+            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
+            addSchemaErrorOnce<Key>(
+                ctx,
+                "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
+                "is enabled.");
+        }
+    }
+}
+
+template<typename Schema, typename Variant>
+constexpr void validateVariantSpec()
+{
+    using Type = std::decay_t<Variant>;
+    static_assert(
+        IsVariant<Type>::value,
+        "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
+    VariantValidator<Schema, Type>::validate();
+}
+
+template<typename Schema, typename Variant>
+bool validateVariantSchema(Context& ctx, const typename Schema::template Variant<Variant>& def)
+{
+    using Type = std::decay_t<Variant>;
+    validateVariantSpec<Schema, Type>();
+    bool ok = true;
+    if constexpr (getSchemaEnableIntrospection<Schema>()) {
+        if (!def.hasName()) {
+            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
+            addSchemaErrorOnce<Key>(
+                ctx,
+                "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
+                "is enabled.");
+            ok = false;
+        }
+    }
+    if (!def.hasDiscriminator()) {
+        using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
+        addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
+        ok = false;
+    }
+    if (!def.hasNamesInAlternatives()) {
+        using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
+        addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
+        ok = false;
+    }
+    return ok;
 }
 
 template<typename Schema, typename T>
@@ -1216,13 +1390,40 @@ constexpr bool getSchemaEnableIntrospection()
     return SchemaEnableIntrospection<Schema>::get();
 }
 
+template<typename Schema, typename = void>
+struct HasSchemaTag : std::false_type {};
+
 template<typename Schema>
-constexpr void validateSchemaBase()
+struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
+
+template<typename Schema, typename = void>
+struct HasSchemaAliases : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaAliases<
+    Schema,
+    std::void_t<typename Schema::FacetType, typename Schema::ConfigType>> : std::true_type {};
+
+template<typename Schema>
+constexpr void validateSchemaDefinition()
 {
+    static_assert(
+        HasSchemaTag<Schema>::value,
+        "Schema must define SchemaTag. Did you inherit from aison::Schema<...>?");
+    static_assert(
+        HasSchemaAliases<Schema>::value,
+        "Schema must expose FacetType and ConfigType. Inherit from aison::Schema<Derived, Facet, "
+        "Config>.");
     using Base = aison::Schema<Schema, typename Schema::FacetType, typename Schema::ConfigType>;
     static_assert(
         std::is_base_of_v<Base, Schema>,
         "Schema must inherit from aison::Schema<Derived, Facet, Config>.");
+}
+
+template<typename Schema>
+constexpr void validateSchemaBase()
+{
+    validateSchemaDefinition<Schema>();
 }
 
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
@@ -1236,6 +1437,7 @@ public:
     EncodeContext(const Config& cfg)
         : config_(cfg)
     {
+        validateSchemaDefinition<Schema>();
         using Facet = typename Schema::FacetType;
         static_assert(
             hasEncodeFacet<Schema>(),
@@ -1293,15 +1495,18 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
             HasCustomEncode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
         auto& custom = getCustomDef<Schema, T>();
+        validateCustomSchema<Schema, T>(ctx, custom);
         custom.encode(src, dst, ctx);
 
     } else if constexpr (HasObjectTag<Schema, T>::value) {
         const auto& def = getObjectDef<Schema, T>();
+        validateObjectSchema<Schema, T>(ctx, def);
         def.encodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
         using EnumSpec = typename Schema::template Enum<T>;
         auto& def = getEnumDef<Schema, T>();
+        validateEnumSchema<Schema, T>(ctx, def);
         auto* str = def.find(src);
         if (str) {
             dst = *str;
@@ -1314,14 +1519,11 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
 
     } else if constexpr (HasVariantTag<Schema, T>::value) {
         auto& var = getVariantDef<Schema, T>();
+        if (!validateVariantSchema<Schema, T>(ctx, var)) {
+            return;
+        }
 
         dst = Json::objectValue;
-        if (!var.hasNamesInAlternatives()) {
-            ctx.addError("Variant alternative missing name.");
-        }
-        if (!var.hasDiscriminator()) {
-            ctx.addError("Discriminator key not set.");
-        }
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
@@ -1397,6 +1599,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
             HasCustomDecode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
         auto& custom = getCustomDef<Schema, T>();
+        validateCustomSchema<Schema, T>(ctx, custom);
         custom.decode(src, dst, ctx);
 
     } else if constexpr (HasObjectTag<Schema, T>::value) {
@@ -1406,6 +1609,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
         }
 
         const auto& obj = getObjectDef<Schema, T>();
+        validateObjectSchema<Schema, T>(ctx, obj);
         obj.decodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
@@ -1415,6 +1619,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
         }
 
         auto& def = getEnumDef<Schema, T>();
+        validateEnumSchema<Schema, T>(ctx, def);
         auto* value = def.find(src.asString());
         if (value) {
             dst = *value;
@@ -1517,13 +1722,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
     static void decode(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
     {
         auto& var = getVariantDef<Schema, VariantType>();
-        if (!var.hasNamesInAlternatives()) {
-            ctx.addError("(Schema error) Variant alternative missing name.");
-            return;
-        }
-
-        if (!var.hasDiscriminator()) {
-            ctx.addError("(Schema error) Discriminator key not set.");
+        if (!validateVariantSchema<Schema, VariantType>(ctx, var)) {
             return;
         }
 
@@ -1569,11 +1768,6 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getObjectDef<Schema, Alt>();
-        if (!objectDef.hasVariantTag()) {
-            Context::PathGuard guard(ctx, tag);
-            ctx.addError("Variant alternative missing name().");
-            return;
-        }
         if (matched || tagValue != objectDef.variantTag()) {
             return;
         }
@@ -1696,6 +1890,10 @@ public:
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
+        static_assert(
+            isSupportedFieldType<Schema, T>(),
+            "Unsupported field type in Schema::Object<T>::add(...). Provide a Schema::Object / "
+            "Enum / Custom / Variant mapping or use supported scalar/collection types.");
         // Check if member or name is already mapped
         auto accessorId = getFieldAccessorId<Owner, T>();
         for (const auto& field : fields_) {
@@ -1793,6 +1991,7 @@ class IntrospectionImpl
 public:
     IntrospectionImpl()
     {
+        validateSchemaDefinition<Schema>();
         static_assert(
             detail::getSchemaEnableIntrospection<Schema>(),
             "Introspection is disabled for this schema. Set `static constexpr bool "
@@ -1804,7 +2003,7 @@ public:
     {
         using U = std::decay_t<T>;
         if constexpr (std::is_enum_v<U>) {
-            validateEnumType<Schema, U>();
+            validateEnumSpec<Schema, U>();
             registerEnumMapping<Schema, U>();
             collectEnum(getTypeId<U>());
         } else if constexpr (IsOptional<U>::value) {
@@ -1958,12 +2157,7 @@ struct Object : detail::ObjectImpl<Schema, T> {
     using Impl::add;
     using Impl::name;
 
-    Object()
-    {
-        static_assert(
-            std::is_base_of_v<Object, typename Schema::template Object<T>>,
-            "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
-    }
+    Object() { detail::validateObjectSpec<Schema, T>(); }
 };
 
 template<typename Schema, typename T>
@@ -1975,12 +2169,7 @@ struct Enum : detail::EnumImpl<Schema, T> {
     using Impl::add;
     using Impl::name;
 
-    Enum()
-    {
-        static_assert(
-            std::is_base_of_v<Enum, typename Schema::template Enum<T>>,
-            "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
-    }
+    Enum() { detail::validateEnumSpec<Schema, T>(); }
 };
 
 template<typename Schema, typename T>
@@ -1991,16 +2180,7 @@ struct Variant : detail::VariantImpl<Schema, T> {
     using Impl::discriminator;
     using Impl::name;
 
-    Variant()
-    {
-        static_assert(
-            detail::IsVariant<T>::value,
-            "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
-
-        static_assert(
-            std::is_base_of_v<Variant, typename Schema::template Variant<T>>,
-            "Schema::Variant<T> must inherit from aison::Variant<Schema, T>.");
-    }
+    Variant() { detail::validateVariantSpec<Schema, T>(); }
 };
 
 template<typename Schema, typename T>
@@ -2012,12 +2192,7 @@ public:
     using EncodeContext = detail::EncodeContext<Schema>;
     using DecodeContext = detail::DecodeContext<Schema>;
 
-    Custom()
-    {
-        static_assert(
-            std::is_base_of_v<Custom, typename Schema::template Custom<T>>,
-            "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
-    }
+    Custom() { detail::validateCustomSpec<Schema, T>(); }
 
     void name(std::string_view value)
     {
@@ -2074,6 +2249,7 @@ private:
 template<typename Schema, typename T>
 Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config = {})
 {
+    detail::validateSchemaDefinition<Schema>();
     detail::EncodeContext<Schema> ctx(config);
     ctx.encode(value, dst);
     return Result{ctx.takeErrors()};
@@ -2082,6 +2258,7 @@ Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigTyp
 template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {})
 {
+    detail::validateSchemaDefinition<Schema>();
     detail::DecodeContext<Schema> ctx(config);
     ctx.decode(src, value);
     return Result{ctx.takeErrors()};
@@ -2090,6 +2267,7 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
 template<typename Schema>
 Introspection<Schema> introspect()
 {
+    detail::validateSchemaDefinition<Schema>();
     return Introspection<Schema>{};
 }
 
