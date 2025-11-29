@@ -15,6 +15,8 @@ struct DemoSchema : aison::Schema<DemoSchema> {
     struct Object;
     template<typename T>
     struct Enum;
+    template<typename T>
+    struct Variant;
 };
 
 template<>
@@ -36,10 +38,19 @@ struct DemoSchema::Object<Topping> : aison::Object<DemoSchema, Topping> {
 };
 
 template<>
+struct DemoSchema::Variant<Dessert> : aison::Variant<DemoSchema, Dessert> {
+    Variant()
+    {
+        name("Dessert");
+        discriminator("kind");
+    }
+};
+
+template<>
 struct DemoSchema::Object<Cone> : aison::Object<DemoSchema, Cone> {
     Object()
     {
-        discriminator("cone", "kind");
+        name("cone");
         add(&Cone::scoops, "scoops");
         add(&Cone::flavor, "flavor");
         add(&Cone::toppings, "toppings");
@@ -50,7 +61,7 @@ template<>
 struct DemoSchema::Object<Cup> : aison::Object<DemoSchema, Cup> {
     Object()
     {
-        discriminator("cup", "kind");
+        name("cup");
         add(&Cup::sprinkles, "sprinkles");
         add(&Cup::drizzle, "drizzle");
     }
@@ -121,12 +132,29 @@ void dump(const aison::Introspection<Schema>& isp)
     for (const auto& entry : isp.objects()) {
         const auto& obj = entry.second;
         std::cout << "type: " << reinterpret_cast<std::uintptr_t>(entry.first) << "\n";
+        if (!obj.name.empty()) {
+            std::cout << " name: " << obj.name << "\n";
+        }
         if (obj.hasDiscriminator) {
             std::cout << " discriminator: key=\"" << obj.discriminatorKey << "\" tag=\""
                       << obj.discriminatorTag << "\"\n";
         }
         for (const auto& f : obj.fields) {
             std::cout << " - " << f.name << ": " << renderType(f.type) << "\n";
+        }
+        std::cout << "\n";
+    }
+
+    for (const auto& entry : isp.variants()) {
+        const auto& var = entry.second;
+        std::cout << "variant: " << reinterpret_cast<std::uintptr_t>(entry.first);
+        if (!var.name.empty()) {
+            std::cout << " \"" << var.name << "\"";
+        }
+        std::cout << "\n";
+        std::cout << " discriminator: key=\"" << var.discriminatorKey << "\"\n";
+        for (const auto& alt : var.alternatives) {
+            std::cout << " - tag=\"" << alt.tag << "\" type=" << renderType(alt.type) << "\n";
         }
         std::cout << "\n";
     }

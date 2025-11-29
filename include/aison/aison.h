@@ -34,6 +34,9 @@ template<typename Schema, typename T>
 struct Object;
 
 template<typename Schema, typename T>
+struct Variant;
+
+template<typename Schema, typename T>
 struct Enum;
 
 template<typename Derived, typename FacetTag, typename Config>
@@ -85,6 +88,9 @@ template<typename Schema, typename Owner>
 class ObjectImpl;
 
 template<typename Schema, typename Variant>
+class VariantImpl;
+
+template<typename Schema, typename Variant>
 struct VariantDecoder;
 
 template<typename Owner, typename T>
@@ -108,6 +114,9 @@ struct HasEnumTag;
 
 template<typename Schema, typename T, typename = void>
 struct HasObjectTag;
+
+template<typename Schema, typename Variant, typename = void>
+struct HasVariantTag;
 
 template<typename Schema, typename T, typename = void>
 struct HasEncoderTag;
@@ -173,6 +182,9 @@ FieldAccessorStorage makeFieldAccessor(T Owner::* member);
 template<typename T>
 T& getSchemaObject();
 
+template<typename T>
+T& getSchemaVariant();
+
 template<typename Schema>
 std::string_view getSchemaDiscriminatorKey();
 
@@ -185,6 +197,9 @@ constexpr bool getSchemaStrictOptional();
 template<typename Schema>
 constexpr bool getSchemaEnableIntrospection();
 
+template<typename Schema>
+IntrospectionRegistry<Schema>& getIntrospectionRegistry();
+
 template<typename T>
 TypeId getTypeId();
 
@@ -193,6 +208,9 @@ void ensureTypeRegistration();
 
 template<typename Schema, typename T>
 void registerObjectMapping();
+
+template<typename Schema, typename Variant>
+void registerVariantMapping();
 
 template<typename Schema, typename E>
 void registerEnumMapping();
@@ -239,6 +257,7 @@ struct Schema {
     using ConfigType = Config;
 
     // template<typename T> struct Object;
+    // template<typename Variant> struct Variant;
     // template<typename T> struct Enum;
     // template<typename T> struct Encoder;
     // template<typename T> struct Decoder;
@@ -351,6 +370,7 @@ struct FieldInfo {
 
 struct ObjectInfo {
     std::vector<FieldInfo> fields;
+    std::string name;
     std::string discriminatorKey;
     std::string discriminatorTag;
     bool hasDiscriminator = false;
@@ -358,6 +378,17 @@ struct ObjectInfo {
 
 struct EnumInfo {
     std::vector<std::string> names;
+};
+
+struct VariantAlternativeInfo {
+    const TypeInfo* type = nullptr;
+    std::string tag;
+};
+
+struct VariantInfo {
+    std::string name;
+    std::string discriminatorKey;
+    std::vector<VariantAlternativeInfo> alternatives;
 };
 
 }  // namespace aison
@@ -506,6 +537,15 @@ template<typename Schema, typename T>
 struct HasObjectTag<Schema, T, std::void_t<typename Schema::template Object<T>::ObjectTag>>
     : std::true_type {};
 
+template<typename Schema, typename Variant, typename>
+struct HasVariantTag : std::false_type {};
+
+template<typename Schema, typename Variant>
+struct HasVariantTag<
+    Schema,
+    Variant,
+    std::void_t<typename Schema::template Variant<Variant>::VariantTag>> : std::true_type {};
+
 template<typename Schema, typename T, typename>
 struct HasEncoderTag : std::false_type {};
 
@@ -548,6 +588,45 @@ void registerObjectMapping()
     }
 }
 
+template<typename Schema, typename Variant, std::size_t Index>
+void registerVariantAlternative()
+{
+    if constexpr (getSchemaEnableIntrospection<Schema>()) {
+        using Alt = std::variant_alternative_t<Index, Variant>;
+        const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
+        VariantAlternativeInfo info;
+        info.type = &makeTypeInfo<Schema, Alt>();
+        if (objectDef.hasVariantTag()) {
+            info.tag = objectDef.variantTag();
+        }
+        getIntrospectionRegistry<Schema>().addVariantAlternative(
+            getTypeId<Variant>(), std::move(info));
+    }
+}
+
+template<typename Schema, typename Variant, std::size_t... Is>
+void registerVariantAlternatives(std::index_sequence<Is...>)
+{
+    (registerVariantAlternative<Schema, Variant, Is>(), ...);
+}
+
+template<typename Schema, typename T>
+void registerVariantMapping()
+{
+    if constexpr (HasVariantTag<Schema, T>::value) {
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            auto& reg = getIntrospectionRegistry<Schema>();
+            const auto& def = getSchemaVariant<typename Schema::template Variant<T>>();
+            if (def.hasName()) {
+                reg.setVariantName(getTypeId<T>(), def.name());
+            }
+            reg.setVariantDiscriminator(getTypeId<T>(), def.discriminatorKey());
+            registerVariantAlternatives<Schema, T>(
+                std::make_index_sequence<std::variant_size_v<T>>{});
+        }
+    }
+}
+
 template<typename Schema, typename E>
 void registerEnumMapping()
 {
@@ -575,6 +654,7 @@ void ensureTypeRegistration()
         ensureTypeRegistration<Schema, Owner, U>();
     } else if constexpr (IsVariant<T>::value) {
         using VT = std::decay_t<T>;
+        registerVariantMapping<Schema, VT>();
         ensureVariantAlternatives<Schema, Owner, VT>(
             std::make_index_sequence<std::variant_size_v<VT>>{});
     } else if constexpr (std::is_enum_v<T>) {
@@ -596,6 +676,7 @@ const TypeInfo& makeTypeInfo()
             TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVariant<T>::value) {
+        validateVariant<Schema, T>();
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
         static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
@@ -651,6 +732,15 @@ public:
         entry.fields.push_back(std::move(field));
     }
 
+    void setObjectName(TypeId typeId, std::string name)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        auto& entry = objects_[typeId];
+        entry.name = std::move(name);
+    }
+
     void setObjectDiscriminator(TypeId typeId, std::string key, std::string tag)
     {
         if (!getSchemaEnableIntrospection<Schema>()) {
@@ -671,16 +761,48 @@ public:
         entry.names.push_back(std::string(name));
     }
 
+    void setVariantName(TypeId typeId, std::string name)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        variants_[typeId].name = std::move(name);
+    }
+
+    void setVariantDiscriminator(TypeId typeId, std::string key)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        variants_[typeId].discriminatorKey = std::move(key);
+    }
+
+    void addVariantAlternative(TypeId typeId, VariantAlternativeInfo alt)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        auto& entry = variants_[typeId];
+        for (const auto& existing : entry.alternatives) {
+            if (existing.type == alt.type) {
+                return;
+            }
+        }
+        entry.alternatives.push_back(std::move(alt));
+    }
+
     const std::unordered_map<TypeId, ObjectInfo>& objects() const { return objects_; }
     const std::unordered_map<TypeId, EnumInfo>& enums() const { return enums_; }
+    const std::unordered_map<TypeId, VariantInfo>& variants() const { return variants_; }
 
 private:
     std::unordered_map<TypeId, ObjectInfo> objects_;
     std::unordered_map<TypeId, EnumInfo> enums_;
+    std::unordered_map<TypeId, VariantInfo> variants_;
 };
 
 template<typename Schema>
-inline IntrospectionRegistry<Schema>& getIntrospectionRegistry()
+IntrospectionRegistry<Schema>& getIntrospectionRegistry()
 {
     static IntrospectionRegistry<Schema> reg;
     return reg;
@@ -720,6 +842,65 @@ public:
             getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
         }
     }
+};
+
+template<typename Schema, typename Variant>
+class VariantImpl
+{
+public:
+    VariantImpl()
+    {
+        static_assert(
+            IsVariant<Variant>::value,
+            "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
+    }
+
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Variant name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Variant name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+    }
+
+    void discriminator(std::string_view key)
+    {
+        if (key.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Discriminator key cannot be empty.");
+            }
+            return;
+        }
+        if (hasExplicitKey_) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Variant discriminator already set.");
+            }
+            return;
+        }
+        hasExplicitKey_ = true;
+        discriminatorKey_ = std::string(key);
+    }
+
+    const std::string& name() const { return name_; }
+    const std::string& discriminatorKey() const { return discriminatorKey_; }
+    bool hasName() const { return hasName_; }
+    bool hasDiscriminatorKey() const { return !discriminatorKey_.empty(); }
+
+private:
+    std::string name_;
+    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
+    bool hasName_ = false;
+    bool hasExplicitKey_ = false;
 };
 
 template<typename Schema, typename T>
@@ -767,6 +948,15 @@ template<typename Schema, typename... Ts>
 struct VariantValidator<Schema, std::variant<Ts...>, void> {
     static constexpr void validate()
     {
+        static_assert(
+            HasVariantTag<Schema, std::variant<Ts...>>::value,
+            "No schema variant mapping for this type. "
+            "Define `template<> struct Schema::Variant<V> : aison::Variant<Schema, V>`.");
+        using VariantSpec = typename Schema::template Variant<std::variant<Ts...>>;
+        static_assert(
+            std::is_base_of_v<VariantImpl<Schema, std::variant<Ts...>>, VariantSpec>,
+            "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
+        static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
         // Each alternative must have an object mapping.
         (VariantAltCheck<Schema, Ts>::check(), ...);
     }
@@ -776,38 +966,20 @@ template<typename Schema, typename Context, typename... Ts>
 struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
     static bool validate(Context& ctx)
     {
-        using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
-        const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
-        auto firstKey = firstObj.discriminatorKey();
-        if (firstKey.empty()) {
+        using VariantType = std::variant<Ts...>;
+        const auto& variantDef = getSchemaVariant<typename Schema::template Variant<VariantType>>();
+        if (variantDef.discriminatorKey().empty()) {
             ctx.addError("Discriminator key not set for variant.");
             return false;
         }
 
-        bool emptyKey = false;
-        bool mismatch = false;
-        ((emptyKey =
-              emptyKey ||
-              getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey().empty()),
-         ...);
-        ((mismatch = mismatch ||
-                     (!getSchemaObject<typename Schema::template Object<Ts>>()
-                           .discriminatorKey()
-                           .empty() &&
-                      getSchemaObject<typename Schema::template Object<Ts>>().discriminatorKey() !=
-                          firstKey)),
+        bool missingTag = false;
+        ((missingTag = missingTag ||
+                       !getSchemaObject<typename Schema::template Object<Ts>>().hasVariantTag()),
          ...);
 
-        if (emptyKey) {
-            ctx.addError("Discriminator key not set for variant.");
-            return false;
-        }
-
-        if (mismatch) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Variant alternatives must use the same discriminator key.");
-            }
-            ctx.addError("Variant alternatives must use the same discriminator key.");
+        if (missingTag) {
+            ctx.addError("Variant alternative missing name().");
             return false;
         }
 
@@ -829,6 +1001,27 @@ T& getSchemaObject()
     static T instance{};
     return instance;
 }
+
+template<typename T>
+T& getSchemaVariant()
+{
+    static T instance{};
+    return instance;
+}
+
+// template<typename Schema, typename T>
+// auto& getSchemaVariant()
+// {
+//     static_assert(
+//         HasVariantTag<Schema, T>::value,
+//         "No schema variant mapping for this type. "
+//         "Define `template<> struct Schema::Variant<V> : aison::Variant<Schema, V>`.");
+//     using VariantSpec = typename Schema::template Variant<T>;
+//     static_assert(
+//         std::is_base_of_v<VariantImpl<Schema, T>, VariantSpec>,
+//         "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
+//     return getSchemaObject<VariantSpec>();
+// }
 
 // DiscriminatorKey
 
@@ -1088,28 +1281,29 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         if (!VariantKeyValidator<Schema, EncoderImpl<Schema>, T>::validate(encoder)) {
             return;
         }
+        const auto& variantDef = getSchemaVariant<typename Schema::template Variant<T>>();
         dst = Json::objectValue;
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
 
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
-                if (!objectDef.hasDiscriminatorTag()) {
-                    PathScope guard(encoder, objectDef.discriminatorKey());
-                    encoder.addError("Variant alternative missing discriminator().");
+                if (!objectDef.hasVariantTag()) {
+                    PathScope guard(encoder, variantDef.discriminatorKey());
+                    encoder.addError("Variant alternative missing name().");
                     return;
                 }
 
                 // Encode discriminator using a string payload.
                 Json::Value tagJson;
-                const std::string tagValue(objectDef.discriminatorTag());
+                const std::string tagValue(objectDef.variantTag());
                 encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
 
                 // Encode variant-specific fields into the same object.
                 objectDef.encodeFields(alt, dst, encoder);
 
                 // Write discriminator field.
-                dst[objectDef.discriminatorKey()] = std::move(tagJson);
+                dst[variantDef.discriminatorKey()] = std::move(tagJson);
             },
             value);
     } else if constexpr (IsVector<T>::value) {
@@ -1269,9 +1463,8 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             return;
         }
 
-        using FirstAlt = std::tuple_element_t<0, std::tuple<Ts...>>;
-        const auto& firstObj = getSchemaObject<typename Schema::template Object<FirstAlt>>();
-        const auto& fieldName = firstObj.discriminatorKey();
+        const auto& variantDef = getSchemaVariant<typename Schema::template Variant<VariantType>>();
+        const auto& fieldName = variantDef.discriminatorKey();
         if (!VariantKeyValidator<Schema, DecoderImpl<Schema>, std::variant<Ts...>>::validate(
                 decoder))
         {
@@ -1297,7 +1490,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         bool matched = false;
 
         // Try each alternative in turn
-        (tryAlternative<Ts>(src, tagValue, value, decoder, matched), ...);
+        (tryAlternative<Ts>(src, tagValue, fieldName, value, decoder, matched), ...);
 
         if (!matched) {
             PathScope discGuard(decoder, fieldName);
@@ -1310,18 +1503,19 @@ private:
     static void tryAlternative(
         const Json::Value& src,
         const std::string& tagValue,
+        const std::string& discriminatorKey,
         VariantType& value,
         DecoderImpl<Schema>& decoder,
         bool& matched)
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getSchemaObject<ObjectSpec>();
-        if (!objectDef.hasDiscriminatorTag()) {
-            PathScope guard(decoder, objectDef.discriminatorKey());
-            decoder.addError("Variant alternative missing discriminator().");
+        if (!objectDef.hasVariantTag()) {
+            PathScope guard(decoder, discriminatorKey);
+            decoder.addError("Variant alternative missing name().");
             return;
         }
-        if (matched || tagValue != objectDef.discriminatorTag()) {
+        if (matched || tagValue != objectDef.variantTag()) {
             return;
         }
 
@@ -1418,6 +1612,27 @@ private:
     };
 
 public:
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Object name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Object name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            getIntrospectionRegistry<Schema>().setObjectName(detail::getTypeId<Owner>(), name_);
+        }
+    }
+
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
@@ -1479,6 +1694,12 @@ public:
 
     void discriminator(std::string_view tag, std::string_view key)
     {
+        if (tag.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Discriminator tag cannot be empty.");
+            }
+            return;
+        }
         if (key.empty()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(false && "Discriminator key cannot be empty.");
@@ -1551,6 +1772,10 @@ public:
     const std::string& discriminatorTag() const { return discriminatorTag_; }
     const std::string& discriminatorKey() const { return discriminatorKey_; }
     bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
+    const std::string& name() const { return name_; }
+    bool hasName() const { return hasName_; }
+    bool hasVariantTag() const { return hasName_ || hasDiscriminatorTag_; }
+    const std::string& variantTag() const { return hasName_ ? name_ : discriminatorTag_; }
     const std::vector<FieldDef>& fields() const { return fields_; }
 
 private:
@@ -1568,9 +1793,11 @@ private:
     }
 
     std::vector<FieldDef> fields_;
+    std::string name_;
     std::string discriminatorTag_;
     std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
     bool hasDiscriminatorTag_ = false;
+    bool hasName_ = false;
 };
 
 template<typename Schema>
@@ -1598,9 +1825,11 @@ public:
         } else if constexpr (IsVector<U>::value) {
             add<typename U::value_type>();
         } else if constexpr (IsVariant<U>::value) {
+            registerVariantMapping<Schema, U>();
             ensureVariantAlternatives<Schema, U, U>(
                 std::make_index_sequence<std::variant_size_v<U>>{});
             addVariantAlternatives<U>(std::make_index_sequence<std::variant_size_v<U>>{});
+            collectVariant(getTypeId<U>());
         } else if constexpr (std::is_class_v<U>) {
             static_assert(
                 HasObjectTag<Schema, U>::value || HasEncoderTag<Schema, U>::value ||
@@ -1647,6 +1876,23 @@ public:
         }
     }
 
+    void collectVariant(TypeId typeId)
+    {
+        if (variants_.count(typeId)) {
+            return;
+        }
+        const auto& reg = getIntrospectionRegistry<Schema>();
+        auto it = reg.variants().find(typeId);
+        if (it == reg.variants().end()) {
+            return;
+        }
+        variants_.emplace(it->first, it->second);
+        const auto& varInfo = variants_.find(typeId)->second;
+        for (const auto& alt : varInfo.alternatives) {
+            traverseType(alt.type);
+        }
+    }
+
     void traverseType(const TypeInfo* info)
     {
         if (!info) return;
@@ -1664,6 +1910,7 @@ public:
                 traverseType(info->data.vector.type);
                 break;
             case TypeClass::Variant:
+                collectVariant(info->typeId);
                 for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                     traverseType(info->data.variant.types ? info->data.variant.types[i] : nullptr);
                 }
@@ -1681,10 +1928,12 @@ public:
 
     const auto& objects() const { return objects_; }
     const auto& enums() const { return enums_; }
+    const auto& variants() const { return variants_; }
 
 private:
     std::unordered_map<TypeId, ObjectInfo> objects_;
     std::unordered_map<TypeId, EnumInfo> enums_;
+    std::unordered_map<TypeId, VariantInfo> variants_;
 };
 
 }  // namespace aison::detail
@@ -1700,6 +1949,7 @@ struct Object : detail::ObjectImpl<Schema, Owner> {
 
     using Impl::add;
     using Impl::discriminator;
+    using Impl::name;
 };
 
 template<typename Schema, typename E>
@@ -1709,6 +1959,15 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base = Enum;
 
     using Impl::add;
+};
+
+template<typename Schema, typename T>
+struct Variant : detail::VariantImpl<Schema, T> {
+    using VariantTag = void;
+    using Impl = detail::VariantImpl<Schema, T>;
+
+    using Impl::discriminator;
+    using Impl::name;
 };
 
 // Encoder / Decoder bases ///////////////////////////////////////////////////////////////
@@ -1771,6 +2030,7 @@ public:
 
     const auto& objects() const { return impl_.objects(); }
     const auto& enums() const { return impl_.enums(); }
+    const auto& variants() const { return impl_.variants(); }
 
 private:
     detail::IntrospectionImpl<Schema> impl_;

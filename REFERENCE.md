@@ -277,7 +277,8 @@ Aison supports discriminated variants.
 
 ### 6.1 Discriminator key
 
-You must define a discriminator key before mapping a variant:
+Define a `Schema::Variant` mapping for every `std::variant` you want to encode/decode. The
+`Variant` mapping sets the discriminator key (and optional name for introspection):
 
 - **Schema-level default (optional):**
 
@@ -285,14 +286,17 @@ You must define a discriminator key before mapping a variant:
   struct ShapeSchema : aison::Schema<ShapeSchema> {
       static constexpr auto discriminatorKey = "__type__";
       template<typename T> struct Object;
+      template<typename Variant> struct Variant;
   };
   ```
 
-- **Per-object override:** `discriminator(tag, key)` sets both the tag value and the key for that alternative.
+- **Per-variant override:** `Variant::discriminator(key)` overrides the schema default for that
+  variant (required when the schema has no default).
 
-If the schema declares `discriminatorKey`, you can omit the key and call `discriminator(tag)` to use the schema default.
+If the schema declares `discriminatorKey`, you can omit `Variant::discriminator(...)` to use the
+schema default.
 
-Keys must be **non-empty** and **identical across all alternatives**.
+Keys must be **non-empty**.
 
 ### 6.2 Mapping variants
 
@@ -300,11 +304,18 @@ Keys must be **non-empty** and **identical across all alternatives**.
 using Shape = std::variant<Circle, Rectangle>;
 
 template<>
+struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    Variant() {
+        name("Shape");           // optional display name
+        discriminator("__type__");
+    }
+};
+
+template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
         add(&Circle::radius, "radius");
-        discriminator("circle");               // uses schema key
-        // discriminator("circle", "__kind__"); // override key per type
+        name("circle");                        // discriminator tag
     }
 };
 
@@ -313,16 +324,18 @@ struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
-        discriminator("rect");
+        name("rect");
     }
 };
 ```
 
 ### 6.3 Rules
 
-- Every alternative must call `discriminator(...)`.
-- All alternatives must share the same discriminator key (schema default or per-object override).
-- Missing keys/tags or mismatched keys produce errors; with `EnableAssert == true`, debug builds also assert.
+- Every variant type must provide `Schema::Variant<Variant>`.
+- Every alternative must have an `Object` mapping and a non-empty `name()` (used as discriminator
+  tag; legacy `discriminator(tag, key)` is also accepted for tags).
+- Missing discriminator keys or missing alternative names produce errors; with `EnableAssert == true`
+  debug builds also assert.
 
 ---
 
@@ -356,7 +369,7 @@ Errors accumulate; decoding never stops early.
 | `std::string` | ✔ | |
 | `std::optional<T>` | ✔ | `strictOptional` controls whether null is required (`true`) or omission is allowed (`false`) |
 | `std::vector<T>` | ✔ | recursive support |
-| `std::variant<Ts...>` | ✔ | requires discriminator per alternative |
+| `std::variant<Ts...>` | ✔ | requires `Schema::Variant` and named object alternatives |
 | enums | ✔ | requires `Enum<T>` |
 | structs | ✔ | requires `Object<T>` |
 | custom types | ✔ | via `Encoder<T>` / `Decoder<T>` |
@@ -379,8 +392,8 @@ Runtime schema errors include:
 - Duplicate enum values  
 - Duplicate enum names  
 - Alias for undefined enum value  
-- Missing discriminator key or tag on a variant alternative  
-- Mismatched discriminator keys across variant alternatives  
+- Missing discriminator key on a variant mapping  
+- Missing discriminator tag (object `name()`) for a variant alternative  
 
 These trigger:
 

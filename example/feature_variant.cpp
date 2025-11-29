@@ -9,17 +9,26 @@ namespace example {
 namespace {
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static constexpr auto discriminatorKey = "kind";
-
     template<typename T>
     struct Object;
+    template<typename T>
+    struct Variant;
+};
+
+template<>
+struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    Variant()
+    {
+        name("Shape");
+        discriminator("kind");
+    }
 };
 
 template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object()
     {
-        discriminator("circle");
+        name("circle");
         add(&Circle::radius, "radius");
     }
 };
@@ -28,7 +37,7 @@ template<>
 struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object()
     {
-        discriminator("rect");
+        name("rect");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }

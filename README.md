@@ -156,8 +156,6 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 ### Polymorphism (`std::variant`)
 
 ```C++
-enum class ShapeKind { kCircle, kRectangle };
-
 struct Circle {
     float radius;
 };
@@ -170,20 +168,29 @@ struct Rectangle {
 using Shape = std::variant<Circle, Rectangle>;
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static const auto discriminatorKey = "kind"; // (optional) sets default key for all types
     template<typename T> struct Object;
+    template<typename Variant> struct Variant;
+};
+
+template<>
+struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    Variant()
+    {
+        name("Shape");                // optional variant label for introspection
+        discriminator("kind");        // required discriminator key for this variant
+    }
 };
 
 template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
-        discriminator("circle");
+        name("circle");               // used as discriminator tag
         add(&Circle::radius, "radius");
     }
 };
 
 template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
-        discriminator("rect", "kind"); // (optional) override default key for this type
+        name("rect");                 // used as discriminator tag
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }

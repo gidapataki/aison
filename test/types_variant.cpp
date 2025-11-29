@@ -29,13 +29,24 @@ struct SchemaDefaultKey : aison::Schema<SchemaDefaultKey> {
     static constexpr std::string_view discriminatorKey = "kind";
     template<typename T>
     struct Object;
+    template<typename T>
+    struct Variant;
+};
+
+template<>
+struct SchemaDefaultKey::Variant<ShapeVariantA> : aison::Variant<SchemaDefaultKey, ShapeVariantA> {
+    Variant()
+    {
+        name("ShapeVariantA");
+        // uses schema default discriminator key "kind"
+    }
 };
 
 template<>
 struct SchemaDefaultKey::Object<ShapeA> : aison::Object<SchemaDefaultKey, ShapeA> {
     Object()
     {
-        discriminator("shapeA");  // uses schema default key "kind"
+        name("shapeA");
         add(&ShapeA::x, "x");
         add(&ShapeA::y, "y");
     }
@@ -45,8 +56,7 @@ template<>
 struct SchemaDefaultKey::Object<ShapeB> : aison::Object<SchemaDefaultKey, ShapeB> {
     Object()
     {
-        // explicit key, but same as schema default to show override path
-        discriminator("shapeB", "kind");
+        name("shapeB");
         add(&ShapeB::radius, "radius");
     }
 };
@@ -79,13 +89,25 @@ struct SceneB {
 struct SchemaExplicitKey : aison::Schema<SchemaExplicitKey> {
     template<typename T>
     struct Object;
+    template<typename T>
+    struct Variant;
+};
+
+template<>
+struct SchemaExplicitKey::Variant<ShapeVariantB>
+    : aison::Variant<SchemaExplicitKey, ShapeVariantB> {
+    Variant()
+    {
+        name("ShapeVariantB");
+        discriminator("type");
+    }
 };
 
 template<>
 struct SchemaExplicitKey::Object<Rect> : aison::Object<SchemaExplicitKey, Rect> {
     Object()
     {
-        discriminator("rect", "type");
+        name("rect");
         add(&Rect::w, "w");
         add(&Rect::h, "h");
     }
@@ -95,7 +117,7 @@ template<>
 struct SchemaExplicitKey::Object<Ellipse> : aison::Object<SchemaExplicitKey, Ellipse> {
     Object()
     {
-        discriminator("ellipse", "type");
+        name("ellipse");
         add(&Ellipse::rx, "rx");
         add(&Ellipse::ry, "ry");
         add(&Ellipse::color, "color");
@@ -191,4 +213,3 @@ TEST_SUITE("Variant types")
 }
 
 }  // namespace
-

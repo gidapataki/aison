@@ -40,6 +40,8 @@ struct ErrorSchema : aison::Schema<ErrorSchema> {
     struct Object;
     template<typename T>
     struct Enum;
+    template<typename T>
+    struct Variant;
 };
 
 template<>
@@ -61,10 +63,19 @@ struct ErrorSchema::Object<Point> : aison::Object<ErrorSchema, Point> {
 };
 
 template<>
+struct ErrorSchema::Variant<Shape> : aison::Variant<ErrorSchema, Shape> {
+    Variant()
+    {
+        name("Shape");
+        // uses schema default discriminator key "kind"
+    }
+};
+
+template<>
 struct ErrorSchema::Object<Circle> : aison::Object<ErrorSchema, Circle> {
     Object()
     {
-        discriminator("circle");
+        name("circle");
         add(&Circle::r, "r");
     }
 };
@@ -73,7 +84,7 @@ template<>
 struct ErrorSchema::Object<Rectangle> : aison::Object<ErrorSchema, Rectangle> {
     Object()
     {
-        discriminator("rect");
+        name("rect");
         add(&Rectangle::w, "w");
         add(&Rectangle::h, "h");
     }
