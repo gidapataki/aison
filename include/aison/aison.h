@@ -64,8 +64,6 @@ class Introspection;
 namespace aison::detail {
 
 class Context;
-struct PathSegment;
-struct PathGuard;
 
 using FieldAccessorDeleter = void (*)(void*);
 using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
@@ -399,43 +397,80 @@ TypeId getTypeId()
     return &id;
 }
 
-struct PathSegment {
-    enum class Kind { Key, Index } kind = {};
-    union Data {
-        const char* key;
-        std::size_t index;
-
-        constexpr Data()
-            : key(nullptr)
-        {}
-        constexpr Data(const char* k)
-            : key(k)
-        {}
-        constexpr Data(std::size_t i)
-            : index(i)
-        {}
-    } data;
-
-    static PathSegment makeKey(const char* k)
-    {
-        PathSegment s;
-        s.kind = Kind::Key;
-        s.data = Data{k};
-        return s;
-    }
-
-    static PathSegment makeIndex(std::size_t i)
-    {
-        PathSegment s;
-        s.kind = Kind::Index;
-        s.data = Data{i};
-        return s;
-    }
-};
-
 class Context
 {
 public:
+    struct PathSegment {
+        enum class Kind { Key, Index } kind = {};
+        union Data {
+            const char* key;
+            std::size_t index;
+
+            constexpr Data()
+                : key(nullptr)
+            {}
+            constexpr Data(const char* k)
+                : key(k)
+            {}
+            constexpr Data(std::size_t i)
+                : index(i)
+            {}
+        } data;
+
+        static PathSegment makeKey(const char* k)
+        {
+            PathSegment s;
+            s.kind = Kind::Key;
+            s.data = Data{k};
+            return s;
+        }
+
+        static PathSegment makeIndex(std::size_t i)
+        {
+            PathSegment s;
+            s.kind = Kind::Index;
+            s.data = Data{i};
+            return s;
+        }
+    };
+
+    struct PathGuard {
+        Context* ctx = nullptr;
+
+        PathGuard(Context& context, const std::string& key)
+            : PathGuard(context, key.c_str())
+        {}
+
+        PathGuard(Context& context, const char* key)
+            : ctx(&context)
+        {
+            ctx->pathStack_.push_back(PathSegment::makeKey(key));
+        }
+
+        PathGuard(Context& context, std::size_t index)
+            : ctx(&context)
+        {
+            ctx->pathStack_.push_back(PathSegment::makeIndex(index));
+        }
+
+        PathGuard(const PathGuard&) = delete;
+        PathGuard& operator=(const PathGuard&) = delete;
+
+        PathGuard(PathGuard&& other) noexcept
+            : ctx(other.ctx)
+        {
+            other.ctx = nullptr;
+        }
+        PathGuard& operator=(PathGuard&&) = delete;
+
+        ~PathGuard()
+        {
+            if (ctx) {
+                ctx->pathStack_.pop_back();
+            }
+        }
+    };
+
     std::string buildPath() const
     {
         std::string result = "$";
@@ -459,47 +494,9 @@ public:
     std::vector<Error> takeErrors() { return std::move(errors_); }
     const std::vector<Error>& errors() const { return errors_; }
 
-protected:
-    friend struct PathGuard;
+private:
     std::vector<PathSegment> pathStack_;
     std::vector<Error> errors_;
-};
-
-struct PathGuard {
-    Context* ctx = nullptr;
-
-    PathGuard(Context& context, const std::string& key)
-        : PathGuard(context, key.c_str())
-    {}
-
-    PathGuard(Context& context, const char* key)
-        : ctx(&context)
-    {
-        ctx->pathStack_.push_back(PathSegment::makeKey(key));
-    }
-
-    PathGuard(Context& context, std::size_t index)
-        : ctx(&context)
-    {
-        ctx->pathStack_.push_back(PathSegment::makeIndex(index));
-    }
-
-    PathGuard(const PathGuard&) = delete;
-    PathGuard& operator=(const PathGuard&) = delete;
-
-    PathGuard(PathGuard&& other) noexcept
-        : ctx(other.ctx)
-    {
-        other.ctx = nullptr;
-    }
-    PathGuard& operator=(PathGuard&&) = delete;
-
-    ~PathGuard()
-    {
-        if (ctx) {
-            ctx->pathStack_.pop_back();
-        }
-    }
 };
 
 // Traits ///////////////////////////////////////////////////////////////////////////////////
@@ -1347,7 +1344,7 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         dst = Json::arrayValue;
         std::size_t index = 0;
         for (const auto& elem : src) {
-            PathGuard guard(ctx, index++);
+            Context::PathGuard guard(ctx, index++);
             Json::Value v;
             encodeValue<Schema, U>(elem, v, ctx);
             dst.append(v);
@@ -1446,7 +1443,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
             return;
         }
         for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
-            PathGuard guard(ctx, i);
+            Context::PathGuard guard(ctx, i);
             U elem{};
             decodeValue<Schema, U>(src[i], elem, ctx);
             dst.push_back(std::move(elem));
@@ -1539,7 +1536,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         std::string tagValue;
 
         {
-            PathGuard discGuard(ctx, tag);
+            Context::PathGuard discGuard(ctx, tag);
             if (!src.isMember(tag)) {
                 ctx.addError("Missing discriminator field.");
                 return;
@@ -1556,7 +1553,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         bool matched = false;
         (tryAlternative<Ts>(tag, tagValue, src, dst, ctx, matched), ...);
         if (!matched) {
-            PathGuard discGuard(ctx, tag);
+            Context::PathGuard discGuard(ctx, tag);
             ctx.addError("Unknown discriminator value for variant.");
         }
     }
@@ -1573,7 +1570,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getObjectDef<Schema, Alt>();
         if (!objectDef.hasVariantTag()) {
-            PathGuard guard(ctx, tag);
+            Context::PathGuard guard(ctx, tag);
             ctx.addError("Variant alternative missing name().");
             return;
         }
@@ -1748,7 +1745,7 @@ public:
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            PathGuard guard(ctx, field.name);
+            Context::PathGuard guard(ctx, field.name);
             Json::Value node;
             field.encode(src, node, ctx, field.accessor.get());
             if (!getSchemaStrictOptional<Schema>() && field.isOptional && node.isNull()) {
@@ -1765,7 +1762,7 @@ public:
             const auto& key = field.name;
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
-                    PathGuard guard(ctx, key);
+                    Context::PathGuard guard(ctx, key);
                     field.decode(Json::nullValue, dst, ctx, field.accessor.get());
                     continue;
                 }
@@ -1773,7 +1770,7 @@ public:
                 continue;
             }
             const Json::Value& node = src[key];
-            PathGuard guard(ctx, key);
+            Context::PathGuard guard(ctx, key);
             field.decode(node, dst, ctx, field.accessor.get());
         }
     }
