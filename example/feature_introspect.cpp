@@ -2,40 +2,12 @@
 
 #include <cstdint>
 #include <iostream>
-#include <optional>
 #include <string>
-#include <variant>
-#include <vector>
 
-// Minimal demo types ---------------------------------------------------------
+#include "types.h"
 
-enum class Flavor { kVanilla, kChocolate };
-
-struct Topping {
-    std::string name;
-    bool crunchy = false;
-};
-
-struct Cone {
-    int scoops = 1;
-    Flavor flavor = Flavor::kVanilla;
-    std::vector<Topping> toppings;
-};
-
-struct Cup {
-    bool sprinkles = false;
-    std::optional<Topping> drizzle;
-};
-
-using Dessert = std::variant<Cone, Cup>;
-
-struct Order {
-    std::string customer;
-    std::optional<Dessert> dessert;
-    std::vector<Topping> extras;
-};
-
-// Schema ---------------------------------------------------------------------
+namespace example {
+namespace {
 
 struct DemoSchema : aison::Schema<DemoSchema> {
     static constexpr bool enableIntrospection = true;
@@ -94,43 +66,40 @@ struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
     }
 };
 
-// Introspection demo ---------------------------------------------------------
+//
 
-using aison::TypeClass;
-using aison::TypeInfo;
-
-std::string renderType(const TypeInfo* info)
+std::string renderType(const aison::TypeInfo* info)
 {
     if (!info) return "unknown";
     switch (info->cls) {
-        case TypeClass::Bool:
+        case aison::TypeClass::Bool:
             return "bool";
-        case TypeClass::Integral: {
+        case aison::TypeClass::Integral: {
             auto size = static_cast<int>(info->data.integral.size);
             return (info->data.integral.isSigned ? "int" : "uint") + std::to_string(size * 8);
         }
-        case TypeClass::Floating: {
+        case aison::TypeClass::Floating: {
             auto size = info->data.floating.size;
             if (size == 4) return "float";
             if (size == 8) return "double";
             return "float" + std::to_string(size);
         }
-        case TypeClass::String:
+        case aison::TypeClass::String:
             return "string";
-        case TypeClass::Enum:
+        case aison::TypeClass::Enum:
             return "enum(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
                    ")";
-        case TypeClass::Object:
+        case aison::TypeClass::Object:
             return "object(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
-        case TypeClass::Custom:
+        case aison::TypeClass::Custom:
             return "custom(typeId=" +
                    std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
-        case TypeClass::Optional:
+        case aison::TypeClass::Optional:
             return "optional<" + renderType(info->data.optional.type) + ">";
-        case TypeClass::Vector:
+        case aison::TypeClass::Vector:
             return "vector<" + renderType(info->data.vector.type) + ">";
-        case TypeClass::Variant: {
+        case aison::TypeClass::Variant: {
             std::string out = "variant<";
             for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                 if (i) out += " | ";
@@ -173,7 +142,9 @@ void dump(const aison::Introspection<Schema>& isp)
     }
 }
 
-int main()
+}  // namespace
+
+void introspectExample1()
 {
     Cone cone;
     Json::Value root;
@@ -191,5 +162,6 @@ int main()
 #endif
 
     dump(isp);
-    return 0;
 }
+
+}  // namespace example
