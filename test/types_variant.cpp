@@ -8,7 +8,7 @@
 
 namespace {
 
-// --- Schema with default discriminator key ---
+// --- Schema with discriminator key "kind" ---
 
 struct ShapeA {
     double x = 0.0;
@@ -25,8 +25,7 @@ struct SceneA {
     std::vector<ShapeVariantA> shapes;
 };
 
-struct SchemaDefaultKey : aison::Schema<SchemaDefaultKey> {
-    static constexpr std::string_view discriminatorKey = "kind";
+struct SchemaKindKey : aison::Schema<SchemaKindKey> {
     template<typename T>
     struct Object;
     template<typename T>
@@ -34,16 +33,16 @@ struct SchemaDefaultKey : aison::Schema<SchemaDefaultKey> {
 };
 
 template<>
-struct SchemaDefaultKey::Variant<ShapeVariantA> : aison::Variant<SchemaDefaultKey, ShapeVariantA> {
+struct SchemaKindKey::Variant<ShapeVariantA> : aison::Variant<SchemaKindKey, ShapeVariantA> {
     Variant()
     {
         name("ShapeVariantA");
-        // uses schema default discriminator key "kind"
+        discriminator("kind");
     }
 };
 
 template<>
-struct SchemaDefaultKey::Object<ShapeA> : aison::Object<SchemaDefaultKey, ShapeA> {
+struct SchemaKindKey::Object<ShapeA> : aison::Object<SchemaKindKey, ShapeA> {
     Object()
     {
         name("shapeA");
@@ -53,7 +52,7 @@ struct SchemaDefaultKey::Object<ShapeA> : aison::Object<SchemaDefaultKey, ShapeA
 };
 
 template<>
-struct SchemaDefaultKey::Object<ShapeB> : aison::Object<SchemaDefaultKey, ShapeB> {
+struct SchemaKindKey::Object<ShapeB> : aison::Object<SchemaKindKey, ShapeB> {
     Object()
     {
         name("shapeB");
@@ -62,11 +61,11 @@ struct SchemaDefaultKey::Object<ShapeB> : aison::Object<SchemaDefaultKey, ShapeB
 };
 
 template<>
-struct SchemaDefaultKey::Object<SceneA> : aison::Object<SchemaDefaultKey, SceneA> {
+struct SchemaKindKey::Object<SceneA> : aison::Object<SchemaKindKey, SceneA> {
     Object() { add(&SceneA::shapes, "shapes"); }
 };
 
-// --- Schema without default key (explicit per-type key required) ---
+// --- Schema with per-type discriminator key ---
 
 struct Rect {
     double w = 0.0;
@@ -135,7 +134,7 @@ struct SchemaExplicitKey::Object<SceneB> : aison::Object<SchemaExplicitKey, Scen
 
 TEST_SUITE("Variant types")
 {
-    TEST_CASE("Round-trip with schema default discriminator key")
+    TEST_CASE("Round-trip with discriminator key \"kind\"")
     {
         SceneA in;
         ShapeA a;
@@ -147,7 +146,7 @@ TEST_SUITE("Variant types")
         in.shapes.push_back(b);
 
         Json::Value json;
-        auto enc = aison::encode<SchemaDefaultKey>(in, json);
+        auto enc = aison::encode<SchemaKindKey>(in, json);
         REQUIRE(enc);
         REQUIRE(enc.errors.empty());
 
@@ -156,7 +155,7 @@ TEST_SUITE("Variant types")
         CHECK(json["shapes"][1U]["kind"].asString() == "shapeB");
 
         SceneA out;
-        auto dec = aison::decode<SchemaDefaultKey>(json, out);
+        auto dec = aison::decode<SchemaKindKey>(json, out);
         REQUIRE(dec);
         REQUIRE(dec.errors.empty());
         REQUIRE(out.shapes.size() == 2U);
@@ -170,7 +169,7 @@ TEST_SUITE("Variant types")
         CHECK(outB->radius == doctest::Approx(b.radius));
     }
 
-    TEST_CASE("Round-trip with explicit per-type discriminator key")
+    TEST_CASE("Round-trip with discriminator key \"type\"")
     {
         SceneB in;
         Rect r;

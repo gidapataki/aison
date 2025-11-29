@@ -35,7 +35,6 @@ struct Doc {
 };
 
 struct ErrorSchema : aison::Schema<ErrorSchema> {
-    static constexpr std::string_view discriminatorKey = "kind";
     template<typename T>
     struct Object;
     template<typename T>
@@ -67,7 +66,7 @@ struct ErrorSchema::Variant<Shape> : aison::Variant<ErrorSchema, Shape> {
     Variant()
     {
         name("Shape");
-        // uses schema default discriminator key "kind"
+        discriminator("kind");
     }
 };
 

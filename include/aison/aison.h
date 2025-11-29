@@ -109,6 +109,9 @@ struct IsOptional;
 template<typename T>
 struct IsVector;
 
+template<typename T>
+struct IsVariant;
+
 template<typename Schema, typename T, typename = void>
 struct HasEnumTag;
 
@@ -123,12 +126,6 @@ struct HasEncoderTag;
 
 template<typename Schema, typename T, typename = void>
 struct HasDecoderTag;
-
-template<typename Schema, typename = void>
-struct HasSchemaDiscriminatorKey;
-
-template<typename Schema, typename = void>
-struct SchemaDiscriminatorKey;
 
 template<typename Schema, typename = void>
 struct HasSchemaEnableAssert;
@@ -186,9 +183,6 @@ template<typename T>
 T& getSchemaVariant();
 
 template<typename Schema>
-std::string_view getSchemaDiscriminatorKey();
-
-template<typename Schema>
 constexpr bool getSchemaEnableAssert();
 
 template<typename Schema>
@@ -244,7 +238,6 @@ struct DecodeOnly {};
 struct EncodeDecode {};
 
 struct SchemaDefaults {
-    static constexpr auto discriminatorKey = "";
     static constexpr auto enableAssert = true;
     static constexpr auto strictOptional = true;
     static constexpr auto enableIntrospection = false;
@@ -275,7 +268,6 @@ enum class TypeClass {
     Optional,  //< Inner type available via typeInfo.data.element
     Vector,    //< Inner type available via typeInfo.data.element
     Variant,   //< Inner type available via typeInfo.data.variant
-    Other,
 };
 
 struct TypeInfo {
@@ -372,9 +364,6 @@ struct FieldInfo {
 struct ObjectInfo {
     std::vector<FieldInfo> fields;
     std::string name;
-    std::string discriminatorKey;
-    std::string discriminatorTag;
-    bool hasDiscriminator = false;
 };
 
 struct EnumInfo {
@@ -611,8 +600,8 @@ void registerVariantAlternative()
         const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
         VariantAlternativeInfo info;
         info.type = &makeTypeInfo<Schema, Alt>();
-        if (objectDef.hasVariantTag()) {
-            info.tag = objectDef.variantTag();
+        if (objectDef.hasName()) {
+            info.tag = objectDef.name();
         }
         getIntrospectionRegistry<Schema>().addVariantAlternative(
             getTypeId<Variant>(), std::move(info));
@@ -776,17 +765,6 @@ public:
         }
         auto& entry = objects_[typeId];
         entry.name = std::move(name);
-    }
-
-    void setObjectDiscriminator(TypeId typeId, std::string key, std::string tag)
-    {
-        if (!getSchemaEnableIntrospection<Schema>()) {
-            return;
-        }
-        auto& entry = objects_[typeId];
-        entry.discriminatorKey = std::move(key);
-        entry.discriminatorTag = std::move(tag);
-        entry.hasDiscriminator = true;
     }
 
     void addEnumName(TypeId typeId, std::string_view name)
@@ -974,7 +952,7 @@ public:
 
 private:
     std::string name_;
-    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
+    std::string discriminatorKey_;
     bool hasName_ = false;
     bool hasExplicitKey_ = false;
 };
@@ -1050,8 +1028,7 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
         }
 
         bool missingTag = false;
-        ((missingTag = missingTag ||
-                       !getSchemaObject<typename Schema::template Object<Ts>>().hasVariantTag()),
+        ((missingTag = missingTag || !getSchemaObject<typename Schema::template Object<Ts>>().hasName()),
          ...);
 
         if (missingTag) {
@@ -1098,40 +1075,6 @@ T& getSchemaVariant()
 //         "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
 //     return getSchemaObject<VariantSpec>();
 // }
-
-// DiscriminatorKey
-
-template<typename Schema, typename>
-struct HasSchemaDiscriminatorKey : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaDiscriminatorKey<Schema, std::void_t<decltype(Schema::discriminatorKey)>>
-    : std::true_type {};
-
-template<typename Schema, typename>
-struct SchemaDiscriminatorKey {
-    static std::string_view get() { return SchemaDefaults::discriminatorKey; }
-};
-
-template<typename Schema>
-struct SchemaDiscriminatorKey<Schema, std::enable_if_t<HasSchemaDiscriminatorKey<Schema>::value>> {
-    static std::string_view get()
-    {
-        using KeyType = std::decay_t<decltype(Schema::discriminatorKey)>;
-
-        static_assert(
-            std::is_same_v<KeyType, const char*> || std::is_same_v<KeyType, std::string_view>,
-            "Schema::discriminatorKey must be const either `char*` or `std::string_view`.");
-
-        return std::string_view(Schema::discriminatorKey);
-    }
-};
-
-template<typename Schema>
-std::string_view getSchemaDiscriminatorKey()
-{
-    return SchemaDiscriminatorKey<Schema>::get();
-}
 
 // EnableAssert
 
@@ -1713,14 +1656,6 @@ public:
     template<typename T>
     void add(T Owner::* member, std::string_view name)
     {
-        // Check if name is used as discriminator key
-        if (!discriminatorKey_.empty() && discriminatorKey_ == name) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Field name is reserved as discriminator for this type.");
-            }
-            return;
-        }
-
         // Check if member or name is already mapped
         auto accessorId = getFieldAccessorId<Owner, T>();
         for (const auto& field : fields_) {
@@ -1762,53 +1697,7 @@ public:
             fi.type = &makeTypeInfo<Schema, T>();
             getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
             ensureTypeRegistration<Schema, Owner, T>();
-            if (hasDiscriminatorTag_) {
-                getIntrospectionRegistry<Schema>().setObjectDiscriminator(
-                    detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
-            }
         }
-    }
-
-    void discriminator(std::string_view tag, std::string_view key)
-    {
-        if (tag.empty()) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Discriminator tag cannot be empty.");
-            }
-            return;
-        }
-        if (key.empty()) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "Discriminator key cannot be empty.");
-            }
-            return;
-        }
-        if (!checkDiscriminatorKey(key)) {
-            return;
-        }
-        if (hasDiscriminatorTag_) {
-            if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(false && "discriminator(...) already set for this object.");
-            }
-            return;
-        }
-
-        hasDiscriminatorTag_ = true;
-        discriminatorKey_ = std::string(key);
-        discriminatorTag_ = std::string(tag);
-        if constexpr (detail::getSchemaEnableIntrospection<Schema>()) {
-            getIntrospectionRegistry<Schema>().setObjectDiscriminator(
-                detail::getTypeId<Owner>(), discriminatorKey_, discriminatorTag_);
-        }
-    }
-
-    template<
-        typename S = Schema,
-        typename =
-            std::enable_if_t<HasSchemaDiscriminatorKey<S>::value && std::is_same_v<S, Schema>>>
-    void discriminator(std::string_view tag)
-    {
-        discriminator(tag, getSchemaDiscriminatorKey<Schema>());
     }
 
     template<typename S = Schema, typename = std::enable_if_t<hasEncodeFacet<S>()>>
@@ -1846,34 +1735,15 @@ public:
         }
     }
 
-    const std::string& discriminatorTag() const { return discriminatorTag_; }
-    const std::string& discriminatorKey() const { return discriminatorKey_; }
-    bool hasDiscriminatorTag() const { return hasDiscriminatorTag_; }
     const std::string& name() const { return name_; }
     bool hasName() const { return hasName_; }
-    bool hasVariantTag() const { return hasName_ || hasDiscriminatorTag_; }
-    const std::string& variantTag() const { return hasName_ ? name_ : discriminatorTag_; }
+    bool hasVariantTag() const { return hasName_; }
+    const std::string& variantTag() const { return name_; }
     const std::vector<FieldDef>& fields() const { return fields_; }
 
 private:
-    bool checkDiscriminatorKey(std::string_view key)
-    {
-        for (const auto& field : fields_) {
-            if (field.name == key) {
-                if constexpr (getSchemaEnableAssert<Schema>()) {
-                    assert(false && "Discriminator key conflicts with an existing field name.");
-                }
-                return false;
-            }
-        }
-        return true;
-    }
-
     std::vector<FieldDef> fields_;
     std::string name_;
-    std::string discriminatorTag_;
-    std::string discriminatorKey_ = std::string(getSchemaDiscriminatorKey<Schema>());
-    bool hasDiscriminatorTag_ = false;
     bool hasName_ = false;
 };
 
@@ -2044,7 +1914,6 @@ struct Object : detail::ObjectImpl<Schema, Owner> {
     using Impl = detail::ObjectImpl<Schema, Owner>;
 
     using Impl::add;
-    using Impl::discriminator;
     using Impl::name;
 };
 

@@ -278,23 +278,8 @@ Aison supports discriminated variants.
 ### 6.1 Discriminator key
 
 Define a `Schema::Variant` mapping for every `std::variant` you want to encode/decode. The
-`Variant` mapping sets the discriminator key (and optional name for introspection):
-
-- **Schema-level default (optional):**
-
-  ```cpp
-  struct ShapeSchema : aison::Schema<ShapeSchema> {
-      static constexpr auto discriminatorKey = "__type__";
-      template<typename T> struct Object;
-      template<typename Variant> struct Variant;
-  };
-  ```
-
-- **Per-variant override:** `Variant::discriminator(key)` overrides the schema default for that
-  variant (required when the schema has no default).
-
-If the schema declares `discriminatorKey`, you can omit `Variant::discriminator(...)` to use the
-schema default.
+`Variant` mapping sets the discriminator key (and optional name for introspection). Call
+`Variant::discriminator(key)` with a **non-empty** key for every mapped variant.
 
 Keys must be **non-empty**.
 

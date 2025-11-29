@@ -144,10 +144,6 @@ void dump(const aison::Introspection<Schema>& isp)
         if (!obj.name.empty()) {
             std::cout << " name: " << obj.name << "\n";
         }
-        if (obj.hasDiscriminator) {
-            std::cout << " discriminator: key=\"" << obj.discriminatorKey << "\" tag=\""
-                      << obj.discriminatorTag << "\"\n";
-        }
         for (const auto& f : obj.fields) {
             std::cout << " - " << f.name << ": " << renderType(f.type) << "\n";
         }
