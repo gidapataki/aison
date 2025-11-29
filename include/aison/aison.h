@@ -55,7 +55,7 @@ struct FieldInfo;
 struct ObjectInfo;
 struct EnumInfo;
 
-template<typename Schema, typename = void>
+template<typename Schema>
 class Introspection;
 
 }  // namespace aison
@@ -93,7 +93,7 @@ struct FieldAccessor;
 template<typename Schema>
 class IntrospectionRegistry;
 
-template<typename Schema, typename = void>
+template<typename Schema>
 class IntrospectionImpl;
 
 // Traits
@@ -1574,9 +1574,17 @@ private:
 };
 
 template<typename Schema>
-class IntrospectionImpl<Schema, std::enable_if_t<getSchemaEnableIntrospection<Schema>()>>
+class IntrospectionImpl
 {
 public:
+    IntrospectionImpl()
+    {
+        static_assert(
+            detail::getSchemaEnableIntrospection<Schema>(),
+            "Introspection is disabled for this schema. Set `static constexpr bool "
+            "enableIntrospection = true;` in your Schema to use Introspection.");
+    }
+
     template<typename T>
     void add()
     {
@@ -1688,18 +1696,19 @@ namespace aison {
 template<typename Schema, typename Owner>
 struct Object : detail::ObjectImpl<Schema, Owner> {
     using ObjectTag = void;
-    using Base = detail::ObjectImpl<Schema, Owner>;
+    using Impl = detail::ObjectImpl<Schema, Owner>;
 
-    using Base::add;
-    using Base::discriminator;
+    using Impl::add;
+    using Impl::discriminator;
 };
 
 template<typename Schema, typename E>
 struct Enum : detail::EnumImpl<Schema, E> {
     using EnumTag = void;
-    using Base = detail::EnumImpl<Schema, E>;
+    using Impl = detail::EnumImpl<Schema, E>;
+    using Base = Enum;
 
-    using Base::add;
+    using Impl::add;
 };
 
 // Encoder / Decoder bases ///////////////////////////////////////////////////////////////
@@ -1708,7 +1717,7 @@ template<typename Schema, typename T>
 struct Encoder {
 public:
     using EncoderTag = void;
-    using EncoderType = aison::detail::EncoderImpl<Schema>;
+    using EncoderType = detail::EncoderImpl<Schema>;
 
     Encoder() = default;
     void setEncoder(EncoderType& enc) { encoder_ = &enc; }
@@ -1730,7 +1739,7 @@ template<typename Schema, typename T>
 struct Decoder {
 public:
     using DecoderTag = void;
-    using DecoderType = aison::detail::DecoderImpl<Schema>;
+    using DecoderType = detail::DecoderImpl<Schema>;
 
     Decoder() = default;
 
@@ -1750,12 +1759,8 @@ private:
 
 // Introspection ///////////////////////////////////////////////////////////////////////////
 
-template<typename Schema, typename>
-class Introspection
-{};
-
 template<typename Schema>
-class Introspection<Schema, std::enable_if_t<detail::getSchemaEnableIntrospection<Schema>()>>
+class Introspection
 {
 public:
     template<typename T>
@@ -1818,10 +1823,6 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
 template<typename Schema>
 Introspection<Schema> introspect()
 {
-    static_assert(
-        detail::getSchemaEnableIntrospection<Schema>(),
-        "Introspection is disabled for this schema. Set `static constexpr bool "
-        "enableIntrospection = true;` in your Schema to use Introspection.");
     return Introspection<Schema>{};
 }
 
