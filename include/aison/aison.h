@@ -10,7 +10,6 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -39,14 +38,14 @@ struct Variant;
 template<typename Schema, typename T>
 struct Enum;
 
-template<typename Derived, typename FacetTag, typename Config>
-struct Schema;
-
 template<typename Schema, typename T>
 struct Encoder;
 
 template<typename Schema, typename T>
 struct Decoder;
+
+template<typename Derived, typename FacetTag, typename Config>
+struct Schema;
 
 // Introspection types
 
@@ -57,6 +56,8 @@ struct TypeInfo;
 struct FieldInfo;
 struct ObjectInfo;
 struct EnumInfo;
+struct VariantAlternativeInfo;
+struct VariantInfo;
 
 template<typename Schema>
 class Introspection;
@@ -581,8 +582,9 @@ void registerObjectMapping()
         const auto& obj = getSchemaObject<typename Schema::template Object<T>>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(obj.hasName() &&
-                       "Schema::Object<T>::name(...) is required when introspection is enabled.");
+                assert(
+                    obj.hasName() &&
+                    "Schema::Object<T>::name(...) is required when introspection is enabled.");
             }
             if (obj.hasName()) {
                 setTypeName<Schema, T>(obj.name());
@@ -622,8 +624,9 @@ void registerVariantMapping()
             auto& reg = getIntrospectionRegistry<Schema>();
             const auto& def = getSchemaVariant<typename Schema::template Variant<T>>();
             if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(def.hasName() &&
-                       "Schema::Variant<V>::name(...) is required when introspection is enabled.");
+                assert(
+                    def.hasName() &&
+                    "Schema::Variant<V>::name(...) is required when introspection is enabled.");
             }
             if (def.hasName()) {
                 reg.setVariantName(getTypeId<T>(), def.name());
@@ -643,8 +646,9 @@ void registerEnumMapping()
         const auto& enumDef = getSchemaObject<typename Schema::template Enum<E>>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
-                assert(enumDef.hasName() &&
-                       "Schema::Enum<E>::name(...) is required when introspection is enabled.");
+                assert(
+                    enumDef.hasName() &&
+                    "Schema::Enum<E>::name(...) is required when introspection is enabled.");
             }
             if (enumDef.hasName()) {
                 getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), enumDef.name());
@@ -691,8 +695,7 @@ TypeInfo& makeTypeInfo()
             TypeInfo::optional<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVector<T>::value) {
-        static TypeInfo info =
-            TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
+        static TypeInfo info = TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVariant<T>::value) {
         validateVariant<Schema, T>();
@@ -1028,7 +1031,8 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
         }
 
         bool missingTag = false;
-        ((missingTag = missingTag || !getSchemaObject<typename Schema::template Object<Ts>>().hasName()),
+        ((missingTag =
+              missingTag || !getSchemaObject<typename Schema::template Object<Ts>>().hasName()),
          ...);
 
         if (missingTag) {
@@ -1940,7 +1944,6 @@ struct Variant : detail::VariantImpl<Schema, T> {
 
 template<typename Schema, typename T>
 struct Encoder {
-public:
     using EncoderTag = void;
     using EncoderType = detail::EncoderImpl<Schema>;
 
@@ -1962,7 +1965,6 @@ private:
 
 template<typename Schema, typename T>
 struct Decoder {
-public:
     using DecoderTag = void;
     using DecoderType = detail::DecoderImpl<Schema>;
 

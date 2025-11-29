@@ -8,12 +8,11 @@
 - CMake outputs go to `build/` by default. Use a separate directory per build type to keep artifacts isolated.
 
 ## Build, Test, and Development Commands
-- Recommended helper: `./pls gen -B build -t Debug` to configure with CMake (default generator: Ninja).
-- Build everything: `./pls make -B build`. Build a target (e.g., the example binary): `./pls make -B build example`.
-- Run example after building: `./pls run -B build example`.
-- Run tests with ctest: `./pls test -B build` (adds `--output-on-failure` automatically). Label filtering: `./pls test -B build -L fast`.
-- Direct CMake alternative: `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build && ctest --output-on-failure --test-dir build`.
-- Sanitizers are opt-in: append `-D AISON_ENABLE_ASAN=ON` (or `..._UBSAN`, `..._LSAN` on Linux) to the configure step.
+- Recommended helper: `cmake -S . -G Ninja -B build -DCMAKE_BUILD_TYPE=Debug` to configure with CMake (default generator: Ninja).
+- Build everything: `cmake --build build`. Build a target (e.g., the example binary): `cmake --build build -t example`.
+- Run tests with ctest: `ctest --test-dir build --output-on-failure`.
+- Full build: `cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug && cmake --build build && ctest --output-on-failure --test-dir build`.
+- Sanitizers are opt-in: append for `-DAISON_ENABLE_ASAN=ON` (or `..._UBSAN`, `..._LSAN` on Linux) to the configure step.
 
 ## Coding Style & Naming Conventions
 - Format with `.clang-format` (Google base, 4-space indent, left-aligned pointers, 100-col limit, brace wrapping on classes/functions). Apply via `clang-format -i path/to/file.cc`.
