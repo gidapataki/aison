@@ -66,7 +66,6 @@ namespace aison::detail {
 class Context;
 struct PathSegment;
 struct PathGuard;
-struct EnumBase;
 
 using FieldAccessorDeleter = void (*)(void*);
 using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
@@ -172,7 +171,7 @@ template<typename Owner, typename T>
 FieldAccessorStorage makeFieldAccessor(T Owner::* member);
 
 template<typename T>
-T& getSchemaObject();
+T& getInstance();
 
 template<typename Schema>
 constexpr bool getSchemaEnableAssert();
@@ -597,7 +596,7 @@ template<typename Schema, typename T>
 void registerObjectMapping()
 {
     if constexpr (HasObjectTag<Schema, T>::value) {
-        const auto& obj = getSchemaObject<typename Schema::template Object<T>>();
+        const auto& obj = getInstance<typename Schema::template Object<T>>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
@@ -617,7 +616,7 @@ void registerVariantAlternative()
 {
     if constexpr (getSchemaEnableIntrospection<Schema>()) {
         using Alt = std::variant_alternative_t<Index, Variant>;
-        const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
+        const auto& objectDef = getInstance<typename Schema::template Object<Alt>>();
         AlternativeInfo info;
         info.type = &makeTypeInfo<Schema, Alt>();
         if (objectDef.hasName()) {
@@ -640,7 +639,7 @@ void registerVariantMapping()
     if constexpr (HasVariantTag<Schema, T>::value) {
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             auto& reg = getIntrospectionRegistry<Schema>();
-            const auto& def = getSchemaObject<typename Schema::template Variant<T>>();
+            const auto& def = getInstance<typename Schema::template Variant<T>>();
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
                     def.hasName() &&
@@ -661,7 +660,7 @@ template<typename Schema, typename E>
 void registerEnumMapping()
 {
     if constexpr (HasEnumTag<Schema, E>::value) {
-        const auto& enumDef = getSchemaObject<typename Schema::template Enum<E>>();
+        const auto& enumDef = getInstance<typename Schema::template Enum<E>>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
@@ -680,7 +679,7 @@ template<typename Schema, typename T>
 void registerCustomMapping()
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
-        const auto& custom = getSchemaObject<typename Schema::template Custom<T>>();
+        const auto& custom = getInstance<typename Schema::template Custom<T>>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
@@ -875,10 +874,8 @@ IntrospectionRegistry<Schema>& getIntrospectionRegistry()
 
 // Enum impl + validation //////////////////////////////////////////////////////////////////
 
-struct EnumBase {};
-
 template<typename Schema, typename E>
-class EnumImpl : public EnumBase
+class EnumImpl
 {
 public:
     using Entry = std::pair<E, std::string>;
@@ -937,13 +934,6 @@ template<typename Schema, typename Variant>
 class VariantImpl
 {
 public:
-    VariantImpl()
-    {
-        static_assert(
-            IsVariant<Variant>::value,
-            "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
-    }
-
     void name(std::string_view value)
     {
         if (value.empty()) {
@@ -1003,13 +993,16 @@ constexpr void validateEnumType()
         "No schema enum mapping for this type. "
         "Define `template<> struct Schema::Enum<T> : aison::Enum<Schema, T>` and "
         "list all enum values.");
+}
 
-    if constexpr (HasEnumTag<Schema, T>::value) {
-        using EnumDef = typename Schema::template Enum<T>;
-        static_assert(
-            std::is_base_of_v<EnumBase, EnumDef>,
-            "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
-    }
+template<typename Schema, typename T>
+constexpr void validateObjectType()
+{
+    static_assert(
+        HasObjectTag<Schema, T>::value,
+        "Type is not mapped as an object. Either define "
+        "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
+        "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
 }
 
 // Variant validation //////////////////////////////////////////////////////////////////////
@@ -1033,6 +1026,12 @@ struct VariantAltCheck {
             "std::variant alternative is not mapped as an object. "
             "Define `template<> struct Schema::Object<T> : aison::Object<Schema, T>` "
             "for each variant alternative.");
+        if constexpr (HasObjectTag<Schema, T>::value) {
+            using ObjectSpec = typename Schema::template Object<T>;
+            static_assert(
+                std::is_base_of_v<Object<Schema, T>, ObjectSpec>,
+                "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+        }
     }
 };
 
@@ -1046,7 +1045,7 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
             "Define `template<> struct Schema::Variant<V> : aison::Variant<Schema, V>`.");
         using VariantSpec = typename Schema::template Variant<std::variant<Ts...>>;
         static_assert(
-            std::is_base_of_v<VariantImpl<Schema, std::variant<Ts...>>, VariantSpec>,
+            std::is_base_of_v<Variant<Schema, std::variant<Ts...>>, VariantSpec>,
             "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
         static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
         // Each alternative must have an object mapping.
@@ -1059,7 +1058,7 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
     static bool validate(Context& ctx)
     {
         using VariantType = std::variant<Ts...>;
-        const auto& variantDef = getSchemaObject<typename Schema::template Variant<VariantType>>();
+        const auto& variantDef = getInstance<typename Schema::template Variant<VariantType>>();
         // TODO: this is not needed here
 
         if (variantDef.discriminator().empty()) {
@@ -1069,7 +1068,7 @@ struct VariantKeyValidator<Schema, Context, std::variant<Ts...>, void> {
 
         bool missingTag = false;
         ((missingTag =
-              missingTag || !getSchemaObject<typename Schema::template Object<Ts>>().hasName()),
+              missingTag || !getInstance<typename Schema::template Object<Ts>>().hasName()),
          ...);
 
         if (missingTag) {
@@ -1090,7 +1089,7 @@ constexpr void validateVariant()
 }
 
 template<typename T>
-T& getSchemaObject()
+T& getInstance()
 {
     static T instance{};
     return instance;
@@ -1188,6 +1187,15 @@ constexpr bool getSchemaEnableIntrospection()
     return SchemaEnableIntrospection<Schema>::get();
 }
 
+template<typename Schema>
+constexpr void validateSchemaBase()
+{
+    using Base = aison::Schema<Schema, typename Schema::FacetType, typename Schema::ConfigType>;
+    static_assert(
+        std::is_base_of_v<Base, Schema>,
+        "Schema must inherit from aison::Schema<Derived, Facet, Config>.");
+}
+
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
 
 template<typename Schema>
@@ -1199,6 +1207,7 @@ public:
     EncodeContext(const Config& cfg)
         : config_(cfg)
     {
+        validateSchemaBase<Schema>();
         using Facet = typename Schema::FacetType;
         static_assert(
             hasEncodeFacet<Schema>(),
@@ -1226,6 +1235,7 @@ public:
     DecodeContext(const Config& cfg)
         : config_(cfg)
     {
+        validateSchemaBase<Schema>();
         using Facet = typename Schema::FacetType;
         static_assert(
             hasDecodeFacet<Schema>(),
@@ -1257,7 +1267,7 @@ void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
         static_assert(
             HasCustomEncode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
-        auto& custom = getSchemaObject<CustomSpec>();
+        auto& custom = getInstance<CustomSpec>();
         custom.encode(value, dst, ctx);
     } else {
         encodeDefault<Schema, T>(value, dst, ctx);
@@ -1275,7 +1285,7 @@ void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
         static_assert(
             HasCustomDecode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
-        auto& custom = getSchemaObject<CustomSpec>();
+        auto& custom = getInstance<CustomSpec>();
         custom.decode(src, value, ctx);
     } else {
         decodeDefault<Schema, T>(src, value, ctx);
@@ -1309,7 +1319,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
         validateEnumType<Schema, T>();
 
         using EnumSpec = typename Schema::template Enum<T>;
-        const auto& entries = getSchemaObject<EnumSpec>().entries();
+        const auto& entries = getInstance<EnumSpec>().entries();
         for (const auto& entry : entries) {
             if (entry.first == value) {
                 dst = Json::Value(std::string(entry.second));
@@ -1332,13 +1342,13 @@ void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
         if (!VariantKeyValidator<Schema, EncodeContext<Schema>, T>::validate(ctx)) {
             return;
         }
-        const auto& variantDef = getSchemaObject<typename Schema::template Variant<T>>();
+        const auto& variantDef = getInstance<typename Schema::template Variant<T>>();
         dst = Json::objectValue;
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
 
-                const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
+                const auto& objectDef = getInstance<typename Schema::template Object<Alt>>();
                 if (!objectDef.hasVariantTag()) {
                     PathGuard guard(ctx, variantDef.discriminator());
                     ctx.addError("Variant alternative missing name().");
@@ -1368,12 +1378,8 @@ void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
             dst.append(v);
         }
     } else if constexpr (std::is_class_v<T>) {
-        static_assert(
-            HasObjectTag<Schema, T>::value,
-            "Type is not mapped as an object. Either define "
-            "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
-            "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
-        const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
+        validateObjectType<Schema, T>();
+        const auto& objectDef = getInstance<typename Schema::template Object<T>>();
         objectDef.encodeFields(value, dst, ctx);
     } else if constexpr (std::is_pointer_v<T>) {
         static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
@@ -1442,7 +1448,7 @@ void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
         }
         const std::string s = src.asString();
         using EnumSpec = typename Schema::template Enum<T>;
-        const auto& entries = getSchemaObject<EnumSpec>().entries();
+        const auto& entries = getInstance<EnumSpec>().entries();
         for (const auto& entry : entries) {
             if (s == entry.second) {
                 value = entry.first;
@@ -1477,17 +1483,13 @@ void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
             value.push_back(std::move(elem));
         }
     } else if constexpr (std::is_class_v<T>) {
-        static_assert(
-            HasObjectTag<Schema, T>::value,
-            "Type is not mapped as an object. Either define "
-            "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
-            "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
+        validateObjectType<Schema, T>();
         if (!src.isObject()) {
             ctx.addError("Expected object.");
             return;
         }
 
-        const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
+        const auto& objectDef = getInstance<typename Schema::template Object<T>>();
         objectDef.decodeFields(src, value, ctx);
     } else if constexpr (std::is_pointer_v<T>) {
         static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
@@ -1512,7 +1514,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             return;
         }
 
-        const auto& variantDef = getSchemaObject<typename Schema::template Variant<VariantType>>();
+        const auto& variantDef = getInstance<typename Schema::template Variant<VariantType>>();
         const auto& fieldName = variantDef.discriminator();
         if (!VariantKeyValidator<Schema, DecodeContext<Schema>, std::variant<Ts...>>::validate(ctx))
         {
@@ -1557,7 +1559,7 @@ private:
         bool& matched)
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
-        const auto& objectDef = getSchemaObject<ObjectSpec>();
+        const auto& objectDef = getInstance<ObjectSpec>();
         if (!objectDef.hasVariantTag()) {
             PathGuard guard(ctx, discriminatorKey);
             ctx.addError("Variant alternative missing name().");
@@ -1937,25 +1939,39 @@ private:
 
 namespace aison {
 
-// Object / Enum bases ///////////////////////////////////////////////////////////////////
+// Object / Enum / Variant / Custom  ///////////////////////////////////////////////////////////
 
-template<typename Schema, typename Owner>
-struct Object : detail::ObjectImpl<Schema, Owner> {
+template<typename Schema, typename T>
+struct Object : detail::ObjectImpl<Schema, T> {
     using ObjectTag = void;
-    using Impl = detail::ObjectImpl<Schema, Owner>;
+    using Impl = detail::ObjectImpl<Schema, T>;
 
     using Impl::add;
     using Impl::name;
+
+    Object()
+    {
+        static_assert(
+            std::is_base_of_v<Object, typename Schema::template Object<T>>,
+            "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+    }
 };
 
-template<typename Schema, typename E>
-struct Enum : detail::EnumImpl<Schema, E> {
+template<typename Schema, typename T>
+struct Enum : detail::EnumImpl<Schema, T> {
     using EnumTag = void;
-    using Impl = detail::EnumImpl<Schema, E>;
+    using Impl = detail::EnumImpl<Schema, T>;
     using Base = Enum;
 
     using Impl::add;
     using Impl::name;
+
+    Enum()
+    {
+        static_assert(
+            std::is_base_of_v<Enum, typename Schema::template Enum<T>>,
+            "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+    }
 };
 
 template<typename Schema, typename T>
@@ -1965,9 +1981,18 @@ struct Variant : detail::VariantImpl<Schema, T> {
 
     using Impl::discriminator;
     using Impl::name;
-};
 
-// Custom mapping base ///////////////////////////////////////////////////////////////////
+    Variant()
+    {
+        static_assert(
+            detail::IsVariant<T>::value,
+            "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
+
+        static_assert(
+            std::is_base_of_v<Variant, typename Schema::template Variant<T>>,
+            "Schema::Variant<T> must inherit from aison::Variant<Schema, T>.");
+    }
+};
 
 template<typename Schema, typename T>
 class Custom
@@ -1978,6 +2003,12 @@ public:
     using EncodeContext = detail::EncodeContext<Schema>;
     using DecodeContext = detail::DecodeContext<Schema>;
 
+    Custom()
+    {
+        static_assert(
+            std::is_base_of_v<Custom, typename Schema::template Custom<T>>,
+            "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
+    }
     void name(std::string_view value)
     {
         if (value.empty()) {
