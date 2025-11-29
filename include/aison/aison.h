@@ -170,11 +170,17 @@ FieldAccessorId getFieldAccessorId();
 template<typename Owner, typename T>
 FieldAccessorStorage makeFieldAccessor(T Owner::* member);
 
-template<typename T>
-T& getInstance();
-
 template<typename Schema, typename T>
 auto& getVariantDef();
+
+template<typename Schema, typename T>
+auto& getObjectDef();
+
+template<typename Schema, typename T>
+auto& getEnumDef();
+
+template<typename Schema, typename T>
+auto& getCustomDef();
 
 template<typename Schema>
 constexpr bool getSchemaEnableAssert();
@@ -599,7 +605,7 @@ template<typename Schema, typename T>
 void registerObjectMapping()
 {
     if constexpr (HasObjectTag<Schema, T>::value) {
-        const auto& obj = getInstance<typename Schema::template Object<T>>();
+        auto& obj = getObjectDef<Schema, T>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
@@ -619,11 +625,11 @@ void registerVariantAlternative()
 {
     if constexpr (getSchemaEnableIntrospection<Schema>()) {
         using Alt = std::variant_alternative_t<Index, Variant>;
-        const auto& objectDef = getInstance<typename Schema::template Object<Alt>>();
+        auto& obj = getObjectDef<Schema, Alt>();
         AlternativeInfo info;
         info.type = &makeTypeInfo<Schema, Alt>();
-        if (objectDef.hasName()) {
-            info.name = objectDef.name();
+        if (obj.hasName()) {
+            info.name = obj.name();
         }
         getIntrospectionRegistry<Schema>().addVariantAlternative(
             getTypeId<Variant>(), std::move(info));
@@ -642,17 +648,17 @@ void registerVariantMapping()
     if constexpr (HasVariantTag<Schema, T>::value) {
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             auto& reg = getIntrospectionRegistry<Schema>();
-            auto& def = getVariantDef<Schema, T>();
+            auto& var = getVariantDef<Schema, T>();
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
-                    def.hasName() &&
+                    var.hasName() &&
                     "Schema::Variant<V>::name(...) is required when introspection is enabled.");
             }
-            if (def.hasName()) {
-                reg.setVariantName(getTypeId<T>(), def.name());
-                setTypeName<Schema, T>(def.name());
+            if (var.hasName()) {
+                reg.setVariantName(getTypeId<T>(), var.name());
+                setTypeName<Schema, T>(var.name());
             }
-            reg.setVariantDiscriminator(getTypeId<T>(), def.discriminator());
+            reg.setVariantDiscriminator(getTypeId<T>(), var.discriminator());
             registerVariantAlternatives<Schema, T>(
                 std::make_index_sequence<std::variant_size_v<T>>{});
         }
@@ -663,16 +669,16 @@ template<typename Schema, typename E>
 void registerEnumMapping()
 {
     if constexpr (HasEnumTag<Schema, E>::value) {
-        const auto& enumDef = getInstance<typename Schema::template Enum<E>>();
+        auto& def = getEnumDef<Schema, E>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
-                    enumDef.hasName() &&
+                    def.hasName() &&
                     "Schema::Enum<E>::name(...) is required when introspection is enabled.");
             }
-            if (enumDef.hasName()) {
-                getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), enumDef.name());
-                setTypeName<Schema, E>(enumDef.name());
+            if (def.hasName()) {
+                getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), def.name());
+                setTypeName<Schema, E>(def.name());
             }
         }
     }
@@ -682,7 +688,7 @@ template<typename Schema, typename T>
 void registerCustomMapping()
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
-        const auto& custom = getInstance<typename Schema::template Custom<T>>();
+        auto& custom = getCustomDef<Schema, T>();
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             if constexpr (getSchemaEnableAssert<Schema>()) {
                 assert(
@@ -1001,8 +1007,7 @@ public:
     bool hasNamesInAlternatives() const
     {
         bool hasNames = true;
-        ((hasNames = hasNames && getInstance<typename Schema::template Object<Ts>>().hasName()),
-         ...);
+        ((hasNames = hasNames && getObjectDef<Schema, Ts>().hasName()), ...);
 
         return hasNames;
     }
@@ -1090,17 +1095,34 @@ constexpr void validateVariant()
     }
 }
 
-template<typename T>
-T& getInstance()
-{
-    static T instance{};
-    return instance;
-}
-
 template<typename Schema, typename T>
 auto& getVariantDef()
 {
     using Type = typename Schema::template Variant<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename T>
+auto& getObjectDef()
+{
+    using Type = typename Schema::template Object<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename T>
+auto& getEnumDef()
+{
+    using Type = typename Schema::template Enum<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename T>
+auto& getCustomDef()
+{
+    using Type = typename Schema::template Custom<T>;
     static Type instance{};
     return instance;
 }
@@ -1273,17 +1295,17 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         static_assert(
             HasCustomEncode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
-        auto& custom = getInstance<CustomSpec>();
+        auto& custom = getCustomDef<Schema, T>();
         custom.encode(src, dst, ctx);
 
     } else if constexpr (HasObjectTag<Schema, T>::value) {
-        const auto& obj = getInstance<typename Schema::template Object<T>>();
-        obj.encodeFields(src, dst, ctx);
+        const auto& def = getObjectDef<Schema, T>();
+        def.encodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
         using EnumSpec = typename Schema::template Enum<T>;
-        auto& obj = getInstance<EnumSpec>();
-        auto* str = obj.find(src);
+        auto& def = getEnumDef<Schema, T>();
+        auto* str = def.find(src);
         if (str) {
             dst = *str;
         } else {
@@ -1294,21 +1316,21 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         }
 
     } else if constexpr (HasVariantTag<Schema, T>::value) {
-        auto& def = getVariantDef<Schema, T>();
+        auto& var = getVariantDef<Schema, T>();
 
         dst = Json::objectValue;
-        if (!def.hasNamesInAlternatives()) {
+        if (!var.hasNamesInAlternatives()) {
             ctx.addError("Variant alternative missing name.");
         }
-        if (!def.hasDiscriminator()) {
+        if (!var.hasDiscriminator()) {
             ctx.addError("Discriminator key not set.");
         }
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
-                auto& obj = getInstance<typename Schema::template Object<Alt>>();
+                auto& obj = getObjectDef<Schema, Alt>();
                 obj.encodeFields(alt, dst, ctx);
-                dst[def.discriminator()] = obj.name();
+                dst[var.discriminator()] = obj.name();
             },
             src);
 
@@ -1377,7 +1399,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
         static_assert(
             HasCustomDecode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
-        auto& custom = getInstance<CustomSpec>();
+        auto& custom = getCustomDef<Schema, T>();
         custom.decode(src, dst, ctx);
 
     } else if constexpr (HasObjectTag<Schema, T>::value) {
@@ -1386,7 +1408,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
             return;
         }
 
-        const auto& obj = getInstance<typename Schema::template Object<T>>();
+        const auto& obj = getObjectDef<Schema, T>();
         obj.decodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
@@ -1395,8 +1417,8 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
             return;
         }
 
-        auto& obj = getInstance<typename Schema::template Enum<T>>();
-        auto* value = obj.find(src.asString());
+        auto& def = getEnumDef<Schema, T>();
+        auto* value = def.find(src.asString());
         if (value) {
             dst = *value;
         } else {
@@ -1497,13 +1519,13 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
 
     static void decode(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
     {
-        auto& def = getVariantDef<Schema, VariantType>();
-        if (!def.hasNamesInAlternatives()) {
+        auto& var = getVariantDef<Schema, VariantType>();
+        if (!var.hasNamesInAlternatives()) {
             ctx.addError("(Schema error) Variant alternative missing name.");
             return;
         }
 
-        if (!def.hasDiscriminator()) {
+        if (!var.hasDiscriminator()) {
             ctx.addError("(Schema error) Discriminator key not set.");
             return;
         }
@@ -1513,7 +1535,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             return;
         }
 
-        auto& tag = def.discriminator();
+        auto& tag = var.discriminator();
         std::string tagValue;
 
         {
@@ -1549,7 +1571,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         bool& matched)
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
-        const auto& objectDef = getInstance<ObjectSpec>();
+        const auto& objectDef = getObjectDef<Schema, Alt>();
         if (!objectDef.hasVariantTag()) {
             PathGuard guard(ctx, tag);
             ctx.addError("Variant alternative missing name().");
