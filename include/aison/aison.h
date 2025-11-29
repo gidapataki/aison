@@ -281,6 +281,7 @@ enum class TypeClass {
 struct TypeInfo {
     TypeClass cls = TypeClass::Unknown;
     TypeId typeId = nullptr;
+    const char* name = nullptr;
     union Data {
         struct {
             const TypeInfo* type;  //< Inner typeInfo for optional
@@ -377,6 +378,7 @@ struct ObjectInfo {
 };
 
 struct EnumInfo {
+    std::string name;
     std::vector<std::string> names;
 };
 
@@ -567,10 +569,13 @@ template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration();
 
 template<typename Schema, typename T>
-const TypeInfo& makeTypeInfo();
+TypeInfo& makeTypeInfo();
 
 template<typename Schema, typename Variant>
-const TypeInfo& makeVariantTypeInfo();
+TypeInfo& makeVariantTypeInfo();
+
+template<typename Schema, typename T>
+void setTypeName(const std::string& name);
 
 template<typename Schema, typename Variant, std::size_t... Is>
 inline const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>)
@@ -584,7 +589,17 @@ template<typename Schema, typename T>
 void registerObjectMapping()
 {
     if constexpr (HasObjectTag<Schema, T>::value) {
-        (void)getSchemaObject<typename Schema::template Object<T>>();
+        const auto& obj = getSchemaObject<typename Schema::template Object<T>>();
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(obj.hasName() &&
+                       "Schema::Object<T>::name(...) is required when introspection is enabled.");
+            }
+            if (obj.hasName()) {
+                setTypeName<Schema, T>(obj.name());
+                getIntrospectionRegistry<Schema>().setObjectName(getTypeId<T>(), obj.name());
+            }
+        }
     }
 }
 
@@ -617,8 +632,13 @@ void registerVariantMapping()
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
             auto& reg = getIntrospectionRegistry<Schema>();
             const auto& def = getSchemaVariant<typename Schema::template Variant<T>>();
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(def.hasName() &&
+                       "Schema::Variant<V>::name(...) is required when introspection is enabled.");
+            }
             if (def.hasName()) {
                 reg.setVariantName(getTypeId<T>(), def.name());
+                setTypeName<Schema, T>(def.name());
             }
             reg.setVariantDiscriminator(getTypeId<T>(), def.discriminatorKey());
             registerVariantAlternatives<Schema, T>(
@@ -631,7 +651,17 @@ template<typename Schema, typename E>
 void registerEnumMapping()
 {
     if constexpr (HasEnumTag<Schema, E>::value) {
-        (void)getSchemaObject<typename Schema::template Enum<E>>();
+        const auto& enumDef = getSchemaObject<typename Schema::template Enum<E>>();
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(enumDef.hasName() &&
+                       "Schema::Enum<E>::name(...) is required when introspection is enabled.");
+            }
+            if (enumDef.hasName()) {
+                getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), enumDef.name());
+                setTypeName<Schema, E>(enumDef.name());
+            }
+        }
     }
 }
 
@@ -665,58 +695,65 @@ void ensureTypeRegistration()
 }
 
 template<typename Schema, typename T>
-const TypeInfo& makeTypeInfo()
+TypeInfo& makeTypeInfo()
 {
     if constexpr (IsOptional<T>::value) {
-        static const TypeInfo info =
+        static TypeInfo info =
             TypeInfo::optional<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVector<T>::value) {
-        static const TypeInfo info =
+        static TypeInfo info =
             TypeInfo::vector<T>(&makeTypeInfo<Schema, typename T::value_type>());
         return info;
     } else if constexpr (IsVariant<T>::value) {
         validateVariant<Schema, T>();
         return makeVariantTypeInfo<Schema, T>();
     } else if constexpr (std::is_same_v<T, bool>) {
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Bool);
         return info;
     } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        static const TypeInfo info = TypeInfo::integral<T>();
+        static TypeInfo info = TypeInfo::integral<T>();
         return info;
     } else if constexpr (std::is_floating_point_v<T>) {
-        static const TypeInfo info = TypeInfo::floating<T>();
+        static TypeInfo info = TypeInfo::floating<T>();
         return info;
     } else if constexpr (std::is_same_v<T, std::string>) {
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::String);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::String);
         return info;
     } else if constexpr (std::is_enum_v<T>) {
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Enum);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Enum);
         return info;
     } else if constexpr (HasObjectTag<Schema, T>::value) {
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Object);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Object);
         return info;
     } else if constexpr (HasEncoderTag<Schema, T>::value || HasDecoderTag<Schema, T>::value) {
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Custom);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Custom);
         return info;
     } else {
         static_assert(
             DependentFalse<T>::value,
             "Unsupported type for introspection. "
             "Provide a Schema::Object / Schema::Enum mapping / Schema::Encode / Schema::Decode.");
-        static const TypeInfo info = TypeInfo::scalar<T>(TypeClass::Unknown);
+        static TypeInfo info = TypeInfo::scalar<T>(TypeClass::Unknown);
         return info;
     }
 }
 
 template<typename Schema, typename T>
-const TypeInfo& makeVariantTypeInfo()
+TypeInfo& makeVariantTypeInfo()
 {
     constexpr auto count = std::variant_size_v<T>;
     static const TypeInfo* const* altArray =
         makeVariantAlternatives<Schema, T>(std::make_index_sequence<count>{});
-    static const TypeInfo info = TypeInfo::variant<T>(altArray, count);
+    static TypeInfo info = TypeInfo::variant<T>(altArray, count);
     return info;
+}
+
+template<typename Schema, typename T>
+void setTypeName(const std::string& name)
+{
+    auto& info = makeTypeInfo<Schema, T>();
+    info.name = name.empty() ? nullptr : name.c_str();
 }
 
 template<typename Schema>
@@ -759,6 +796,15 @@ public:
         }
         auto& entry = enums_[typeId];
         entry.names.push_back(std::string(name));
+    }
+
+    void setEnumName(TypeId typeId, std::string name)
+    {
+        if (!getSchemaEnableIntrospection<Schema>()) {
+            return;
+        }
+        auto& entry = enums_[typeId];
+        entry.name = std::move(name);
     }
 
     void setVariantName(TypeId typeId, std::string name)
@@ -817,6 +863,8 @@ class EnumImpl : public EnumBase
 {
     using Entry = std::pair<E, std::string>;
     std::vector<Entry> entries_;
+    std::string name_;
+    bool hasName_ = false;
 
 public:
     std::size_t size() const { return entries_.size(); }
@@ -825,6 +873,28 @@ public:
     auto end() { return entries_.end(); }
     auto begin() const { return entries_.begin(); }
     auto end() const { return entries_.end(); }
+
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Enum name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Enum name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            setTypeName<Schema, E>(name_);
+            getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
+        }
+    }
 
     void add(E value, std::string_view name)
     {
@@ -842,6 +912,9 @@ public:
             getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
         }
     }
+
+    const std::string& name() const { return name_; }
+    bool hasName() const { return hasName_; }
 };
 
 template<typename Schema, typename Variant>
@@ -871,6 +944,9 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
+        if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            setTypeName<Schema, Variant>(name_);
+        }
     }
 
     void discriminator(std::string_view key)
@@ -1629,6 +1705,7 @@ public:
         hasName_ = true;
         name_ = std::string(value);
         if constexpr (getSchemaEnableIntrospection<Schema>()) {
+            setTypeName<Schema, Owner>(name_);
             getIntrospectionRegistry<Schema>().setObjectName(detail::getTypeId<Owner>(), name_);
         }
     }
@@ -1854,6 +1931,12 @@ public:
         if (it == reg.enums().end()) {
             return;
         }
+        if (it->second.name.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Enum must have name() when introspection is enabled.");
+            }
+            return;
+        }
         enums_.emplace(it->first, it->second);
     }
 
@@ -1865,6 +1948,13 @@ public:
         const auto& reg = getIntrospectionRegistry<Schema>();
         auto it = reg.objects().find(typeId);
         if (it == reg.objects().end()) {
+            return;
+        }
+
+        if (it->second.name.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Object must have name() when introspection is enabled.");
+            }
             return;
         }
 
@@ -1884,6 +1974,12 @@ public:
         const auto& reg = getIntrospectionRegistry<Schema>();
         auto it = reg.variants().find(typeId);
         if (it == reg.variants().end()) {
+            return;
+        }
+        if (it->second.name.empty()) {
+            if constexpr (getSchemaEnableAssert<Schema>()) {
+                assert(false && "Variant must have name() when introspection is enabled.");
+            }
             return;
         }
         variants_.emplace(it->first, it->second);
@@ -1959,6 +2055,7 @@ struct Enum : detail::EnumImpl<Schema, E> {
     using Base = Enum;
 
     using Impl::add;
+    using Impl::name;
 };
 
 template<typename Schema, typename T>

@@ -23,6 +23,7 @@ template<>
 struct DemoSchema::Enum<Flavor> : aison::Enum<DemoSchema, Flavor> {
     Enum()
     {
+        name("Flavor");
         add(Flavor::kVanilla, "vanilla");
         add(Flavor::kChocolate, "chocolate");
     }
@@ -32,6 +33,7 @@ template<>
 struct DemoSchema::Object<Topping> : aison::Object<DemoSchema, Topping> {
     Object()
     {
+        name("Topping");
         add(&Topping::name, "name");
         add(&Topping::crunchy, "crunchy");
     }
@@ -71,6 +73,7 @@ template<>
 struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
     Object()
     {
+        name("Order");
         add(&Order::customer, "customer");
         add(&Order::dessert, "dessert");
         add(&Order::extras, "extras");
@@ -82,6 +85,14 @@ struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
 std::string renderType(const aison::TypeInfo* info)
 {
     if (!info) return "unknown";
+    auto typeIdStr = std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId));
+    auto renderNamed = [&](std::string_view kind) {
+        if (info->name && *info->name) {
+            return std::string(kind) + "(" + info->name + ")";
+        }
+        return std::string(kind) + "(typeId=" + typeIdStr + ")";
+    };
+
     switch (info->cls) {
         case aison::TypeClass::Bool:
             return "bool";
@@ -98,20 +109,18 @@ std::string renderType(const aison::TypeInfo* info)
         case aison::TypeClass::String:
             return "string";
         case aison::TypeClass::Enum:
-            return "enum(typeId=" + std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) +
-                   ")";
+            return renderNamed("enum");
         case aison::TypeClass::Object:
-            return "object(typeId=" +
-                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+            return renderNamed("object");
         case aison::TypeClass::Custom:
-            return "custom(typeId=" +
-                   std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId)) + ")";
+            return renderNamed("custom");
         case aison::TypeClass::Optional:
             return "optional<" + renderType(info->data.optional.type) + ">";
         case aison::TypeClass::Vector:
             return "vector<" + renderType(info->data.vector.type) + ">";
         case aison::TypeClass::Variant: {
-            std::string out = "variant<";
+            std::string out = info->name && *info->name ? std::string("variant ") + info->name + "<"
+                                                        : "variant<";
             for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                 if (i) out += " | ";
                 out += info->data.variant.types && info->data.variant.types[i]
@@ -161,7 +170,14 @@ void dump(const aison::Introspection<Schema>& isp)
 
     for (const auto& entry : isp.enums()) {
         const auto& en = entry.second;
-        std::cout << "enum: " << reinterpret_cast<std::uintptr_t>(entry.first) << " [";
+        std::cout << "enum: ";
+        if (!en.name.empty()) {
+            std::cout << en.name << " (typeId=" << reinterpret_cast<std::uintptr_t>(entry.first)
+                      << ")";
+        } else {
+            std::cout << reinterpret_cast<std::uintptr_t>(entry.first);
+        }
+        std::cout << " [";
         for (std::size_t i = 0; i < en.names.size(); ++i) {
             if (i) std::cout << ", ";
             std::cout << en.names[i];
