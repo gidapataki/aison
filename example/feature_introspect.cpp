@@ -119,8 +119,8 @@ std::string renderType(const aison::TypeInfo* info)
         case aison::TypeClass::Vector:
             return "vector<" + renderType(info->data.vector.type) + ">";
         case aison::TypeClass::Variant: {
-            std::string out = info->name && *info->name ? std::string("variant ") + info->name + "<"
-                                                        : "variant<";
+            std::string out =
+                info->name && *info->name ? std::string("variant ") + info->name + "<" : "variant<";
             for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                 if (i) out += " | ";
                 out += info->data.variant.types && info->data.variant.types[i]
@@ -138,28 +138,22 @@ std::string renderType(const aison::TypeInfo* info)
 template<typename Schema>
 void dump(const aison::Introspection<Schema>& isp)
 {
-    for (const auto& entry : isp.objects()) {
+    for (auto& entry : isp.objects()) {
         const auto& obj = entry.second;
-        std::cout << "type: " << reinterpret_cast<std::uintptr_t>(entry.first) << "\n";
-        if (!obj.name.empty()) {
-            std::cout << " name: " << obj.name << "\n";
-        }
+        std::cout << "object: " << obj.name << "\n";
         for (const auto& f : obj.fields) {
             std::cout << " - " << f.name << ": " << renderType(f.type) << "\n";
         }
         std::cout << "\n";
     }
 
-    for (const auto& entry : isp.variants()) {
-        const auto& var = entry.second;
-        std::cout << "variant: " << reinterpret_cast<std::uintptr_t>(entry.first);
-        if (!var.name.empty()) {
-            std::cout << " \"" << var.name << "\"";
-        }
-        std::cout << "\n";
-        std::cout << " discriminator: key=\"" << var.discriminatorKey << "\"\n";
+    for (auto& entry : isp.variants()) {
+        auto& var = entry.second;
+
+        std::cout << "variant: " << var.name << "\n";
+
         for (const auto& alt : var.alternatives) {
-            std::cout << " - tag=\"" << alt.tag << "\" type=" << renderType(alt.type) << "\n";
+            std::cout << " - tag=\"" << alt.name << "\" type=" << renderType(alt.type) << "\n";
         }
         std::cout << "\n";
     }
@@ -174,9 +168,9 @@ void dump(const aison::Introspection<Schema>& isp)
             std::cout << reinterpret_cast<std::uintptr_t>(entry.first);
         }
         std::cout << " [";
-        for (std::size_t i = 0; i < en.names.size(); ++i) {
+        for (std::size_t i = 0; i < en.values.size(); ++i) {
             if (i) std::cout << ", ";
-            std::cout << en.names[i];
+            std::cout << en.values[i];
         }
         std::cout << "]\n";
     }
@@ -191,8 +185,11 @@ void introspectExample1()
     aison::encode<DemoSchema>(cone, root);
 
     std::cout << root.toStyledString() << "\n";
+
     auto isp = aison::introspect<DemoSchema>();
     isp.add<Flavor>();
+
+    // aison::introspection<DemoSchema>().collect<Flavor, ...>
 
 #if 1
     auto isp2 = isp;

@@ -25,10 +25,7 @@ struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     struct Enum;
 
     template<typename T>
-    struct Encoder;
-
-    template<typename T>
-    struct Decoder;
+    struct Custom;
 };
 
 template<>
@@ -70,8 +67,15 @@ struct TextSchema::Object<Text> : aison::Object<TextSchema, Text> {
 };
 
 template<>
-struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
-    void operator()(const Json::Value& src, RGBColor& dst)
+struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
+    Custom() { name("Color"); }
+
+    void encode(const RGBColor& src, Json::Value& dst) const
+    {
+        dst = toHexColor(src, config().upperCaseHex);
+    }
+
+    void decode(const Json::Value& src, RGBColor& dst) const
     {
         if (!src.isString()) {
             addError("String field required");
@@ -85,14 +89,6 @@ struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
     }
 };
 
-template<>
-struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
-    void operator()(const RGBColor& src, Json::Value& dst)
-    {
-        dst = toHexColor(src, config().upperCaseHex);
-    }
-};
-
 // ColorSchema
 
 struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeOnly> {
@@ -100,12 +96,12 @@ struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeOnly> {
     struct Object;
 
     template<typename T>
-    struct Encoder;
+    struct Custom;
 };
 
 template<>
-struct ColorSchema::Encoder<Channels> : aison::Encoder<ColorSchema, Channels> {
-    void operator()(const Channels& src, Json::Value& dst)
+struct ColorSchema::Custom<Channels> : aison::Custom<ColorSchema, Channels> {
+    void encode(const Channels& src, Json::Value& dst)
     {
         auto size = src.r.size();
         if (src.g.size() != size || src.b.size() != size) {
@@ -116,14 +112,14 @@ struct ColorSchema::Encoder<Channels> : aison::Encoder<ColorSchema, Channels> {
         dst = Json::arrayValue;
         for (auto i = 0u; i < size; ++i) {
             auto& node = dst.append({});
-            encode(RGBColor{src.r[i], src.g[i], src.b[i]}, node);
+            encodeNested(RGBColor{src.r[i], src.g[i], src.b[i]}, node);
         }
     }
 };
 
 template<>
-struct ColorSchema::Encoder<RGBColor> : aison::Encoder<ColorSchema, RGBColor> {
-    void operator()(const RGBColor& src, Json::Value& dst) { dst = toHexColor(src, true); }
+struct ColorSchema::Custom<RGBColor> : aison::Custom<ColorSchema, RGBColor> {
+    void encode(const RGBColor& src, Json::Value& dst) const { dst = toHexColor(src, true); }
 };
 
 }  // namespace
@@ -173,6 +169,7 @@ void encoderExample1()
 
     std::cout << "== Decode success ==\n";
     Json::Value value;
+    cfg.upperCaseHex = false;
     res = aison::encode<TextSchema>(text, value, cfg);
     std::cout << value.toStyledString() << "\n";
 }

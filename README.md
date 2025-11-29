@@ -36,8 +36,8 @@ This example shows a realistic usecase where we want to encode text styling info
 - enum mapping
 - struct mapping
 - nested data via structs and `std::vector`
-- custom encoder / decoder
-- config object (used in custom encoder)
+- custom mapping
+- config object (used in custom mapping)
 - error handling
 
 #### Data
@@ -75,8 +75,7 @@ struct Config {
 struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
     template<typename T> struct Object;
     template<typename T> struct Enum;
-    template<typename T> struct Encoder;
-    template<typename T> struct Decoder;
+    template<typename T> struct Custom;
 };
 
 template<>
@@ -89,8 +88,14 @@ struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
 };
 
 template<>
-struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
-    void operator()(const Json::Value& src, RGBColor& dst) {
+struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
+    Custom() { name("Color"); }
+
+    void encode(const RGBColor& src, Json::Value& dst) const {
+        dst = toHexColor(src, config().upperCaseHex);
+    }
+
+    void decode(const Json::Value& src, RGBColor& dst) const {
         if (!src.isString()) {
             addError("String field required");
             return;
@@ -100,13 +105,6 @@ struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
         } else {
             addError("Could not parse value for RGBColor");
         }
-    }
-};
-
-template<>
-struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
-    void operator()(const RGBColor& src, Json::Value& dst) {
-        dst = toHexColor(src, config().upperCaseHex);
     }
 };
 
@@ -204,7 +202,7 @@ template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Re
 - Strong compile-time and runtime guards against misuse
 - All errors collected during encode/decode
 - Support for encode-only and decode-only use cases
-- Extensible via config objects and custom encoders / decoders
+- Extensible via config objects and custom mappings
 
 ---
 

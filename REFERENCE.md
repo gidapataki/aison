@@ -15,7 +15,7 @@ This document describes the complete public API.
   - [Optional Strictness (`strictOptional`)](#14-optional-strictness-strictoptional)
 - [Object Mapping (`Schema::Object<T>`)](#2-object-mapping-schemaobjectt)
 - [Enum Mapping (`Schema::Enum<T>`)](#3-enum-mapping-schemaenumt)
-- [Custom Encoders / Decoders](#4-custom-encoders--decoders)
+- [Custom Mappings](#4-custom-mappings)
 - [Encoding / Decoding](#5-encoding--decoding)
   - [Without Config](#51-without-config-emptyconfig-only)
   - [With Config](#52-with-config)
@@ -39,8 +39,7 @@ struct MySchema
 {
     template<typename T> struct Object;   // struct mappings
     template<typename E> struct Enum;     // enum mappings
-    template<typename T> struct Encoder;  // custom encode (optional)
-    template<typename T> struct Decoder;  // custom decode (optional)
+    template<typename T> struct Custom;   // custom mapping (optional)
 };
 ```
 
@@ -66,8 +65,7 @@ struct MyConfig {
 
 The config object is passed to:
 
-- custom encoders (`Schema::Encoder<T>`)
-- custom decoders (`Schema::Decoder<T>`)
+- custom mappings (`Schema::Custom<T>`)
 
 Usage:
 
@@ -190,7 +188,7 @@ Encoding uses the name given via `add`, and decoding accepts those names.
 
 ---
 
-## 4. Custom Encoders / Decoders
+## 4. Custom Mappings
 
 Used for non‑standard mappings (e.g., hex‑encoded colors).
 
@@ -198,36 +196,30 @@ Used for non‑standard mappings (e.g., hex‑encoded colors).
 struct RgbColor { uint8_t r, g, b; };
 ```
 
-### Custom Encoder Example
+Define a `Schema::Custom<T>` specialization that inherits `aison::Custom<Schema, T>` and sets the
+hooks:
 
 ```cpp
 template<>
-struct MySchema::Encoder<RgbColor>
-    : aison::Encoder<MySchema, RgbColor>
-{
-    void operator()(const RgbColor& c, Json::Value& dst) {
+struct MySchema::Custom<RgbColor> : aison::Custom<MySchema, RgbColor> {
+    Custom()
+    {
+        name("Color");  // required when introspection is enabled
+
+        name("Color");
+    }
+
+    void encode(const RgbColor& c, Json::Value& dst) const
+    {
         std::ostringstream ss;
-        if (config().upperCaseHex)
-            ss << std::uppercase;
-
-        ss << "#" << std::hex << std::setfill('0')
-           << std::setw(2) << int(c.r)
-           << std::setw(2) << int(c.g)
-           << std::setw(2) << int(c.b);
-
+        if (config().upperCaseHex) ss << std::uppercase;
+        ss << "#" << std::hex << std::setfill('0') << std::setw(2) << int(c.r) << std::setw(2)
+           << int(c.g) << std::setw(2) << int(c.b);
         dst = ss.str();
     }
-};
-```
 
-### Custom Decoder Example
-
-```cpp
-template<>
-struct MySchema::Decoder<RgbColor>
-    : aison::Decoder<MySchema, RgbColor>
-{
-    void operator()(const Json::Value& src, RgbColor& dst) {
+    void decode(const Json::Value& src, RgbColor& dst) const
+    {
         if (!src.isString()) {
             addError("Expected hex color string.");
             return;
@@ -239,14 +231,16 @@ struct MySchema::Decoder<RgbColor>
             return;
         }
 
-        auto hex = [&](int i) {
-            return std::stoi(s.substr(i, 2), nullptr, 16);
-        };
-
-        dst = RgbColor{ uint8_t(hex(1)), uint8_t(hex(3)), uint8_t(hex(5)) };
+        auto hex = [&](int i) { return std::stoi(s.substr(i, 2), nullptr, 16); };
+        dst = RgbColor{uint8_t(hex(1)), uint8_t(hex(3)), uint8_t(hex(5))};
     }
 };
 ```
+
+- `encode(...)` is mandatory for encode-capable schemas; `decode(...)` is mandatory for
+  decode-capable schemas.
+- `config()`, `addError(...)`, and nested `encodeNested(...)` / `decodeNested(...)` helpers are
+  available inside these functions.
 
 ---
 
@@ -357,7 +351,7 @@ Errors accumulate; decoding never stops early.
 | `std::variant<Ts...>` | ✔ | requires `Schema::Variant` and named object alternatives |
 | enums | ✔ | requires `Enum<T>` |
 | structs | ✔ | requires `Object<T>` |
-| custom types | ✔ | via `Encoder<T>` / `Decoder<T>` |
+| custom types | ✔ | via `Custom<T>` |
 | raw pointers | ⚠ allowed only via custom mapping | not automatic |
 
 ---
@@ -369,7 +363,7 @@ Compile‑time errors include:
 - Missing Object mapping  
 - Missing Enum mapping  
 - Facet mismatch  
-- Missing custom encoder/decoder
+- Missing custom encoder/decoder hook
 
 Runtime schema errors include:
 

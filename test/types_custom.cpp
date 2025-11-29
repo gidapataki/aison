@@ -18,13 +18,15 @@ struct EncodeOnlyText {
 
 struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema, aison::EncodeOnly> {
     template<typename T>
-    struct Encoder;
+    struct Custom;
 };
 
 template<>
-struct EncodeOnlySchema::Encoder<EncodeOnlyText>
-    : aison::Encoder<EncodeOnlySchema, EncodeOnlyText> {
-    void operator()(const EncodeOnlyText& src, Json::Value& dst) { dst = src.value + "!"; }
+struct EncodeOnlySchema::Custom<EncodeOnlyText>
+    : aison::Custom<EncodeOnlySchema, EncodeOnlyText> {
+    Custom() { name("EncodeOnlyText"); }
+
+    void encode(const EncodeOnlyText& src, Json::Value& dst) const { dst = src.value + "!"; }
 };
 
 // --- Decode-only schema ------------------------------------------------------
@@ -35,13 +37,15 @@ struct DecodeOnlyNumber {
 
 struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema, aison::DecodeOnly> {
     template<typename T>
-    struct Decoder;
+    struct Custom;
 };
 
 template<>
-struct DecodeOnlySchema::Decoder<DecodeOnlyNumber>
-    : aison::Decoder<DecodeOnlySchema, DecodeOnlyNumber> {
-    void operator()(const Json::Value& src, DecodeOnlyNumber& dst)
+struct DecodeOnlySchema::Custom<DecodeOnlyNumber>
+    : aison::Custom<DecodeOnlySchema, DecodeOnlyNumber> {
+    Custom() { name("DecodeOnlyNumber"); }
+
+    void decode(const Json::Value& src, DecodeOnlyNumber& dst) const
     {
         // Accept strings in the form "num:<int>"
         if (!src.isString()) {
@@ -112,19 +116,16 @@ struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeDecode, ColorConfig
     template<typename T>
     struct Object;
     template<typename T>
-    struct Encoder;
-    template<typename T>
-    struct Decoder;
+    struct Custom;
 };
 
 template<>
-struct ColorSchema::Encoder<Color> : aison::Encoder<ColorSchema, Color> {
-    void operator()(const Color& src, Json::Value& dst) { dst = toHex(src, config().upperHex); }
-};
+struct ColorSchema::Custom<Color> : aison::Custom<ColorSchema, Color> {
+    Custom() { name("Color"); }
 
-template<>
-struct ColorSchema::Decoder<Color> : aison::Decoder<ColorSchema, Color> {
-    void operator()(const Json::Value& src, Color& dst)
+    void encode(const Color& src, Json::Value& dst) const { dst = toHex(src, config().upperHex); }
+
+    void decode(const Json::Value& src, Color& dst) const
     {
         if (!src.isString()) {
             addError("Expected hex string");
