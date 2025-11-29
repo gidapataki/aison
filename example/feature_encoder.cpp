@@ -70,21 +70,21 @@ template<>
 struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
     Custom() { name("Color"); }
 
-    void encode(const RGBColor& src, Json::Value& dst) const
+    void encode(const RGBColor& src, Json::Value& dst, EncodeContext& ctx) const
     {
-        dst = toHexColor(src, config().upperCaseHex);
+        dst = toHexColor(src, ctx.config().upperCaseHex);
     }
 
-    void decode(const Json::Value& src, RGBColor& dst) const
+    void decode(const Json::Value& src, RGBColor& dst, DecodeContext& ctx) const
     {
         if (!src.isString()) {
-            addError("String field required");
+            ctx.addError("String field required");
             return;
         }
         if (auto value = toRGBColor(src.asString()); value) {
             dst = *value;
         } else {
-            addError("Could not parse value for RGBColor");
+            ctx.addError("Could not parse value for RGBColor");
         }
     }
 };
@@ -101,25 +101,28 @@ struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeOnly> {
 
 template<>
 struct ColorSchema::Custom<Channels> : aison::Custom<ColorSchema, Channels> {
-    void encode(const Channels& src, Json::Value& dst)
+    void encode(const Channels& src, Json::Value& dst, EncodeContext& ctx)
     {
         auto size = src.r.size();
         if (src.g.size() != size || src.b.size() != size) {
-            addError("Color channels should have the same number of entries");
+            ctx.addError("Color channels should have the same number of entries");
             return;
         }
 
         dst = Json::arrayValue;
         for (auto i = 0u; i < size; ++i) {
             auto& node = dst.append({});
-            encodeNested(RGBColor{src.r[i], src.g[i], src.b[i]}, node);
+            ctx.encode(RGBColor{src.r[i], src.g[i], src.b[i]}, node);
         }
     }
 };
 
 template<>
 struct ColorSchema::Custom<RGBColor> : aison::Custom<ColorSchema, RGBColor> {
-    void encode(const RGBColor& src, Json::Value& dst) const { dst = toHexColor(src, true); }
+    void encode(const RGBColor& src, Json::Value& dst, EncodeContext&) const
+    {
+        dst = toHexColor(src, true);
+    }
 };
 
 }  // namespace

@@ -91,19 +91,19 @@ template<>
 struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
     Custom() { name("Color"); }
 
-    void encode(const RGBColor& src, Json::Value& dst) const {
-        dst = toHexColor(src, config().upperCaseHex);
+    void encode(const RGBColor& src, Json::Value& dst, EncodeContext& ctx) const {
+        dst = toHexColor(src, ctx.config().upperCaseHex);
     }
 
-    void decode(const Json::Value& src, RGBColor& dst) const {
+    void decode(const Json::Value& src, RGBColor& dst, DecodeContext& ctx) const {
         if (!src.isString()) {
-            addError("String field required");
+            ctx.addError("String field required");
             return;
         }
         if (auto value = toRGBColor(src.asString()); value) {
             dst = *value;
         } else {
-            addError("Could not parse value for RGBColor");
+            ctx.addError("Could not parse value for RGBColor");
         }
     }
 };

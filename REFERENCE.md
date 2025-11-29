@@ -197,7 +197,7 @@ struct RgbColor { uint8_t r, g, b; };
 ```
 
 Define a `Schema::Custom<T>` specialization that inherits `aison::Custom<Schema, T>` and sets the
-hooks:
+hooks with an explicit context parameter:
 
 ```cpp
 template<>
@@ -205,29 +205,27 @@ struct MySchema::Custom<RgbColor> : aison::Custom<MySchema, RgbColor> {
     Custom()
     {
         name("Color");  // required when introspection is enabled
-
-        name("Color");
     }
 
-    void encode(const RgbColor& c, Json::Value& dst) const
+    void encode(const RgbColor& c, Json::Value& dst, EncodeContext& ctx) const
     {
         std::ostringstream ss;
-        if (config().upperCaseHex) ss << std::uppercase;
+        if (ctx.config().upperCaseHex) ss << std::uppercase;
         ss << "#" << std::hex << std::setfill('0') << std::setw(2) << int(c.r) << std::setw(2)
            << int(c.g) << std::setw(2) << int(c.b);
         dst = ss.str();
     }
 
-    void decode(const Json::Value& src, RgbColor& dst) const
+    void decode(const Json::Value& src, RgbColor& dst, DecodeContext& ctx) const
     {
         if (!src.isString()) {
-            addError("Expected hex color string.");
+            ctx.addError("Expected hex color string.");
             return;
         }
 
         const std::string& s = src.asString();
         if (s.size() != 7 || s[0] != '#') {
-            addError("Invalid color format. Expected '#RRGGBB'.");
+            ctx.addError("Invalid color format. Expected '#RRGGBB'.");
             return;
         }
 
@@ -237,10 +235,12 @@ struct MySchema::Custom<RgbColor> : aison::Custom<MySchema, RgbColor> {
 };
 ```
 
+- Use the `EncodeContext` / `DecodeContext` aliases from `aison::Custom` for the third argument.
 - `encode(...)` is mandatory for encode-capable schemas; `decode(...)` is mandatory for
   decode-capable schemas.
-- `config()`, `addError(...)`, and nested `encodeNested(...)` / `decodeNested(...)` helpers are
-  available inside these functions.
+- Context arguments expose `config()`, `addError(...)`, and nested `encode(...)` / `decode(...)`
+  helpers. Encode contexts only offer encode helpers; decode contexts only offer decode helpers.
+- Use `ctx.context()` with `aison::PathScope` if you need to manage custom path segments.
 
 ---
 
