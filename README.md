@@ -1,5 +1,5 @@
 # Aison
-pronounced /'eye-son/
+pronounced /ˈeɪson/
 
 Aison is a small C++17 library for mapping objects to JSON and back.  
 Mappings are defined explicitly in a C++ schema, without macros, code
