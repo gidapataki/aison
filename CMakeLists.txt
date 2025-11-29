@@ -32,7 +32,9 @@ target_link_libraries(aison INTERFACE jsoncpp_static)
 
 # example
 
-add_executable(example example/main.cpp)
+add_executable(example
+  example/introspect.cpp
+)
 target_link_libraries(example PRIVATE aison)
 
 # test

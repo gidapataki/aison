@@ -185,19 +185,8 @@ struct MySchema::Enum<Color>
 
 - `add(value, name)` must list **every** enum value exactly once.
 - Duplicate value or duplicate name → `assert()` / skip.
-- Additional names can be added via `addAlias(value, alias)`:
-  - The value **must** already have been added with `add()`.
-  - Alias name must be unique.
-  - Violations → `assert()` / skip.
 
-Example:
-
-```cpp
-addAlias(Color::Red, "brightred");
-```
-
-Encoding uses only the *first* name given via `add`.  
-Decoding accepts all names from `add()` and `addAlias()`.
+Encoding uses the name given via `add`, and decoding accepts those names.
 
 ---
 
