@@ -1203,8 +1203,8 @@ class EncoderImpl
 public:
     using Config = typename Schema::ConfigType;
 
-    EncoderImpl(Context& ctx, const Config& cfg)
-        : config(cfg)
+    EncoderImpl(const Config& cfg, Context& ctx)
+        : config_(cfg)
         , ctx_(ctx)
     {
         using Facet = typename Schema::FacetType;
@@ -1214,20 +1214,18 @@ public:
     }
 
     template<typename T>
-    Result encode(const T& value, Json::Value& dst)
+    void encode(const T& value, Json::Value& dst)
     {
-        ctx_.clearErrors();
         encodeValue<Schema, T>(value, dst, *this);
-        return Result{ctx_.takeErrors()};
     }
 
     void addError(const std::string& msg) { ctx_.addError(msg); }
     Context& context() { return ctx_; }
     const Context& context() const { return ctx_; }
-
-    const Config& config;
+    const Config& config() const { return config_; }
 
 private:
+    const Config& config_;
     Context& ctx_;
 };
 
@@ -1237,8 +1235,8 @@ class DecoderImpl
 public:
     using Config = typename Schema::ConfigType;
 
-    DecoderImpl(Context& ctx, const Config& cfg)
-        : config(cfg)
+    DecoderImpl(const Config& cfg, Context& ctx)
+        : config_(cfg)
         , ctx_(ctx)
     {
         using Facet = typename Schema::FacetType;
@@ -1248,20 +1246,18 @@ public:
     }
 
     template<typename T>
-    Result decode(const Json::Value& src, T& value)
+    void decode(const Json::Value& src, T& value)
     {
-        ctx_.clearErrors();
         decodeValue<Schema, T>(src, value, *this);
-        return Result{ctx_.takeErrors()};
     }
 
     void addError(const std::string& msg) { ctx_.addError(msg); }
     Context& context() { return ctx_; }
     const Context& context() const { return ctx_; }
-
-    const Config& config;
+    const Config& config() const { return config_; }
 
 private:
+    const Config& config_;
     Context& ctx_;
 };
 
@@ -1276,7 +1272,7 @@ public:
         : encoder_(encoder)
     {}
 
-    const ConfigType& config() const { return encoder_.config; }
+    const ConfigType& config() const { return encoder_.config(); }
 
     void addError(const std::string& msg) const { encoder_.addError(msg); }
 
@@ -1303,7 +1299,7 @@ public:
         : decoder_(decoder)
     {}
 
-    const ConfigType& config() const { return decoder_.config; }
+    const ConfigType& config() const { return decoder_.config(); }
     void addError(const std::string& msg) const { decoder_.addError(msg); }
 
     template<typename U, typename = std::enable_if_t<!std::is_same_v<std::decay_t<U>, T>>>
@@ -2108,53 +2104,21 @@ private:
 // API functions //////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
-Result encode(const T& value, Json::Value& dst)
-{
-    using Config = typename Schema::ConfigType;
-    if constexpr (!std::is_same_v<Config, EmptyConfig>) {
-        static_assert(
-            std::is_same_v<Config, EmptyConfig>,
-            "Schema was declared with a non-empty ConfigType. "
-            "Use aison::encode<Schema>(value, dst, config) instead.");
-    } else {
-        Config cfg{};
-        detail::Context ctx;
-        detail::EncoderImpl<Schema> encoder(ctx, cfg);
-        return encoder.encode(value, dst);
-    }
-}
-
-template<typename Schema, typename T>
-Result decode(const Json::Value& src, T& value)
-{
-    using Config = typename Schema::ConfigType;
-    if constexpr (!std::is_same_v<Config, EmptyConfig>) {
-        static_assert(
-            std::is_same_v<Config, EmptyConfig>,
-            "Schema was declared with a non-empty ConfigType. "
-            "Use aison::decode<Schema>(src, value, config) instead.");
-    } else {
-        Config cfg{};
-        detail::Context ctx;
-        detail::DecoderImpl<Schema> decoder(ctx, cfg);
-        return decoder.decode(src, value);
-    }
-}
-
-template<typename Schema, typename T>
-Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config)
+Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config = {})
 {
     detail::Context ctx;
-    detail::EncoderImpl<Schema> encoder(ctx, config);
-    return encoder.encode(value, dst);
+    detail::EncoderImpl<Schema> encoder(config, ctx);
+    encoder.encode(value, dst);
+    return Result{ctx.takeErrors()};
 }
 
 template<typename Schema, typename T>
-Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config)
+Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {})
 {
     detail::Context ctx;
-    detail::DecoderImpl<Schema> decoder(ctx, config);
-    return decoder.decode(src, value);
+    detail::DecoderImpl<Schema> decoder(config, ctx);
+    decoder.decode(src, value);
+    return Result{ctx.takeErrors()};
 }
 
 template<typename Schema>
