@@ -65,7 +65,7 @@ namespace aison::detail {
 
 class Context;
 struct PathSegment;
-struct PathScope;
+struct PathGuard;
 struct EnumBase;
 
 using FieldAccessorDeleter = void (*)(void*);
@@ -74,16 +74,10 @@ using FieldAccessorPtr = const void*;
 using FieldAccessorId = const void*;
 
 template<typename Schema>
-class EncoderImpl;
+class EncodeContext;
 
 template<typename Schema>
-class DecoderImpl;
-
-template<typename Schema, typename T>
-class CustomEncodeContext;
-
-template<typename Schema, typename T>
-class CustomDecodeContext;
+class DecodeContext;
 
 template<typename Schema, typename T>
 class EnumImpl;
@@ -148,16 +142,16 @@ struct SchemaEnableIntrospection;
 
 // Functions
 template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
+void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
 
 template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder);
+void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
 
 template<typename Schema, typename T>
-void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder);
+void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
 
 template<typename Schema, typename T>
-void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder);
+void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
 
 template<typename Schema>
 constexpr bool hasEncodeFacet();
@@ -454,46 +448,45 @@ public:
     void addError(const std::string& msg) { errors_.push_back(Error{buildPath(), msg}); }
 
     size_t errorCount() const { return errors_.size(); }
-    void clearErrors() { errors_.clear(); }
     std::vector<Error> takeErrors() { return std::move(errors_); }
     const std::vector<Error>& errors() const { return errors_; }
 
 protected:
-    friend struct PathScope;
+    friend struct PathGuard;
     std::vector<PathSegment> pathStack_;
     std::vector<Error> errors_;
 };
 
-struct PathScope {
+struct PathGuard {
     Context* ctx = nullptr;
 
-    PathScope(Context& context, const std::string& key)
-        : PathScope(context, key.c_str())
+    PathGuard(Context& context, const std::string& key)
+        : PathGuard(context, key.c_str())
     {}
 
-    PathScope(Context& context, const char* key)
+    PathGuard(Context& context, const char* key)
         : ctx(&context)
     {
         ctx->pathStack_.push_back(PathSegment::makeKey(key));
     }
 
-    PathScope(Context& context, std::size_t index)
+    PathGuard(Context& context, std::size_t index)
         : ctx(&context)
     {
         ctx->pathStack_.push_back(PathSegment::makeIndex(index));
     }
 
-    PathScope(const PathScope&) = delete;
-    PathScope& operator=(const PathScope&) = delete;
+    PathGuard(const PathGuard&) = delete;
+    PathGuard& operator=(const PathGuard&) = delete;
 
-    PathScope(PathScope&& other) noexcept
+    PathGuard(PathGuard&& other) noexcept
         : ctx(other.ctx)
     {
         other.ctx = nullptr;
     }
-    PathScope& operator=(PathScope&&) = delete;
+    PathGuard& operator=(PathGuard&&) = delete;
 
-    ~PathScope()
+    ~PathGuard()
     {
         if (ctx) {
             ctx->pathStack_.pop_back();
@@ -560,7 +553,7 @@ struct HasCustomEncode<
     std::void_t<decltype(std::declval<CustomSpec>().encode(
         std::declval<const T&>(),
         std::declval<Json::Value&>(),
-        std::declval<CustomEncodeContext<Schema, T>&>()))>> : std::true_type {};
+        std::declval<EncodeContext<Schema>&>()))>> : std::true_type {};
 
 template<typename Schema, typename CustomSpec, typename T, typename = void>
 struct HasCustomDecode : std::false_type {};
@@ -573,7 +566,7 @@ struct HasCustomDecode<
     std::void_t<decltype(std::declval<CustomSpec>().decode(
         std::declval<const Json::Value&>(),
         std::declval<T&>(),
-        std::declval<CustomDecodeContext<Schema, T>&>()))>> : std::true_type {};
+        std::declval<DecodeContext<Schema>&>()))>> : std::true_type {};
 
 template<typename...>
 struct DependentFalse : std::false_type {};
@@ -1198,14 +1191,13 @@ constexpr bool getSchemaEnableIntrospection()
 // EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
 
 template<typename Schema>
-class EncoderImpl
+class EncodeContext : public Context
 {
 public:
     using Config = typename Schema::ConfigType;
 
-    EncoderImpl(const Config& cfg, Context& ctx)
+    EncodeContext(const Config& cfg)
         : config_(cfg)
-        , ctx_(ctx)
     {
         using Facet = typename Schema::FacetType;
         static_assert(
@@ -1219,25 +1211,20 @@ public:
         encodeValue<Schema, T>(value, dst, *this);
     }
 
-    void addError(const std::string& msg) { ctx_.addError(msg); }
-    Context& context() { return ctx_; }
-    const Context& context() const { return ctx_; }
     const Config& config() const { return config_; }
 
 private:
     const Config& config_;
-    Context& ctx_;
 };
 
 template<typename Schema>
-class DecoderImpl
+class DecodeContext : public Context
 {
 public:
     using Config = typename Schema::ConfigType;
 
-    DecoderImpl(const Config& cfg, Context& ctx)
+    DecodeContext(const Config& cfg)
         : config_(cfg)
-        , ctx_(ctx)
     {
         using Facet = typename Schema::FacetType;
         static_assert(
@@ -1251,73 +1238,16 @@ public:
         decodeValue<Schema, T>(src, value, *this);
     }
 
-    void addError(const std::string& msg) { ctx_.addError(msg); }
-    Context& context() { return ctx_; }
-    const Context& context() const { return ctx_; }
     const Config& config() const { return config_; }
 
 private:
     const Config& config_;
-    Context& ctx_;
-};
-
-template<typename Schema, typename T>
-class CustomEncodeContext
-{
-public:
-    using EncoderType = EncoderImpl<Schema>;
-    using ConfigType = typename Schema::ConfigType;
-
-    explicit CustomEncodeContext(EncoderType& encoder)
-        : encoder_(encoder)
-    {}
-
-    const ConfigType& config() const { return encoder_.config(); }
-
-    void addError(const std::string& msg) const { encoder_.addError(msg); }
-
-    template<typename U>
-    void encode(const U& src, Json::Value& dst)
-    {
-        encodeValue<Schema, U>(src, dst, encoder_);
-    }
-
-    Context& context() const { return encoder_.context(); }
-
-private:
-    EncoderType& encoder_;
-};
-
-template<typename Schema, typename T>
-class CustomDecodeContext
-{
-public:
-    using DecoderType = DecoderImpl<Schema>;
-    using ConfigType = typename Schema::ConfigType;
-
-    explicit CustomDecodeContext(DecoderType& decoder)
-        : decoder_(decoder)
-    {}
-
-    const ConfigType& config() const { return decoder_.config(); }
-    void addError(const std::string& msg) const { decoder_.addError(msg); }
-
-    template<typename U, typename = std::enable_if_t<!std::is_same_v<std::decay_t<U>, T>>>
-    void decode(const Json::Value& src, U& dst)
-    {
-        decodeValue<Schema, U>(src, dst, decoder_);
-    }
-
-    Context& context() const { return decoder_.context(); }
-
-private:
-    DecoderType& decoder_;
 };
 
 // Custom encoder/decoder dispatch /////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
+void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
         using CustomSpec = typename Schema::template Custom<T>;
@@ -1328,15 +1258,14 @@ void encodeValue(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
             HasCustomEncode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
         auto& custom = getSchemaObject<CustomSpec>();
-        CustomEncodeContext<Schema, T> ctx(encoder);
         custom.encode(value, dst, ctx);
     } else {
-        encodeDefault<Schema, T>(value, dst, encoder);
+        encodeDefault<Schema, T>(value, dst, ctx);
     }
 }
 
 template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
+void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
         using CustomSpec = typename Schema::template Custom<T>;
@@ -1347,17 +1276,16 @@ void decodeValue(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
             HasCustomDecode<Schema, CustomSpec, T>::value,
             "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
         auto& custom = getSchemaObject<CustomSpec>();
-        CustomDecodeContext<Schema, T> ctx(decoder);
         custom.decode(src, value, ctx);
     } else {
-        decodeDefault<Schema, T>(src, value, decoder);
+        decodeDefault<Schema, T>(src, value, ctx);
     }
 }
 
 // Encode defaults ///////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
-void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encoder)
+void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx)
 {
     if constexpr (std::is_same_v<T, bool>) {
         dst = value;
@@ -1365,13 +1293,13 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(value);
     } else if constexpr (std::is_same_v<T, float>) {
         if (std::isnan(value)) {
-            encoder.addError("NaN is not allowed here.");
+            ctx.addError("NaN is not allowed here.");
             return;
         }
         dst = value;
     } else if constexpr (std::is_same_v<T, double>) {
         if (std::isnan(value)) {
-            encoder.addError("NaN is not allowed here.");
+            ctx.addError("NaN is not allowed here.");
             return;
         }
         dst = value;
@@ -1389,19 +1317,19 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
             }
         }
         using U = typename std::underlying_type<T>::type;
-        encoder.addError(
+        ctx.addError(
             "Unhandled enum value during encode (underlying = " + std::to_string(U(value)) + ").");
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (!value) {
             dst = Json::nullValue;
         } else {
-            encodeValue<Schema, U>(*value, dst, encoder);
+            encodeValue<Schema, U>(*value, dst, ctx);
         }
     } else if constexpr (IsVariant<T>::value) {
         // Discriminated polymorphic encoding for std::variant.
         validateVariant<Schema, T>();
-        if (!VariantKeyValidator<Schema, EncoderImpl<Schema>, T>::validate(encoder)) {
+        if (!VariantKeyValidator<Schema, EncodeContext<Schema>, T>::validate(ctx)) {
             return;
         }
         const auto& variantDef = getSchemaObject<typename Schema::template Variant<T>>();
@@ -1412,18 +1340,18 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
 
                 const auto& objectDef = getSchemaObject<typename Schema::template Object<Alt>>();
                 if (!objectDef.hasVariantTag()) {
-                    PathScope guard(encoder.context(), variantDef.discriminator());
-                    encoder.addError("Variant alternative missing name().");
+                    PathGuard guard(ctx, variantDef.discriminator());
+                    ctx.addError("Variant alternative missing name().");
                     return;
                 }
 
                 // Encode discriminator using a string payload.
                 Json::Value tagJson;
                 const std::string tagValue(objectDef.variantTag());
-                encodeDefault<Schema, std::string>(tagValue, tagJson, encoder);
+                encodeDefault<Schema, std::string>(tagValue, tagJson, ctx);
 
                 // Encode variant-specific fields into the same object.
-                objectDef.encodeFields(alt, dst, encoder);
+                objectDef.encodeFields(alt, dst, ctx);
 
                 // Write discriminator field.
                 dst[variantDef.discriminator()] = std::move(tagJson);
@@ -1434,9 +1362,9 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
         dst = Json::arrayValue;
         std::size_t index = 0;
         for (const auto& elem : value) {
-            PathScope guard(encoder.context(), index++);
+            PathGuard guard(ctx, index++);
             Json::Value v;
-            encodeValue<Schema, U>(elem, v, encoder);
+            encodeValue<Schema, U>(elem, v, ctx);
             dst.append(v);
         }
     } else if constexpr (std::is_class_v<T>) {
@@ -1446,7 +1374,7 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
             "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
             "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
-        objectDef.encodeFields(value, dst, encoder);
+        objectDef.encodeFields(value, dst, ctx);
     } else if constexpr (std::is_pointer_v<T>) {
         static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
@@ -1459,49 +1387,49 @@ void encodeDefault(const T& value, Json::Value& dst, EncoderImpl<Schema>& encode
 // Decode defaults //////////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
-void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decoder)
+void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx)
 {
     if constexpr (std::is_same_v<T, bool>) {
         if (!src.isBool()) {
-            decoder.addError("Expected bool.");
+            ctx.addError("Expected bool.");
             return;
         }
         value = src.asBool();
     } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
         if (!src.isIntegral()) {
-            decoder.addError("Expected integral value.");
+            ctx.addError("Expected integral value.");
             return;
         }
         if constexpr (std::is_signed_v<T>) {
             auto v = src.asInt64();
             if (v < std::numeric_limits<T>::min() || v > std::numeric_limits<T>::max()) {
-                decoder.addError("Integer value out of range.");
+                ctx.addError("Integer value out of range.");
                 return;
             }
             value = static_cast<T>(v);
         } else {
             auto v = src.asUInt64();
             if (v > std::numeric_limits<T>::max()) {
-                decoder.addError("Unsigned integer value out of range.");
+                ctx.addError("Unsigned integer value out of range.");
                 return;
             }
             value = static_cast<T>(v);
         }
     } else if constexpr (std::is_same_v<T, float>) {
         if (!src.isDouble() && !src.isInt()) {
-            decoder.addError("Expected float.");
+            ctx.addError("Expected float.");
             return;
         }
         value = static_cast<float>(src.asDouble());
     } else if constexpr (std::is_same_v<T, double>) {
         if (!src.isDouble() && !src.isInt()) {
-            decoder.addError("Expected double.");
+            ctx.addError("Expected double.");
             return;
         }
         value = src.asDouble();
     } else if constexpr (std::is_same_v<T, std::string>) {
         if (!src.isString()) {
-            decoder.addError("Expected string.");
+            ctx.addError("Expected string.");
             return;
         }
         value = src.asString();
@@ -1509,7 +1437,7 @@ void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decode
         validateEnumType<Schema, T>();
 
         if (!src.isString()) {
-            decoder.addError("Expected string for enum.");
+            ctx.addError("Expected string for enum.");
             return;
         }
         const std::string s = src.asString();
@@ -1521,31 +1449,31 @@ void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decode
                 return;
             }
         }
-        decoder.addError("Unknown enum value '" + s + "'.");
+        ctx.addError("Unknown enum value '" + s + "'.");
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
         if (src.isNull()) {
             value.reset();
         } else {
             U tmp{};
-            decodeValue<Schema, U>(src, tmp, decoder);
+            decodeValue<Schema, U>(src, tmp, ctx);
             value = std::move(tmp);
         }
     } else if constexpr (IsVariant<T>::value) {
         // Discriminated polymorphic decoding for std::variant.
         validateVariant<Schema, T>();
-        VariantDecoder<Schema, T>::decode(src, value, decoder);
+        VariantDecoder<Schema, T>::decode(src, value, ctx);
     } else if constexpr (IsVector<T>::value) {
         using U = typename T::value_type;
         value.clear();
         if (!src.isArray()) {
-            decoder.addError("Expected array.");
+            ctx.addError("Expected array.");
             return;
         }
         for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
-            PathScope guard(decoder.context(), i);
+            PathGuard guard(ctx, i);
             U elem{};
-            decodeValue<Schema, U>(src[i], elem, decoder);
+            decodeValue<Schema, U>(src[i], elem, ctx);
             value.push_back(std::move(elem));
         }
     } else if constexpr (std::is_class_v<T>) {
@@ -1555,12 +1483,12 @@ void decodeDefault(const Json::Value& src, T& value, DecoderImpl<Schema>& decode
             "`template<> struct Schema::Object<T> : aison::Object<Schema, T>` and call "
             "add(...) for its fields, or provide a custom mapping via Schema::Custom<T>`.");
         if (!src.isObject()) {
-            decoder.addError("Expected object.");
+            ctx.addError("Expected object.");
             return;
         }
 
         const auto& objectDef = getSchemaObject<typename Schema::template Object<T>>();
-        objectDef.decodeFields(src, value, decoder);
+        objectDef.decodeFields(src, value, ctx);
     } else if constexpr (std::is_pointer_v<T>) {
         static_assert(false && std::is_pointer_v<T>, "Pointers are not supported.");
     } else {
@@ -1576,33 +1504,32 @@ template<typename Schema, typename... Ts>
 struct VariantDecoder<Schema, std::variant<Ts...>> {
     using VariantType = std::variant<Ts...>;
 
-    static void decode(const Json::Value& src, VariantType& value, DecoderImpl<Schema>& decoder)
+    static void decode(const Json::Value& src, VariantType& value, DecodeContext<Schema>& ctx)
     {
         // Ensure src is an object
         if (!src.isObject()) {
-            decoder.addError("Expected object for discriminated variant.");
+            ctx.addError("Expected object for discriminated variant.");
             return;
         }
 
         const auto& variantDef = getSchemaObject<typename Schema::template Variant<VariantType>>();
         const auto& fieldName = variantDef.discriminator();
-        if (!VariantKeyValidator<Schema, DecoderImpl<Schema>, std::variant<Ts...>>::validate(
-                decoder))
+        if (!VariantKeyValidator<Schema, DecodeContext<Schema>, std::variant<Ts...>>::validate(ctx))
         {
             return;
         }
 
         std::string tagValue;
         {
-            PathScope discGuard(decoder.context(), fieldName);
+            PathGuard discGuard(ctx, fieldName);
             if (!src.isMember(fieldName)) {
-                decoder.addError("Missing discriminator field.");
+                ctx.addError("Missing discriminator field.");
                 return;
             }
 
             const Json::Value& tagNode = src[fieldName];
             if (!tagNode.isString()) {
-                decoder.addError("Expected string.");
+                ctx.addError("Expected string.");
                 return;
             }
             tagValue = tagNode.asString();
@@ -1611,11 +1538,11 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         bool matched = false;
 
         // Try each alternative in turn
-        (tryAlternative<Ts>(src, tagValue, fieldName, value, decoder, matched), ...);
+        (tryAlternative<Ts>(src, tagValue, fieldName, value, ctx, matched), ...);
 
         if (!matched) {
-            PathScope discGuard(decoder.context(), fieldName);
-            decoder.addError("Unknown discriminator value for variant.");
+            PathGuard discGuard(ctx, fieldName);
+            ctx.addError("Unknown discriminator value for variant.");
         }
     }
 
@@ -1626,14 +1553,14 @@ private:
         const std::string& tagValue,
         const std::string& discriminatorKey,
         VariantType& value,
-        DecoderImpl<Schema>& decoder,
+        DecodeContext<Schema>& ctx,
         bool& matched)
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getSchemaObject<ObjectSpec>();
         if (!objectDef.hasVariantTag()) {
-            PathScope guard(decoder.context(), discriminatorKey);
-            decoder.addError("Variant alternative missing name().");
+            PathGuard guard(ctx, discriminatorKey);
+            ctx.addError("Variant alternative missing name().");
             return;
         }
         if (matched || tagValue != objectDef.variantTag()) {
@@ -1643,7 +1570,7 @@ private:
         matched = true;
 
         Alt alt{};
-        objectDef.decodeFields(src, alt, decoder);
+        objectDef.decodeFields(src, alt, ctx);
         value = std::move(alt);
     }
 };
@@ -1657,24 +1584,24 @@ struct FieldAccessor {
 
 template<typename Schema, typename Owner, typename T>
 void encodeFieldThunk(
-    const Owner& owner, Json::Value& dst, EncoderImpl<Schema>& encoder, FieldAccessorPtr ptr)
+    const Owner& owner, Json::Value& dst, EncodeContext<Schema>& ctx, FieldAccessorPtr ptr)
 {
     using Accessor = FieldAccessor<Owner, T>;
     auto* accessor = static_cast<const Accessor*>(ptr);
     auto& member = accessor->member;
     const T& ref = owner.*member;
-    encodeValue<Schema, T>(ref, dst, encoder);
+    encodeValue<Schema, T>(ref, dst, ctx);
 }
 
 template<typename Schema, typename Owner, typename T>
 void decodeFieldThunk(
-    const Json::Value& src, Owner& owner, DecoderImpl<Schema>& decoder, FieldAccessorPtr ptr)
+    const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr)
 {
     using Accessor = FieldAccessor<Owner, T>;
     auto* accessor = static_cast<const Accessor*>(ptr);
     auto& member = accessor->member;
     T& ref = owner.*member;
-    decodeValue<Schema, T>(src, ref, decoder);
+    decodeValue<Schema, T>(src, ref, ctx);
 }
 
 // Object implementation /////////////////////////////////////////////////////////
@@ -1715,9 +1642,9 @@ class ObjectImpl
 private:
     struct FieldDef {
         using EncodeFn =
-            void (*)(const Owner&, Json::Value&, EncoderImpl<Schema>&, FieldAccessorPtr ptr);
+            void (*)(const Owner&, Json::Value&, EncodeContext<Schema>&, FieldAccessorPtr ptr);
         using DecodeFn =
-            void (*)(const Json::Value&, Owner&, DecoderImpl<Schema>&, FieldAccessorPtr ptr);
+            void (*)(const Json::Value&, Owner&, DecodeContext<Schema>&, FieldAccessorPtr ptr);
 
         FieldDef(FieldAccessorStorage&& accessor)
             : accessor(std::move(accessor))
@@ -1803,13 +1730,13 @@ public:
     }
 
     template<typename S = Schema, typename = std::enable_if_t<hasEncodeFacet<S>()>>
-    void encodeFields(const Owner& src, Json::Value& dst, EncoderImpl<Schema>& encoder) const
+    void encodeFields(const Owner& src, Json::Value& dst, EncodeContext<Schema>& ctx) const
     {
         dst = Json::objectValue;
         for (const auto& field : fields_) {
-            PathScope guard(encoder.context(), field.name);
+            PathGuard guard(ctx, field.name);
             Json::Value node;
-            field.encode(src, node, encoder, field.accessor.get());
+            field.encode(src, node, ctx, field.accessor.get());
             if (!getSchemaStrictOptional<Schema>() && field.isOptional && node.isNull()) {
                 continue;
             }
@@ -1818,22 +1745,22 @@ public:
     }
 
     template<typename S = Schema, typename = std::enable_if_t<hasDecodeFacet<S>()>>
-    void decodeFields(const Json::Value& src, Owner& dst, DecoderImpl<Schema>& decoder) const
+    void decodeFields(const Json::Value& src, Owner& dst, DecodeContext<Schema>& ctx) const
     {
         for (const auto& field : fields_) {
             const auto& key = field.name;
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
-                    PathScope guard(decoder.context(), key);
-                    field.decode(Json::nullValue, dst, decoder, field.accessor.get());
+                    PathGuard guard(ctx, key);
+                    field.decode(Json::nullValue, dst, ctx, field.accessor.get());
                     continue;
                 }
-                decoder.addError(std::string("Missing required field '") + key + "'.");
+                ctx.addError(std::string("Missing required field '") + key + "'.");
                 continue;
             }
             const Json::Value& node = src[key];
-            PathScope guard(decoder.context(), key);
-            field.decode(node, dst, decoder, field.accessor.get());
+            PathGuard guard(ctx, key);
+            field.decode(node, dst, ctx, field.accessor.get());
         }
     }
 
@@ -2048,8 +1975,8 @@ class Custom
 public:
     using CustomTag = void;
     using ConfigType = typename Schema::ConfigType;
-    using EncodeContext = detail::CustomEncodeContext<Schema, T>;
-    using DecodeContext = detail::CustomDecodeContext<Schema, T>;
+    using EncodeContext = detail::EncodeContext<Schema>;
+    using DecodeContext = detail::DecodeContext<Schema>;
 
     void name(std::string_view value)
     {
@@ -2106,18 +2033,16 @@ private:
 template<typename Schema, typename T>
 Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config = {})
 {
-    detail::Context ctx;
-    detail::EncoderImpl<Schema> encoder(config, ctx);
-    encoder.encode(value, dst);
+    detail::EncodeContext<Schema> ctx(config);
+    ctx.encode(value, dst);
     return Result{ctx.takeErrors()};
 }
 
 template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {})
 {
-    detail::Context ctx;
-    detail::DecoderImpl<Schema> decoder(config, ctx);
-    decoder.decode(src, value);
+    detail::DecodeContext<Schema> ctx(config);
+    ctx.decode(src, value);
     return Result{ctx.takeErrors()};
 }
 

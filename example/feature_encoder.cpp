@@ -119,7 +119,7 @@ struct ColorSchema::Custom<Channels> : aison::Custom<ColorSchema, Channels> {
 
 template<>
 struct ColorSchema::Custom<RGBColor> : aison::Custom<ColorSchema, RGBColor> {
-    void encode(const RGBColor& src, Json::Value& dst, EncodeContext&) const
+    void encode(const RGBColor& src, Json::Value& dst, EncodeContext&)
     {
         dst = toHexColor(src, true);
     }
