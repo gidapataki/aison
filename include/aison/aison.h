@@ -21,10 +21,6 @@
 namespace aison {
 
 struct EmptyConfig;
-struct EncodeOnly;
-struct DecodeOnly;
-struct EncodeDecode;
-
 struct Error;
 struct Result;
 struct SchemaDefaults;
@@ -41,7 +37,7 @@ struct Enum;
 template<typename Schema, typename T>
 struct Custom;
 
-template<typename Derived, typename FacetTag, typename Config>
+template<typename Derived, typename Config>
 struct Schema;
 
 // Introspection types
@@ -151,10 +147,10 @@ template<typename Schema, typename T>
 void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
 
 template<typename Schema>
-constexpr bool hasEncodeFacet();
+constexpr bool getSchemaEnableEncode();
 
 template<typename Schema>
-constexpr bool hasDecodeFacet();
+constexpr bool getSchemaEnableDecode();
 
 template<typename Schema, typename T>
 constexpr void validateEnumSpec();
@@ -238,22 +234,17 @@ struct Result {
 
 struct EmptyConfig {};
 
-// Facet tag types
-
-struct EncodeOnly {};
-struct DecodeOnly {};
-struct EncodeDecode {};
-
 struct SchemaDefaults {
     static constexpr auto enableAssert = true;
     static constexpr auto strictOptional = true;
     static constexpr auto enableIntrospection = false;
+    static constexpr auto enableEncode = true;
+    static constexpr auto enableDecode = true;
 };
 
-template<typename Derived, typename Facet = EncodeDecode, typename Config = EmptyConfig>
+template<typename Derived, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
-    using FacetType = Facet;
     using ConfigType = Config;
 
     // template<typename T> struct Object;
@@ -1398,28 +1389,16 @@ struct HasSchemaTag : std::false_type {};
 template<typename Schema>
 struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
 
-template<typename Schema, typename = void>
-struct HasSchemaAliases : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaAliases<
-    Schema,
-    std::void_t<typename Schema::FacetType, typename Schema::ConfigType>> : std::true_type {};
-
 template<typename Schema>
 constexpr void validateSchemaDefinition()
 {
     static_assert(
         HasSchemaTag<Schema>::value,
         "Schema must define SchemaTag. Did you inherit from aison::Schema<...>?");
-    static_assert(
-        HasSchemaAliases<Schema>::value,
-        "Schema must expose FacetType and ConfigType. Inherit from aison::Schema<Derived, Facet, "
-        "Config>.");
-    using Base = aison::Schema<Schema, typename Schema::FacetType, typename Schema::ConfigType>;
+    using Base = aison::Schema<Schema, typename Schema::ConfigType>;
     static_assert(
         std::is_base_of_v<Base, Schema>,
-        "Schema must inherit from aison::Schema<Derived, Facet, Config>.");
+        "Schema must inherit from aison::Schema<Derived, Config>.");
 }
 
 template<typename Schema>
@@ -1440,10 +1419,9 @@ public:
         : config_(cfg)
     {
         validateSchemaDefinition<Schema>();
-        using Facet = typename Schema::FacetType;
         static_assert(
-            hasEncodeFacet<Schema>(),
-            "EncoderImpl<Schema> cannot be used with a DecodeOnly schema facet.");
+            getSchemaEnableEncode<Schema>(),
+            "EncodeContext<Schema> cannot be used when Schema::enableEncode is false.");
     }
 
     template<typename T>
@@ -1468,10 +1446,9 @@ public:
         : config_(cfg)
     {
         validateSchemaBase<Schema>();
-        using Facet = typename Schema::FacetType;
         static_assert(
-            hasDecodeFacet<Schema>(),
-            "DecoderImpl<Schema> cannot be used with an EncodeOnly schema facet.");
+            getSchemaEnableDecode<Schema>(),
+            "DecodeContext<Schema> cannot be used when Schema::enableDecode is false.");
     }
 
     template<typename T>
@@ -1829,18 +1806,60 @@ FieldAccessorId getFieldAccessorId()
     return &id;
 }
 
+template<typename Schema, typename = void>
+struct HasSchemaEnableEncode : std::false_type {};
+
 template<typename Schema>
-constexpr bool hasEncodeFacet()
+struct HasSchemaEnableEncode<Schema, std::void_t<decltype(Schema::enableEncode)>>
+    : std::true_type {};
+
+template<typename Schema, typename = void>
+struct HasSchemaEnableDecode : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableDecode<Schema, std::void_t<decltype(Schema::enableDecode)>>
+    : std::true_type {};
+
+template<typename Schema, typename = void>
+struct SchemaEnableEncode {
+    constexpr static bool get() { return SchemaDefaults::enableEncode; }
+};
+
+template<typename Schema>
+struct SchemaEnableEncode<Schema, std::enable_if_t<HasSchemaEnableEncode<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableEncode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableEncode must be bool.");
+        return Schema::enableEncode;
+    }
+};
+
+template<typename Schema, typename = void>
+struct SchemaEnableDecode {
+    constexpr static bool get() { return SchemaDefaults::enableDecode; }
+};
+
+template<typename Schema>
+struct SchemaEnableDecode<Schema, std::enable_if_t<HasSchemaEnableDecode<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableDecode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableDecode must be bool.");
+        return Schema::enableDecode;
+    }
+};
+
+template<typename Schema>
+constexpr bool getSchemaEnableEncode()
 {
-    using Facet = typename Schema::FacetType;
-    return std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, EncodeOnly>;
+    return SchemaEnableEncode<Schema>::get();
 }
 
 template<typename Schema>
-constexpr bool hasDecodeFacet()
+constexpr bool getSchemaEnableDecode()
 {
-    using Facet = typename Schema::FacetType;
-    return std::is_same_v<Facet, EncodeDecode> || std::is_same_v<Facet, DecodeOnly>;
+    return SchemaEnableDecode<Schema>::get();
 }
 
 template<typename Schema, typename Owner>
@@ -1923,11 +1942,11 @@ public:
         field.accessorId = accessorId;
         field.isOptional = IsOptional<T>::value;
 
-        if constexpr (hasEncodeFacet<Schema>()) {
+        if constexpr (getSchemaEnableEncode<Schema>()) {
             field.encode = &encodeFieldThunk<Schema, Owner, T>;
         }
 
-        if constexpr (hasDecodeFacet<Schema>()) {
+        if constexpr (getSchemaEnableDecode<Schema>()) {
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
 
@@ -1940,7 +1959,7 @@ public:
         }
     }
 
-    template<typename S = Schema, typename = std::enable_if_t<hasEncodeFacet<S>()>>
+    template<typename S = Schema, typename = std::enable_if_t<getSchemaEnableEncode<S>()>>
     void encodeFields(const Owner& src, Json::Value& dst, EncodeContext<Schema>& ctx) const
     {
         dst = Json::objectValue;
@@ -1955,7 +1974,7 @@ public:
         }
     }
 
-    template<typename S = Schema, typename = std::enable_if_t<hasDecodeFacet<S>()>>
+    template<typename S = Schema, typename = std::enable_if_t<getSchemaEnableDecode<S>()>>
     void decodeFields(const Json::Value& src, Owner& dst, DecodeContext<Schema>& ctx) const
     {
         for (const auto& field : fields_) {

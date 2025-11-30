@@ -16,7 +16,8 @@ struct EncodeOnlyText {
     std::string value;
 };
 
-struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema, aison::EncodeOnly> {
+struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema> {
+    static constexpr bool enableDecode = false;
     template<typename T>
     struct Custom;
 };
@@ -37,7 +38,8 @@ struct DecodeOnlyNumber {
     int value = 0;
 };
 
-struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema, aison::DecodeOnly> {
+struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema> {
+    static constexpr bool enableEncode = false;
     template<typename T>
     struct Custom;
 };
@@ -114,7 +116,7 @@ static bool parseHex(const std::string& s, Color& out)
     return true;
 }
 
-struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeDecode, ColorConfig> {
+struct ColorSchema : aison::Schema<ColorSchema, ColorConfig> {
     template<typename T>
     struct Object;
     template<typename T>

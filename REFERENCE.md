@@ -35,7 +35,7 @@ A schema defines how C++ types map to JSON.
 
 ```cpp
 struct MySchema
-    : aison::Schema<MySchema, aison::EncodeDecode /* optional facet */, MyConfig /* optional */>
+    : aison::Schema<MySchema, MyConfig /* optional */>
 {
     template<typename T> struct Object;   // struct mappings
     template<typename E> struct Enum;     // enum mappings
@@ -43,17 +43,7 @@ struct MySchema
 };
 ```
 
-### 1.1 Facets
-
-The facet defines which operations the schema supports:
-
-| Facet | Meaning |
-|-------|---------|
-| `EncodeOnly`     | Only encoding is allowed; decoding triggers compile‑errors. |
-| `DecodeOnly`     | Only decoding is allowed; encoding triggers compile‑errors. |
-| `EncodeDecode`   | Both encoding and decoding (default). |
-
-### 1.2 Config
+### 1.1 Config
 
 A schema may optionally define a config type:
 
@@ -66,6 +56,20 @@ struct MyConfig {
 The config object is passed to:
 
 - custom mappings (`Schema::Custom<T>`)
+- encode/decode contexts (`ctx.config()`)
+
+### 1.2 Encode/Decode flags
+
+Schemas control capabilities via flags instead of facets:
+
+```cpp
+struct MySchema : aison::Schema<MySchema> {
+    static constexpr bool enableEncode = true;  // default
+    static constexpr bool enableDecode = true;  // default
+};
+```
+
+Set a flag to `false` to disable encoding or decoding (compile-time errors if invoked).
 
 Usage:
 

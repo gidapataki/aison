@@ -72,7 +72,7 @@ struct Config {
     bool upperCaseHex = false;
 };
 
-struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
+struct TextSchema : aison::Schema<TextSchema, Config> {
     template<typename T> struct Object;
     template<typename T> struct Enum;
     template<typename T> struct Custom;

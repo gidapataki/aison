@@ -6,7 +6,7 @@
 - Keep implementation C++17-compliant, avoid compiler-specific extensions.
 
 ## Schema & Mapping Invariants
-- Schemas must derive from `aison::Schema<Derived, Facet, Config>` and expose `SchemaTag`, `FacetType`, and `ConfigType`.
+- Schemas must derive from `aison::Schema<Derived, Config>` and expose `SchemaTag` and `ConfigType`.
 - Objects/Enums/Variants/Custom mappings must inherit their corresponding `aison::Object/Enum/Variant/Custom` bases.
 - Variant mappings must target `std::variant` types; every alternative must have an Object mapping.
 - Variants always require a discriminator and named alternatives (used for tagging); introspection-enabled (`enableIntrospection = true`) additionally requires names on objects, enums, variants, and custom types.

@@ -14,7 +14,7 @@ struct Config {
     bool upperCaseHex = false;
 };
 
-struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
+struct TextSchema : aison::Schema<TextSchema, Config> {
     static constexpr auto enableAssert = false;
     static constexpr auto strictOptional = false;
 
@@ -91,7 +91,8 @@ struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
 
 // ColorSchema
 
-struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeOnly> {
+struct ColorSchema : aison::Schema<ColorSchema> {
+    static constexpr bool enableDecode = false;
     template<typename T>
     struct Object;
 
