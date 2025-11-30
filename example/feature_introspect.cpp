@@ -84,20 +84,24 @@ struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
 
 std::string renderType(const aison::TypeInfo* info)
 {
-    if (!info) return "unknown";
-    auto typeIdStr = std::to_string(reinterpret_cast<std::uintptr_t>(info->typeId));
-    auto renderNamed = [&](std::string_view kind) {
-        if (info->name && *info->name) {
-            return std::string(kind) + "(" + info->name + ")";
+    if (!info) {
+        return "unknown";
+    }
+
+    auto typeId = reinterpret_cast<std::uintptr_t>(info->typeId);
+    auto nameOrId = [&](const std::string* name) {
+        if (!name || name->empty()) {
+            return "#" + std::to_string(typeId);
+        } else {
+            return *name;
         }
-        return std::string(kind) + "(typeId=" + typeIdStr + ")";
     };
 
     switch (info->cls) {
         case aison::TypeClass::Bool:
             return "bool";
         case aison::TypeClass::Integral: {
-            auto size = static_cast<int>(info->data.integral.size);
+            auto size = info->data.integral.size;
             return (info->data.integral.isSigned ? "int" : "uint") + std::to_string(size * 8);
         }
         case aison::TypeClass::Floating: {
@@ -109,18 +113,17 @@ std::string renderType(const aison::TypeInfo* info)
         case aison::TypeClass::String:
             return "string";
         case aison::TypeClass::Enum:
-            return renderNamed("enum");
+            return "enum(" + nameOrId(info->data.enumeration.name) + ")";
         case aison::TypeClass::Object:
-            return renderNamed("object");
+            return "object(" + nameOrId(info->data.object.name) + ")";
         case aison::TypeClass::Custom:
-            return renderNamed("custom");
+            return "custom(" + nameOrId(info->data.object.name) + ")";
         case aison::TypeClass::Optional:
             return "optional<" + renderType(info->data.optional.type) + ">";
         case aison::TypeClass::Vector:
             return "vector<" + renderType(info->data.vector.type) + ">";
         case aison::TypeClass::Variant: {
-            std::string out =
-                info->name && *info->name ? std::string("variant ") + info->name + "<" : "variant<";
+            std::string out = "variant(" + nameOrId(info->data.variant.name) + ")<";
             for (std::size_t i = 0; i < info->data.variant.count; ++i) {
                 if (i) out += " | ";
                 out += info->data.variant.types && info->data.variant.types[i]
