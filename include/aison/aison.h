@@ -332,21 +332,9 @@ constexpr bool isSupportedFieldType();
 template<typename Schema, typename T>
 void introspectType(IntrospectContext<Schema>& ctx);
 
-template<typename Key>
-bool shouldReportSchemaError();
-
-template<typename...>
-struct SchemaErrorKeyTag;
-
-template<typename Key, typename Ctx>
-void addSchemaErrorOnce(Ctx& ctx, const std::string& message);
-
 // Definitions (detail) //////////////////////////////////////////////////////////////////////////
 
 // == Schema ==
-
-template<typename...>
-struct SchemaErrorKeyTag {};
 
 template<typename Schema, typename>
 struct HasSchemaTag : std::false_type {};
@@ -1210,8 +1198,7 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
                 using Alt = std::decay_t<decltype(alt)>;
                 auto& obj = getObjectDef<Schema, Alt>();
                 obj.getImpl().encodeFields(alt, dst, ctx);
-                dst[std::string(var.getImpl().discriminator())] =
-                    std::string(obj.getImpl().name());
+                dst[std::string(var.getImpl().discriminator())] = std::string(obj.getImpl().name());
             },
             src);
 
@@ -1624,42 +1611,6 @@ constexpr bool isSupportedFieldType()
         return true;
     } else {
         return false;
-    }
-}
-
-template<typename Key>
-bool shouldReportSchemaError()
-{
-    // fallback when context does not provide per-context dedup
-    static bool reported = false;
-    if (reported) {
-        return false;
-    }
-    reported = true;
-    return true;
-}
-
-template<typename Ctx, typename = void>
-struct HasSchemaErrorMark : std::false_type {};
-
-template<typename Ctx>
-struct HasSchemaErrorMark<
-    Ctx,
-    std::void_t<decltype(std::declval<Ctx&>().markSchemaError(std::declval<std::size_t>()))>>
-    : std::true_type {};
-
-template<typename Key, typename Ctx>
-void addSchemaErrorOnce(Ctx& ctx, const std::string& message)
-{
-    if constexpr (HasSchemaErrorMark<Ctx>::value) {
-        const std::size_t key = typeid(Key).hash_code();
-        if (ctx.markSchemaError(key)) {
-            ctx.addError(message);
-        }
-    } else {
-        if (shouldReportSchemaError<Key>()) {
-            ctx.addError(message);
-        }
     }
 }
 
