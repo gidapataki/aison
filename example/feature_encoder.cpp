@@ -93,6 +93,7 @@ struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
 
 struct ColorSchema : aison::Schema<ColorSchema> {
     static constexpr bool enableDecode = false;
+    static constexpr bool enableIntrospect = true;
     template<typename T>
     struct Object;
 

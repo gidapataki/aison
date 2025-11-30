@@ -10,7 +10,7 @@ namespace example {
 namespace {
 
 struct DemoSchema : aison::Schema<DemoSchema> {
-    static constexpr bool enableIntrospection = true;
+    static constexpr bool enableIntrospect = true;
     template<typename T>
     struct Object;
     template<typename T>

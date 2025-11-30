@@ -245,7 +245,7 @@ struct EmptyConfig {};
 struct SchemaDefaults {
     static constexpr auto strictOptional = true;
     static constexpr auto enableAssert = true;
-    static constexpr auto enableIntrospection = false;
+    static constexpr auto enableIntrospect = false;
     static constexpr auto enableEncode = true;
     static constexpr auto enableDecode = true;
 };
@@ -656,12 +656,13 @@ void registerObjectMapping()
         if constexpr (getEnableIntrospection<Schema>()) {
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
-                    obj.hasName() &&
+                    obj.getImpl().hasName() &&
                     "Schema::Object<T>::name(...) is required when introspection is enabled.");
             }
-            if (obj.hasName()) {
-                setTypeName<Schema, T>(obj.name());
-                getIntrospectionRegistry<Schema>().setObjectName(getTypeId<T>(), obj.name());
+            if (obj.getImpl().hasName()) {
+                setTypeName<Schema, T>(obj.getImpl().name());
+                getIntrospectionRegistry<Schema>().setObjectName(
+                    getTypeId<T>(), obj.getImpl().name());
             }
         }
     }
@@ -675,8 +676,8 @@ void registerVariantAlternative()
         auto& obj = getObjectDef<Schema, Alt>();
         AlternativeInfo info;
         info.type = &makeTypeInfo<Schema, Alt>();
-        if (obj.hasName()) {
-            info.name = obj.name();
+        if (obj.getImpl().hasName()) {
+            info.name = obj.getImpl().name();
         }
         getIntrospectionRegistry<Schema>().addVariantAlternative(
             getTypeId<Variant>(), std::move(info));
@@ -698,14 +699,14 @@ void registerVariantMapping()
             auto& var = getVariantDef<Schema, T>();
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
-                    var.hasName() &&
+                    var.getImpl().hasName() &&
                     "Schema::Variant<V>::name(...) is required when introspection is enabled.");
             }
-            if (var.hasName()) {
-                reg.setVariantName(getTypeId<T>(), var.name());
-                setTypeName<Schema, T>(var.name());
+            if (var.getImpl().hasName()) {
+                reg.setVariantName(getTypeId<T>(), var.getImpl().name());
+                setTypeName<Schema, T>(var.getImpl().name());
             }
-            reg.setVariantDiscriminator(getTypeId<T>(), var.discriminator());
+            reg.setVariantDiscriminator(getTypeId<T>(), var.getImpl().discriminator());
             registerVariantAlternatives<Schema, T>(
                 std::make_index_sequence<std::variant_size_v<T>>{});
         }
@@ -720,12 +721,13 @@ void registerEnumMapping()
         if constexpr (getEnableIntrospection<Schema>()) {
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
-                    def.hasName() &&
+                    def.getImpl().hasName() &&
                     "Schema::Enum<E>::name(...) is required when introspection is enabled.");
             }
-            if (def.hasName()) {
-                getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), def.name());
-                setTypeName<Schema, E>(def.name());
+            if (def.getImpl().hasName()) {
+                getIntrospectionRegistry<Schema>().setEnumName(
+                    getTypeId<E>(), def.getImpl().name());
+                setTypeName<Schema, E>(def.getImpl().name());
             }
         }
     }
@@ -1055,7 +1057,7 @@ public:
     bool hasNamesInAlternatives() const
     {
         bool hasNames = true;
-        ((hasNames = hasNames && getObjectDef<Schema, Ts>().hasName()), ...);
+        ((hasNames = hasNames && getObjectDef<Schema, Ts>().getImpl().hasName()), ...);
 
         return hasNames;
     }
@@ -1236,7 +1238,7 @@ struct SchemaValidator {
     {
         validateObjectSpec<Schema, T>();
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!objectDef.hasName()) {
+            if (!objectDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1253,7 +1255,7 @@ struct SchemaValidator {
     {
         validateEnumSpec<Schema, T>();
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!enumDef.hasName()) {
+            if (!enumDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1289,7 +1291,7 @@ struct SchemaValidator {
         validateVariantSpec<Schema, Type>();
         bool ok = true;
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!variantDef.hasName()) {
+            if (!variantDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1298,12 +1300,12 @@ struct SchemaValidator {
                 ok = false;
             }
         }
-        if (!variantDef.hasDiscriminator()) {
+        if (!variantDef.getImpl().hasDiscriminator()) {
             using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
             addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
             ok = false;
         }
-        if (!variantDef.hasNamesInAlternatives()) {
+        if (!variantDef.getImpl().hasNamesInAlternatives()) {
             using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
             addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
             ok = false;
@@ -1410,12 +1412,12 @@ template<typename Schema, typename>
 struct HasSchemaEnableIntrospection : std::false_type {};
 
 template<typename Schema>
-struct HasSchemaEnableIntrospection<Schema, std::void_t<decltype(Schema::enableIntrospection)>>
+struct HasSchemaEnableIntrospection<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
     : std::true_type {};
 
 template<typename Schema, typename>
 struct SchemaEnableIntrospection {
-    constexpr static bool get() { return SchemaDefaults::enableIntrospection; }
+    constexpr static bool get() { return SchemaDefaults::enableIntrospect; }
 };
 
 template<typename Schema>
@@ -1424,9 +1426,9 @@ struct SchemaEnableIntrospection<
     std::enable_if_t<HasSchemaEnableIntrospection<Schema>::value>> {
     constexpr static bool get()
     {
-        using Type = std::decay_t<decltype(Schema::enableIntrospection)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableIntrospection must be bool.");
-        return Schema::enableIntrospection;
+        using Type = std::decay_t<decltype(Schema::enableIntrospect)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableIntrospect must be bool.");
+        return Schema::enableIntrospect;
     }
 };
 
@@ -1533,13 +1535,13 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
     } else if constexpr (HasObjectTag<Schema, T>::value) {
         const auto& def = getObjectDef<Schema, T>();
         SchemaValidator<Schema>::template validateObject<T>(ctx, def);
-        def.encodeFields(src, dst, ctx);
+        def.getImpl().encodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
         using EnumSpec = typename Schema::template Enum<T>;
         auto& def = getEnumDef<Schema, T>();
         SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
-        auto* str = def.find(src);
+        auto* str = def.getImpl().find(src);
         if (str) {
             dst = *str;
         } else {
@@ -1560,8 +1562,8 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
                 auto& obj = getObjectDef<Schema, Alt>();
-                obj.encodeFields(alt, dst, ctx);
-                dst[var.discriminator()] = obj.name();
+                obj.getImpl().encodeFields(alt, dst, ctx);
+                dst[var.getImpl().discriminator()] = obj.getImpl().name();
             },
             src);
 
@@ -1642,7 +1644,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
 
         const auto& obj = getObjectDef<Schema, T>();
         SchemaValidator<Schema>::template validateObject<T>(ctx, obj);
-        obj.decodeFields(src, dst, ctx);
+        obj.getImpl().decodeFields(src, dst, ctx);
 
     } else if constexpr (HasEnumTag<Schema, T>::value) {
         if (!src.isString()) {
@@ -1652,7 +1654,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
 
         auto& def = getEnumDef<Schema, T>();
         SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
-        auto* value = def.find(src.asString());
+        auto* value = def.getImpl().find(src.asString());
         if (value) {
             dst = *value;
         } else {
@@ -1763,7 +1765,8 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             return;
         }
 
-        auto& tag = var.discriminator();
+        auto& def = var.getImpl();
+        const auto& tag = def.discriminator();
         std::string tagValue;
 
         {
@@ -1800,14 +1803,14 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
     {
         using ObjectSpec = typename Schema::template Object<Alt>;
         const auto& objectDef = getObjectDef<Schema, Alt>();
-        if (matched || tagValue != objectDef.variantTag()) {
+        if (matched || tagValue != objectDef.getImpl().variantTag()) {
             return;
         }
 
         matched = true;
 
         Alt alt{};
-        objectDef.decodeFields(src, alt, ctx);
+        objectDef.getImpl().decodeFields(src, alt, ctx);
         dst = std::move(alt);
     }
 };
@@ -2070,7 +2073,7 @@ public:
         static_assert(
             detail::getEnableIntrospection<Schema>(),
             "Introspection is disabled for this schema. Set `static constexpr bool "
-            "enableIntrospection = true;` in your Schema to use Introspection.");
+            "enableIntrospect = true;` in your Schema to use Introspection.");
     }
 
     template<typename T>
@@ -2245,36 +2248,59 @@ struct Schema {
 };
 
 template<typename Schema, typename T>
-struct Object : detail::ObjectImpl<Schema, T> {
+struct Object {
     using ObjectTag = void;
     using Impl = detail::ObjectImpl<Schema, T>;
 
-    using Impl::add;
-    using Impl::name;
-
     Object() { detail::validateObjectSpec<Schema, T>(); }
+
+    template<typename U>
+    void add(U T::* member, std::string_view name)
+    {
+        impl_.add(member, name);
+    }
+
+    void name(std::string_view value) { impl_.name(value); }
+
+    Impl& getImpl() { return impl_; }
+    const Impl& getImpl() const { return impl_; }
+
+private:
+    Impl impl_;
 };
 
 template<typename Schema, typename T>
-struct Enum : detail::EnumImpl<Schema, T> {
+struct Enum {
     using EnumTag = void;
     using Impl = detail::EnumImpl<Schema, T>;
 
-    using Impl::add;
-    using Impl::name;
-
     Enum() { detail::validateEnumSpec<Schema, T>(); }
+
+    void name(std::string_view value) { impl_.name(value); }
+    void add(T value, std::string_view name) { impl_.add(value, name); }
+
+    Impl& getImpl() { return impl_; }
+    const Impl& getImpl() const { return impl_; }
+
+private:
+    Impl impl_;
 };
 
 template<typename Schema, typename T>
-struct Variant : detail::VariantImpl<Schema, T> {
+struct Variant {
     using VariantTag = void;
     using Impl = detail::VariantImpl<Schema, T>;
 
-    using Impl::discriminator;
-    using Impl::name;
-
     Variant() { detail::validateVariantSpec<Schema, T>(); }
+
+    void name(std::string_view value) { impl_.name(value); }
+    void discriminator(std::string_view key) { impl_.discriminator(key); }
+
+    Impl& getImpl() { return impl_; }
+    const Impl& getImpl() const { return impl_; }
+
+private:
+    Impl impl_;
 };
 
 template<typename Schema, typename T>
@@ -2290,6 +2316,7 @@ struct Custom {
     void name(std::string_view value) { impl_.name(value); }
 
     Impl& getImpl() { return impl_; }
+    const Impl& getImpl() const { return impl_; }
 
 private:
     Impl impl_;
