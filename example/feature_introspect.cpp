@@ -11,6 +11,8 @@ namespace {
 
 struct DemoSchema : aison::Schema<DemoSchema> {
     static constexpr bool enableIntrospect = true;
+    static constexpr bool strictOptional = false;
+
     template<typename T>
     struct Object;
     template<typename T>
@@ -93,104 +95,100 @@ const aison::TypeInfo* lookup(const aison::IntrospectResult& isp, aison::TypeId 
     return it == isp.types.end() ? nullptr : &it->second;
 }
 
-#if 0
 std::string renderType(const aison::IntrospectResult& isp, aison::TypeId id)
 {
     const auto* info = lookup(isp, id);
-    const auto fallback = typeIdToString(id);
     if (!info) {
-        return fallback;
+        return typeIdToString(id);
     }
 
-    auto nameOrId = [&]() -> std::string { return info->name.empty() ? fallback : info->name; };
+    return std::visit(
+        [&](const auto& info) -> std::string {
+            using T = std::decay_t<decltype(info)>;
+            if constexpr (std::is_same_v<T, aison::BoolInfo>) {
+                return "bool";
 
-    switch (info->cls) {
-        case aison::TypeClass::Bool:
-            return "bool";
-        case aison::TypeClass::Integral: {
-            const auto& data = std::get<aison::IntegralInfo>(info->data);
-            return (data.isSigned ? "int" : "uint") + std::to_string(data.size * 8);
-        }
-        case aison::TypeClass::Floating: {
-            const auto& data = std::get<aison::FloatingInfo>(info->data);
-            if (data.size == 4) return "float";
-            if (data.size == 8) return "double";
-            return "float" + std::to_string(data.size);
-        }
-        case aison::TypeClass::String:
-            return "string";
-        case aison::TypeClass::Enum:
-            return "enum(" + nameOrId() + ")";
-        case aison::TypeClass::Object:
-            return "object(" + nameOrId() + ")";
-        case aison::TypeClass::Custom:
-            return "custom(" + nameOrId() + ")";
-        case aison::TypeClass::Optional: {
-            const auto& data = std::get<aison::OptionalInfo>(info->data);
-            return "optional<" + renderType(isp, data.value) + ">";
-        }
-        case aison::TypeClass::Vector: {
-            const auto& data = std::get<aison::VectorInfo>(info->data);
-            return "vector<" + renderType(isp, data.value) + ">";
-        }
-        case aison::TypeClass::Variant: {
-            const auto& data = std::get<aison::VariantInfo>(info->data);
-            std::string out = "variant(" + nameOrId() + ")<";
-            for (std::size_t i = 0; i < data.alternatives.size(); ++i) {
-                if (i) out += " | ";
-                out += renderType(isp, data.alternatives[i].type);
+            } else if constexpr (std::is_same_v<T, aison::StringInfo>) {
+                return "string";
+
+            } else if constexpr (std::is_same_v<T, aison::IntegralInfo>) {
+                return (info.isSigned ? "int" : "uint") + std::to_string(info.size * 8);
+
+            } else if constexpr (std::is_same_v<T, aison::FloatingInfo>) {
+                if (info.size == 4) return "float";
+                if (info.size == 8) return "double";
+                return "float" + std::to_string(info.size * 8);
+
+            } else if constexpr (std::is_same_v<T, aison::OptionalInfo>) {
+                return "optional<" + renderType(isp, info.type) + ">";
+
+            } else if constexpr (std::is_same_v<T, aison::VectorInfo>) {
+                return "vector<" + renderType(isp, info.type) + ">";
+
+            } else if constexpr (std::is_same_v<T, aison::VariantInfo>) {
+                return "variant(" + info.name + ")";
+
+            } else if constexpr (std::is_same_v<T, aison::ObjectInfo>) {
+                return "object(" + info.name + ")";
+
+            } else if constexpr (std::is_same_v<T, aison::EnumInfo>) {
+                return "enum(" + info.name + ")";
+
+            } else if constexpr (std::is_same_v<T, aison::CustomInfo>) {
+                return "custom(" + info.name + ")";
             }
-            out += ">";
-            return out;
-        }
-        default:
+
             return "unknown";
-    }
+        },
+        *info);
 }
 
 void dump(const aison::IntrospectResult& isp)
 {
-    for (const auto& entry : isp.types) {
-        const auto& info = entry.second;
-        const auto displayName = info.name.empty() ? typeIdToString(info.typeId) : info.name;
-        switch (info.cls) {
-            case aison::TypeClass::Object: {
-                const auto& obj = std::get<aison::ObjectInfo>(info.data);
-                std::cout << "object: " << displayName << "\n";
-                for (const auto& f : obj.fields) {
-                    std::cout << " - " << f.name << ": " << renderType(isp, f.type);
-                    if (!f.isRequired) std::cout << " (optional)";
-                    std::cout << "\n";
-                }
-                std::cout << "\n";
-                break;
-            }
-            case aison::TypeClass::Variant: {
-                const auto& var = std::get<aison::VariantInfo>(info.data);
-                std::cout << "variant: " << displayName << "\n";
-                for (const auto& alt : var.alternatives) {
-                    std::cout << " - tag=\"" << alt.name << "\" type="
-                              << renderType(isp, alt.type) << "\n";
-                }
-                std::cout << "\n";
-                break;
-            }
-            case aison::TypeClass::Enum: {
-                const auto& en = std::get<aison::EnumInfo>(info.data);
-                std::cout << "enum: " << displayName << " [";
-                for (std::size_t i = 0; i < en.values.size(); ++i) {
-                    if (i) std::cout << ", ";
-                    std::cout << en.values[i];
-                }
-                std::cout << "]\n";
-                break;
-            }
-            default:
-                break;
+    if (!isp) {
+        std::cerr << "== Introspect errors ==\n";
+        for (auto& err : isp.errors) {
+            std::cerr << err.path << ": " << err.message << "\n";
         }
+        return;
+    }
+
+    for (const auto& entry : isp.types) {
+        std::visit(
+            [&](const auto& info) {
+                using T = std::decay_t<decltype(info)>;
+                if constexpr (std::is_same_v<T, aison::ObjectInfo>) {
+                    std::cout << "object: " << info.name << "\n";
+                    for (const auto& f : info.fields) {
+                        std::cout << " - " << f.name << ": " << renderType(isp, f.type);
+                        if (!f.isRequired) std::cout << " (optional)";
+                        std::cout << "\n";
+                    }
+                    std::cout << "\n";
+
+                } else if constexpr (std::is_same_v<T, aison::EnumInfo>) {
+                    std::cout << "enum: " << info.name << " [";
+                    for (std::size_t i = 0; i < info.values.size(); ++i) {
+                        if (i) std::cout << ", ";
+                        std::cout << info.values[i];
+                    }
+                    std::cout << "]\n\n";
+
+                } else if constexpr (std::is_same_v<T, aison::VariantInfo>) {
+                    std::cout << "variant: " << info.name << " | discriminator=\""
+                              << info.discriminator << "\"\n";
+                    for (const auto& alt : info.alternatives) {
+                        std::cout << " - tag=\"" << alt.name
+                                  << "\" type=" << renderType(isp, alt.type) << "\n";
+                    }
+                    std::cout << "\n";
+                } else if constexpr (std::is_same_v<T, aison::CustomInfo>) {
+                    std::cout << "custom: " << info.name << "\n\n";
+                }
+            },
+            entry.second);
     }
 }
-#endif
 
 }  // namespace
 
@@ -199,20 +197,17 @@ void introspectExample1()
     Cone cone;
     Json::Value root;
     aison::encode<DemoSchema>(cone, root);
-
     std::cout << root.toStyledString() << "\n";
 
     auto isp = aison::introspect<DemoSchema, Flavor>();
 
-    // aison::introspection<DemoSchema>().collect<Flavor, ...>
-
 #if 1
     auto isp2 = aison::introspect<DemoSchema, Flavor, Order>();
-    // dump(isp2);
+    dump(isp2);
     std::cout << "--\n";
 #endif
 
-    // dump(isp);
+    dump(isp);
 }
 
 }  // namespace example

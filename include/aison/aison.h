@@ -21,6 +21,7 @@ namespace aison {
 // Declarations ////////////////////////////////////////////////////////////////////////////////////
 
 struct Result;
+struct IntrospectResult;
 
 using TypeId = const void*;
 
@@ -49,7 +50,7 @@ template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {});
 
 template<typename Schema, typename... Ts>
-Result introspect();
+IntrospectResult introspect();
 
 // Definitions /////////////////////////////////////////////////////////////////////////////////////
 
@@ -78,11 +79,11 @@ struct BoolInfo {};
 struct StringInfo {};
 
 struct OptionalInfo {
-    TypeId value = nullptr;
+    TypeId type = nullptr;
 };
 
 struct VectorInfo {
-    TypeId value = nullptr;
+    TypeId type = nullptr;
 };
 
 struct IntegralInfo {
@@ -138,14 +139,9 @@ using TypeInfo = std::variant<
     VariantInfo,
     CustomInfo>;
 
-struct IntrospectError {
-    std::string type;
-    std::string message;
-};
-
 struct IntrospectResult {
     std::unordered_map<TypeId, TypeInfo> types;
-    std::vector<IntrospectError> errors;
+    std::vector<Error> errors;
 
     explicit operator bool() const { return errors.empty(); }
 };
@@ -524,6 +520,7 @@ public:
         DecodeFn decode = nullptr;
 
         std::string name;
+        TypeId typeId = nullptr;
         bool isRequired = true;
     };
 
@@ -589,6 +586,7 @@ public:
 
         if constexpr (getIntrospectEnabled<Schema>()) {
             field.introspect = &introspectFieldThunk<Schema, T>;
+            field.typeId = getTypeId<std::decay_t<T>>();
         }
     }
 
@@ -887,16 +885,16 @@ template<typename Schema, typename T, typename ObjectDef>
 bool validateObject(Context& ctx, const ObjectDef& objectDef)
 {
     validateObjectSpec<Schema, T>();
-    if constexpr (getIntrospectEnabled<Schema>()) {
-        if (!objectDef.getImpl().hasName()) {
-            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
-            addSchemaErrorOnce<Key>(
-                ctx,
-                "(Schema error) Schema::Object<T>::name(...) is required when "
-                "introspection is enabled.");
-            return false;
-        }
-    }
+    // if constexpr (getIntrospectEnabled<Schema>()) {
+    //     if (!objectDef.getImpl().hasName()) {
+    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
+    //         addSchemaErrorOnce<Key>(
+    //             ctx,
+    //             "(Schema error) Schema::Object<T>::name(...) is required when "
+    //             "introspection is enabled.");
+    //         return false;
+    //     }
+    // }
     return true;
 }
 
@@ -904,16 +902,16 @@ template<typename Schema, typename T, typename EnumDef>
 bool validateEnum(Context& ctx, const EnumDef& enumDef)
 {
     validateEnumSpec<Schema, T>();
-    if constexpr (getIntrospectEnabled<Schema>()) {
-        if (!enumDef.getImpl().hasName()) {
-            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
-            addSchemaErrorOnce<Key>(
-                ctx,
-                "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
-                "enabled.");
-            return false;
-        }
-    }
+    // if constexpr (getIntrospectEnabled<Schema>()) {
+    //     if (!enumDef.getImpl().hasName()) {
+    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
+    //         addSchemaErrorOnce<Key>(
+    //             ctx,
+    //             "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
+    //             "enabled.");
+    //         return false;
+    //     }
+    // }
     return true;
 }
 
@@ -921,16 +919,16 @@ template<typename Schema, typename T, typename CustomDef>
 bool validateCustom(Context& ctx, const CustomDef& customDef)
 {
     validateCustomSpec<Schema, T>();
-    if constexpr (getIntrospectEnabled<Schema>()) {
-        if (!customDef.getImpl().hasName()) {
-            using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
-            addSchemaErrorOnce<Key>(
-                ctx,
-                "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
-                "is enabled.");
-            return false;
-        }
-    }
+    // if constexpr (getIntrospectEnabled<Schema>()) {
+    //     if (!customDef.getImpl().hasName()) {
+    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
+    //         addSchemaErrorOnce<Key>(
+    //             ctx,
+    //             "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
+    //             "is enabled.");
+    //         return false;
+    //     }
+    // }
     return true;
 }
 
@@ -940,16 +938,16 @@ bool validateVariant(Context& ctx, const VariantDef& variantDef)
     using Type = std::decay_t<Variant>;
     validateVariantSpec<Schema, Type>();
     bool ok = true;
-    if constexpr (getIntrospectEnabled<Schema>()) {
-        if (!variantDef.getImpl().hasName()) {
-            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
-            addSchemaErrorOnce<Key>(
-                ctx,
-                "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
-                "is enabled.");
-            ok = false;
-        }
-    }
+    // if constexpr (getIntrospectEnabled<Schema>()) {
+    //     if (!variantDef.getImpl().hasName()) {
+    //         using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
+    //         addSchemaErrorOnce<Key>(
+    //             ctx,
+    //             "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
+    //             "is enabled.");
+    //         ok = false;
+    //     }
+    // }
     if (!variantDef.getImpl().hasDiscriminator()) {
         using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
         addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
@@ -1115,8 +1113,9 @@ public:
 
     void addError(const std::string& msg) { errors_.push_back(Error{buildPath(), msg}); }
     size_t errorCount() const { return errors_.size(); }
-    std::vector<Error> takeErrors() { return std::move(errors_); }
     const std::vector<Error>& errors() const { return errors_; }
+
+    std::vector<Error> takeErrors() { return std::move(errors_); }
 
 private:
     std::vector<PathSegment> pathStack_;
@@ -1190,6 +1189,14 @@ public:
     void markVisited(TypeId id) { types_[id] = UnknownInfo{}; }
     void add(TypeId id, TypeInfo info) { types_[id] = std::move(info); }
 
+    IntrospectResult takeResult()
+    {
+        IntrospectResult result;
+        result.errors = takeErrors();
+        result.types = std::move(types_);
+        return result;
+    }
+
 private:
     std::unordered_map<TypeId, TypeInfo> types_;
 };
@@ -1221,10 +1228,9 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         if (str) {
             dst = *str;
         } else {
-            using U = typename std::underlying_type<T>::type;
             ctx.addError(
-                "Unhandled enum value during encode (underlying = " + std::to_string(U(src)) +
-                ").");
+                "Unhandled enum value during encode (underlying = " +
+                std::to_string(std::underlying_type_t<T>(src)) + ").");
         }
 
     } else if constexpr (HasVariantTag<Schema, T>::value) {
@@ -1747,7 +1753,7 @@ void introspectType(IntrospectContext<Schema>& ctx)
         for (const auto& field : def.getImpl().fields()) {
             FieldInfo fi;
             fi.name = field.name;
-            fi.type = getTypeId<U>();
+            fi.type = field.typeId;
             fi.isRequired = field.isRequired;
             info.fields.push_back(std::move(fi));
             field.introspect(ctx);
@@ -1798,8 +1804,8 @@ void introspectType(IntrospectContext<Schema>& ctx)
 }  // namespace aison::detail
 
 namespace aison {
-
-// Definitions (CRTP base types) ///////////////////////////////////////////////////////////////////
+// Definitions (CRTP base types)
+// ///////////////////////////////////////////////////////////////////
 
 template<typename Derived, typename Config = EmptyConfig>
 struct Schema {
@@ -1882,7 +1888,8 @@ private:
     Impl impl_;
 };
 
-// Definitions (API functions) /////////////////////////////////////////////////////////////////////
+// Definitions (API functions)
+// /////////////////////////////////////////////////////////////////////
 
 template<typename T>
 TypeId getTypeId()
@@ -1910,12 +1917,12 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
 }
 
 template<typename Schema, typename... Ts>
-Result introspect()
+IntrospectResult introspect()
 {
     detail::validateSchemaDefinition<Schema>();
     detail::IntrospectContext<Schema> ctx;
     (detail::introspectType<Schema, Ts>(ctx), ...);
-    return Result{ctx.takeErrors()};
+    return ctx.takeResult();
 }
 
 }  // namespace aison

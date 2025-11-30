@@ -10,9 +10,9 @@ void introspectExample1();
 
 void run()
 {
-    variantExample1();
-    encoderExample1();
-    encoderExample2();
+    // variantExample1();
+    // encoderExample1();
+    // encoderExample2();
     introspectExample1();
 }
 
