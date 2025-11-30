@@ -1737,11 +1737,6 @@ void introspectType(IntrospectContext<Schema>& ctx)
         introspectType<Schema, Inner>(ctx);
 
     } else if constexpr (HasCustomTag<Schema, U>::value) {
-        auto& def = getCustomDef<Schema, U>().getImpl();
-        if (!def.hasName()) {
-            // fallbackName(id);
-            ctx.addError(const std::string& msg)
-        }
         ctx.add(id, CustomInfo{schemaTypeName<Schema, U>()});
 
     } else if constexpr (HasObjectTag<Schema, U>::value) {
