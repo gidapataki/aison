@@ -9,8 +9,8 @@
 #include <memory>
 #include <optional>
 #include <string_view>
-#include <typeinfo>
 #include <type_traits>
+#include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
@@ -232,6 +232,9 @@ struct IsVector;
 template<typename T>
 struct IsVariant;
 
+template<typename Schema, typename = void>
+struct HasSchemaTag;
+
 template<typename Schema, typename T, typename = void>
 struct HasEnumTag;
 
@@ -249,15 +252,6 @@ struct HasCustomEncode;
 
 template<typename Schema, typename CustomSpec, typename T, typename = void>
 struct HasCustomDecode;
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableAssert;
-
-template<typename Schema, typename = void>
-struct HasSchemaStrictOptional;
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableIntrospect;
 
 template<typename Schema, typename = void>
 struct SchemaEnableAssert;
@@ -365,32 +359,10 @@ template<typename...>
 struct SchemaErrorKeyTag {};
 
 template<typename Schema, typename>
-struct HasSchemaEnableAssert : std::false_type {};
+struct HasSchemaTag : std::false_type {};
 
 template<typename Schema>
-struct HasSchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>>
-    : std::true_type {};
-
-template<typename Schema, typename>
-struct SchemaEnableAssert {
-    constexpr static bool get() { return SchemaDefaults::enableAssert; }
-};
-
-template<typename Schema>
-struct SchemaEnableAssert<Schema, std::enable_if_t<HasSchemaEnableAssert<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableAssert)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
-        return Schema::enableAssert;
-    }
-};
-
-template<typename Schema>
-constexpr bool getEnableAssert()
-{
-    return SchemaEnableAssert<Schema>::get();
-}
+struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
 
 template<typename Schema, typename T>
 std::string schemaTypeName()
@@ -415,14 +387,7 @@ std::string schemaTypeName()
     return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(getTypeId<T>()));
 }
 
-// Optional strictness
-
-template<typename Schema, typename>
-struct HasSchemaStrictOptional : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>>
-    : std::true_type {};
+// StrictOptional
 
 template<typename Schema, typename>
 struct SchemaStrictOptional {
@@ -430,7 +395,7 @@ struct SchemaStrictOptional {
 };
 
 template<typename Schema>
-struct SchemaStrictOptional<Schema, std::enable_if_t<HasSchemaStrictOptional<Schema>::value>> {
+struct SchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>> {
     constexpr static bool get()
     {
         using Type = std::decay_t<decltype(Schema::strictOptional)>;
@@ -444,15 +409,30 @@ constexpr bool getStrictOptional()
 {
     return SchemaStrictOptional<Schema>::get();
 }
-
-// Introspection flag
+// EnableAssert
 
 template<typename Schema, typename>
-struct HasSchemaEnableIntrospect : std::false_type {};
+struct SchemaEnableAssert {
+    constexpr static bool get() { return SchemaDefaults::enableAssert; }
+};
 
 template<typename Schema>
-struct HasSchemaEnableIntrospect<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
-    : std::true_type {};
+struct SchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableAssert)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
+        return Schema::enableAssert;
+    }
+};
+
+template<typename Schema>
+constexpr bool getEnableAssert()
+{
+    return SchemaEnableAssert<Schema>::get();
+}
+
+// EnableIntrospect
 
 template<typename Schema, typename>
 struct SchemaEnableIntrospect {
@@ -460,7 +440,7 @@ struct SchemaEnableIntrospect {
 };
 
 template<typename Schema>
-struct SchemaEnableIntrospect<Schema, std::enable_if_t<HasSchemaEnableIntrospect<Schema>::value>> {
+struct SchemaEnableIntrospect<Schema, std::void_t<decltype(Schema::enableIntrospect)>> {
     constexpr static bool get()
     {
         using Type = std::decay_t<decltype(Schema::enableIntrospect)>;
@@ -475,11 +455,53 @@ constexpr bool getIntrospectEnabled()
     return SchemaEnableIntrospect<Schema>::get();
 }
 
+// EnableEncode
+
 template<typename Schema, typename = void>
-struct HasSchemaTag : std::false_type {};
+struct SchemaEnableEncode {
+    constexpr static bool get() { return SchemaDefaults::enableEncode; }
+};
 
 template<typename Schema>
-struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
+struct SchemaEnableEncode<Schema, std::void_t<decltype(Schema::enableEncode)>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableEncode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableEncode must be bool.");
+        return Schema::enableEncode;
+    }
+};
+
+template<typename Schema>
+constexpr bool getEncodeEnabled()
+{
+    return SchemaEnableEncode<Schema>::get();
+}
+
+// EnableDecode
+
+template<typename Schema, typename = void>
+struct SchemaEnableDecode {
+    constexpr static bool get() { return SchemaDefaults::enableDecode; }
+};
+
+template<typename Schema>
+struct SchemaEnableDecode<Schema, std::void_t<decltype(Schema::enableDecode)>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableDecode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableDecode must be bool.");
+        return Schema::enableDecode;
+    }
+};
+
+template<typename Schema>
+constexpr bool getDecodeEnabled()
+{
+    return SchemaEnableDecode<Schema>::get();
+}
+
+//
 
 template<typename Schema>
 constexpr void validateSchemaDefinition()
@@ -497,62 +519,6 @@ template<typename Schema>
 constexpr void validateSchemaBase()
 {
     validateSchemaDefinition<Schema>();
-}
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableEncode : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableEncode<Schema, std::void_t<decltype(Schema::enableEncode)>>
-    : std::true_type {};
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableDecode : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableDecode<Schema, std::void_t<decltype(Schema::enableDecode)>>
-    : std::true_type {};
-
-template<typename Schema, typename = void>
-struct SchemaEnableEncode {
-    constexpr static bool get() { return SchemaDefaults::enableEncode; }
-};
-
-template<typename Schema>
-struct SchemaEnableEncode<Schema, std::enable_if_t<HasSchemaEnableEncode<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableEncode)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableEncode must be bool.");
-        return Schema::enableEncode;
-    }
-};
-
-template<typename Schema, typename = void>
-struct SchemaEnableDecode {
-    constexpr static bool get() { return SchemaDefaults::enableDecode; }
-};
-
-template<typename Schema>
-struct SchemaEnableDecode<Schema, std::enable_if_t<HasSchemaEnableDecode<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableDecode)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableDecode must be bool.");
-        return Schema::enableDecode;
-    }
-};
-
-template<typename Schema>
-constexpr bool getEncodeEnabled()
-{
-    return SchemaEnableEncode<Schema>::get();
-}
-
-template<typename Schema>
-constexpr bool getDecodeEnabled()
-{
-    return SchemaEnableDecode<Schema>::get();
 }
 
 // == Object ==
