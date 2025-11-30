@@ -157,7 +157,9 @@ void dump(const aison::IntrospectResult& isp)
                 const auto& obj = std::get<aison::ObjectInfo>(info.data);
                 std::cout << "object: " << displayName << "\n";
                 for (const auto& f : obj.fields) {
-                    std::cout << " - " << f.name << ": " << renderType(isp, f.type) << "\n";
+                    std::cout << " - " << f.name << ": " << renderType(isp, f.type);
+                    if (!f.isRequired) std::cout << " (optional)";
+                    std::cout << "\n";
                 }
                 std::cout << "\n";
                 break;

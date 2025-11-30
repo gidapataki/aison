@@ -113,7 +113,7 @@ struct FloatingInfo {
 struct FieldInfo {
     std::string name;
     TypeId type = nullptr;
-    bool isOptional = false;
+    bool isRequired = true;
 };
 
 struct ObjectInfo {
@@ -540,13 +540,13 @@ public:
 
         FieldAccessorStorage accessor;
         FieldAccessorId accessorId = nullptr;  // Note: this is needed to avoid UB casts
+        IntrospectFn introspect = nullptr;
         EncodeFn encode = nullptr;
         DecodeFn decode = nullptr;
-        IntrospectFn introspect = nullptr;
 
         std::string name;
-        bool isOptional = false;
         TypeId typeId = nullptr;
+        bool isRequired = true;
     };
 
     void name(std::string_view value)
@@ -599,7 +599,7 @@ public:
 
         field.name = std::string(name);
         field.accessorId = accessorId;
-        field.isOptional = IsOptional<T>::value;
+        field.isRequired = getStrictOptional<Schema>() || !IsOptional<T>::value;
 
         if constexpr (getEncodeEnabled<Schema>()) {
             field.encode = &encodeFieldThunk<Schema, Owner, T>;
@@ -621,7 +621,7 @@ public:
             auto guard = ctx.guard(field.name);
             Json::Value node;
             field.encode(src, node, ctx, field.accessor.get());
-            if (!getStrictOptional<Schema>() && field.isOptional && node.isNull()) {
+            if (!field.isRequired && node.isNull()) {
                 continue;
             }
             dst[field.name] = std::move(node);
@@ -634,7 +634,7 @@ public:
         for (const auto& field : fields_) {
             const auto& key = field.name;
             if (!src.isMember(key)) {
-                if (!getStrictOptional<Schema>() && field.isOptional) {
+                if (!field.isRequired) {
                     auto guard = ctx.guard(key);
                     field.decode(Json::nullValue, dst, ctx, field.accessor.get());
                     continue;
@@ -1882,7 +1882,7 @@ void introspectType(IntrospectContext<Schema>& ctx, IntrospectResult& out)
             FieldInfo fi;
             fi.name = field.name;
             fi.type = field.typeId;
-            fi.isOptional = field.isOptional;
+            fi.isRequired = field.isRequired;
             objInfo.fields.push_back(std::move(fi));
             if (field.introspect) {
                 field.introspect(ctx, out);
