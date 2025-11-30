@@ -15,14 +15,21 @@
 #include <variant>
 #include <vector>
 
-// Forward declarations ////////////////////////////////////////////////////////////////////////////
-
 namespace aison {
 
-struct EmptyConfig;
-struct Error;
+// Declarations ////////////////////////////////////////////////////////////////////////////////////
+
+struct ObjectInfo;
+struct VariantInfo;
+struct EnumInfo;
+
 struct Result;
-struct SchemaDefaults;
+struct IntrospectResult;
+
+using TypeId = const void*;
+using ObjectInfoMap = std::unordered_map<TypeId, ObjectInfo>;
+using VariantInfoMap = std::unordered_map<TypeId, VariantInfo>;
+using EnumInfoMap = std::unordered_map<TypeId, EnumInfo>;
 
 template<typename Schema, typename T>
 struct Object;
@@ -39,195 +46,22 @@ struct Custom;
 template<typename Derived, typename Config>
 struct Schema;
 
-// Introspection types
-
-using TypeId = const void*;
-
-enum class TypeClass;
-struct TypeInfo;
-struct FieldInfo;
-struct ObjectInfo;
-struct EnumInfo;
-struct VariantInfo;
-struct AlternativeInfo;
-
 template<typename Schema>
 class Introspection;
-
-}  // namespace aison
-
-namespace aison::detail {
-
-class Context;
-
-using FieldAccessorDeleter = void (*)(void*);
-using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
-using FieldAccessorPtr = const void*;
-using FieldAccessorId = const void*;
-
-template<typename Schema>
-class EncodeContext;
-
-template<typename Schema>
-class DecodeContext;
-
-template<typename Schema, typename T>
-class EnumImpl;
-
-template<typename Schema, typename T>
-class ObjectImpl;
-
-template<typename Schema, typename T>
-class VariantImpl;
-
-template<typename Schema, typename T>
-class CustomImpl;
-
-template<typename Schema, typename T>
-struct VariantDecoder;
-
-template<typename Owner, typename T>
-struct FieldAccessor;
-
-template<typename Schema>
-class IntrospectionRegistry;
-
-template<typename Schema>
-class IntrospectionImpl;
-
-// Traits
-template<typename T>
-struct IsOptional;
-
-template<typename T>
-struct IsVector;
-
-template<typename T>
-struct IsVariant;
-
-template<typename Schema, typename T, typename = void>
-struct HasEnumTag;
-
-template<typename Schema, typename T, typename = void>
-struct HasObjectTag;
-
-template<typename Schema, typename Variant, typename = void>
-struct HasVariantTag;
-
-template<typename Schema, typename T, typename = void>
-struct HasCustomTag;
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableAssert;
-
-template<typename Schema, typename = void>
-struct HasSchemaStrictOptional;
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableIntrospection;
-
-template<typename Schema, typename = void>
-struct SchemaEnableAssert;
-
-template<typename Schema, typename = void>
-struct SchemaStrictOptional;
-
-template<typename Schema, typename = void>
-struct SchemaEnableIntrospection;
-
-// Functions
-template<typename Schema, typename T>
-void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
-
-template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
-
-template<typename Schema, typename T>
-void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
-
-template<typename Schema, typename T>
-void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
-
-template<typename Schema>
-constexpr bool getEncodeEnabled();
-
-template<typename Schema>
-constexpr bool getDecodeEnabled();
-
-template<typename Schema>
-constexpr bool getEnableAssert();
-
-template<typename Schema>
-constexpr bool getStrictOptional();
-
-template<typename Schema>
-constexpr bool getEnableIntrospection();
-
-template<typename Schema, typename T>
-constexpr void validateEnumSpec();
-
-template<typename Schema, typename T>
-constexpr void validateObjectSpec();
-
-template<typename Schema, typename T>
-constexpr void validateCustomSpec();
-
-template<typename Schema, typename Variant>
-constexpr void validateVariantSpec();
-
-template<typename Schema>
-struct SchemaValidator;
-
-template<typename Owner, typename T>
-FieldAccessorId getFieldAccessorId();
-
-template<typename Owner, typename T>
-FieldAccessorStorage makeFieldAccessor(T Owner::* member);
-
-template<typename Schema, typename T>
-auto& getVariantDef();
-
-template<typename Schema, typename T>
-auto& getObjectDef();
-
-template<typename Schema, typename T>
-auto& getEnumDef();
-
-template<typename Schema, typename T>
-auto& getCustomDef();
-
-template<typename Schema, typename T>
-constexpr bool isSupportedFieldType();
-
-template<typename Schema>
-IntrospectionRegistry<Schema>& getIntrospectionRegistry();
 
 template<typename T>
 TypeId getTypeId();
 
-template<typename Schema, typename Owner, typename T>
-void ensureTypeRegistration();
+template<typename Schema, typename T>
+Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config = {});
 
 template<typename Schema, typename T>
-void registerObjectMapping();
+Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {});
 
-template<typename Schema, typename Variant>
-void registerVariantMapping();
+template<typename Schema, typename... Ts>
+IntrospectResult introspect();
 
-template<typename Schema, typename E>
-void registerEnumMapping();
-
-template<typename Schema, typename T>
-void registerCustomMapping();
-
-template<typename Schema, typename Owner, typename Variant, std::size_t... Is>
-void ensureVariantAlternatives(std::index_sequence<Is...>);
-
-}  // namespace aison::detail
-
-// Implementation //////////////////////////////////////////////////////////////////////////////////
-
-namespace aison {
+// Definitions /////////////////////////////////////////////////////////////////////////////////////
 
 struct Error {
     std::string path;
@@ -236,7 +70,6 @@ struct Error {
 
 struct Result {
     std::vector<Error> errors;
-
     explicit operator bool() const { return errors.empty(); }
 };
 
@@ -295,7 +128,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = c;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         return t;
     }
 
@@ -304,7 +137,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = TypeClass::Integral;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         t.data.integral = {sizeof(T), std::is_signed_v<T>};
         return t;
     }
@@ -314,7 +147,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = TypeClass::Floating;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         t.data.floating = {sizeof(T)};
         return t;
     }
@@ -324,7 +157,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = TypeClass::Optional;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         t.data.optional.type = type;
         return t;
     }
@@ -334,7 +167,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = TypeClass::Vector;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         t.data.vector.type = type;
         return t;
     }
@@ -344,7 +177,7 @@ struct TypeInfo {
     {
         TypeInfo t;
         t.cls = TypeClass::Variant;
-        t.typeId = detail::getTypeId<T>();
+        t.typeId = getTypeId<T>();
         t.data.variant = {vars, count};
         return t;
     }
@@ -376,10 +209,6 @@ struct VariantInfo {
     std::vector<AlternativeInfo> alternatives;
 };
 
-using ObjectInfoMap = std::unordered_map<TypeId, ObjectInfo>;
-using VariantInfoMap = std::unordered_map<TypeId, VariantInfo>;
-using EnumInfoMap = std::unordered_map<TypeId, EnumInfo>;
-
 struct IntrospectError {
     std::string type;
     std::string message;
@@ -398,12 +227,921 @@ struct IntrospectResult {
 
 namespace aison::detail {
 
+// Declarations (detail) ///////////////////////////////////////////////////////////////////////////
+
+using FieldAccessorDeleter = void (*)(void*);
+using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
+using FieldAccessorPtr = const void*;
+using FieldAccessorId = const void*;
+
+class Context;
+
+template<typename Schema>
+class EncodeContext;
+
+template<typename Schema>
+class DecodeContext;
+
+template<typename Schema, typename T>
+class EnumImpl;
+
+template<typename Schema, typename T>
+class ObjectImpl;
+
+template<typename Schema, typename T>
+class VariantImpl;
+
+template<typename Schema, typename T>
+class CustomImpl;
+
+template<typename Schema, typename T>
+struct VariantDecoder;
+
+template<typename Owner, typename T>
+struct FieldAccessor;
+
+template<typename Schema>
+class IntrospectionRegistry;
+
+template<typename Schema>
+class IntrospectionImpl;
+
 template<typename T>
-TypeId getTypeId()
+struct IsOptional;
+
+template<typename T>
+struct IsVector;
+
+template<typename T>
+struct IsVariant;
+
+template<typename Schema, typename T, typename = void>
+struct HasEnumTag;
+
+template<typename Schema, typename T, typename = void>
+struct HasObjectTag;
+
+template<typename Schema, typename Variant, typename = void>
+struct HasVariantTag;
+
+template<typename Schema, typename T, typename = void>
+struct HasCustomTag;
+
+template<typename Schema, typename CustomSpec, typename T, typename = void>
+struct HasCustomEncode;
+
+template<typename Schema, typename CustomSpec, typename T, typename = void>
+struct HasCustomDecode;
+
+template<typename Schema, typename = void>
+struct HasSchemaEnableAssert;
+
+template<typename Schema, typename = void>
+struct HasSchemaStrictOptional;
+
+template<typename Schema, typename = void>
+struct HasSchemaEnableIntrospection;
+
+template<typename Schema, typename = void>
+struct SchemaEnableAssert;
+
+template<typename Schema, typename = void>
+struct SchemaStrictOptional;
+
+template<typename Schema, typename = void>
+struct SchemaEnableIntrospection;
+
+template<typename Schema, typename T>
+void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
+
+template<typename Schema, typename T>
+void decodeValue(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
+
+template<typename Schema, typename T>
+void encodeDefault(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
+
+template<typename Schema, typename T>
+void decodeDefault(const Json::Value& src, T& value, DecodeContext<Schema>& ctx);
+
+template<typename Schema, typename Owner, typename T>
+void encodeFieldThunk(
+    const Owner& owner, Json::Value& dst, EncodeContext<Schema>& ctx, FieldAccessorPtr ptr);
+
+template<typename Schema, typename Owner, typename T>
+void decodeFieldThunk(
+    const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr);
+
+template<typename Schema>
+constexpr bool getEncodeEnabled();
+
+template<typename Schema>
+constexpr bool getDecodeEnabled();
+
+template<typename Schema>
+constexpr bool getEnableAssert();
+
+template<typename Schema>
+constexpr bool getStrictOptional();
+
+template<typename Schema>
+constexpr bool getEnableIntrospection();
+
+template<typename Schema, typename T>
+constexpr void validateEnumSpec();
+
+template<typename Schema, typename T>
+constexpr void validateObjectSpec();
+
+template<typename Schema, typename T>
+constexpr void validateCustomSpec();
+
+template<typename Schema, typename Variant>
+constexpr void validateVariantSpec();
+
+template<typename Schema>
+struct SchemaValidator;
+
+template<typename Owner, typename T>
+FieldAccessorId getFieldAccessorId();
+
+template<typename Owner, typename T>
+FieldAccessorStorage makeFieldAccessor(T Owner::* member);
+
+template<typename Schema, typename T>
+auto& getVariantDef();
+
+template<typename Schema, typename T>
+auto& getObjectDef();
+
+template<typename Schema, typename T>
+auto& getEnumDef();
+
+template<typename Schema, typename T>
+auto& getCustomDef();
+
+template<typename Schema, typename T>
+constexpr bool isSupportedFieldType();
+
+template<typename Schema>
+IntrospectionRegistry<Schema>& getIntrospectionRegistry();
+
+template<typename Schema, typename Owner, typename T>
+void ensureTypeRegistration();
+
+template<typename Schema, typename T>
+void registerObjectMapping();
+
+template<typename Schema, typename Variant>
+void registerVariantMapping();
+
+template<typename Schema, typename E>
+void registerEnumMapping();
+
+template<typename Schema, typename T>
+void registerCustomMapping();
+
+template<typename Schema, typename Owner, typename Variant, std::size_t... Is>
+void ensureVariantAlternatives(std::index_sequence<Is...>);
+
+template<typename Schema, typename T>
+TypeInfo& makeTypeInfo();
+
+template<typename Schema, typename Variant>
+TypeInfo& makeVariantTypeInfo();
+
+template<typename Schema, typename T>
+void setTypeName(const std::string& name);
+
+template<typename Key>
+bool shouldReportSchemaError();
+
+template<typename...>
+struct SchemaErrorKeyTag;
+
+template<typename Key>
+void addSchemaErrorOnce(Context& ctx, const std::string& message);
+
+template<typename...>
+struct DependentFalse;
+
+// Definitions (detail) ////////////////////////////////////////////////////////////////////////////
+
+// == Schema ==
+
+template<typename...>
+struct SchemaErrorKeyTag {};
+
+template<typename Schema, typename>
+struct HasSchemaEnableAssert : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaEnableAssert {
+    constexpr static bool get() { return SchemaDefaults::enableAssert; }
+};
+
+template<typename Schema>
+struct SchemaEnableAssert<Schema, std::enable_if_t<HasSchemaEnableAssert<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableAssert)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
+        return Schema::enableAssert;
+    }
+};
+
+template<typename Schema>
+constexpr bool getEnableAssert()
 {
-    static int id = 0x71931d;
-    return &id;
+    return SchemaEnableAssert<Schema>::get();
 }
+
+// Optional strictness
+
+template<typename Schema, typename>
+struct HasSchemaStrictOptional : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaStrictOptional {
+    constexpr static bool get() { return SchemaDefaults::strictOptional; }
+};
+
+template<typename Schema>
+struct SchemaStrictOptional<Schema, std::enable_if_t<HasSchemaStrictOptional<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::strictOptional)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::strictOptional must be bool.");
+        return Schema::strictOptional;
+    }
+};
+
+template<typename Schema>
+constexpr bool getStrictOptional()
+{
+    return SchemaStrictOptional<Schema>::get();
+}
+
+// Introspection flag
+
+template<typename Schema, typename>
+struct HasSchemaEnableIntrospection : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableIntrospection<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
+    : std::true_type {};
+
+template<typename Schema, typename>
+struct SchemaEnableIntrospection {
+    constexpr static bool get() { return SchemaDefaults::enableIntrospect; }
+};
+
+template<typename Schema>
+struct SchemaEnableIntrospection<
+    Schema,
+    std::enable_if_t<HasSchemaEnableIntrospection<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableIntrospect)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableIntrospect must be bool.");
+        return Schema::enableIntrospect;
+    }
+};
+
+template<typename Schema>
+constexpr bool getEnableIntrospection()
+{
+    return SchemaEnableIntrospection<Schema>::get();
+}
+
+template<typename Schema, typename = void>
+struct HasSchemaTag : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
+
+template<typename Schema>
+constexpr void validateSchemaDefinition()
+{
+    static_assert(
+        HasSchemaTag<Schema>::value,
+        "Schema must define SchemaTag. Did you inherit from aison::Schema<...>?");
+    using Base = aison::Schema<Schema, typename Schema::ConfigType>;
+    static_assert(
+        std::is_base_of_v<Base, Schema>,
+        "Schema must inherit from aison::Schema<Derived, Config>.");
+}
+
+template<typename Schema>
+constexpr void validateSchemaBase()
+{
+    validateSchemaDefinition<Schema>();
+}
+
+template<typename Schema, typename = void>
+struct HasSchemaEnableEncode : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableEncode<Schema, std::void_t<decltype(Schema::enableEncode)>>
+    : std::true_type {};
+
+template<typename Schema, typename = void>
+struct HasSchemaEnableDecode : std::false_type {};
+
+template<typename Schema>
+struct HasSchemaEnableDecode<Schema, std::void_t<decltype(Schema::enableDecode)>>
+    : std::true_type {};
+
+template<typename Schema, typename = void>
+struct SchemaEnableEncode {
+    constexpr static bool get() { return SchemaDefaults::enableEncode; }
+};
+
+template<typename Schema>
+struct SchemaEnableEncode<Schema, std::enable_if_t<HasSchemaEnableEncode<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableEncode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableEncode must be bool.");
+        return Schema::enableEncode;
+    }
+};
+
+template<typename Schema, typename = void>
+struct SchemaEnableDecode {
+    constexpr static bool get() { return SchemaDefaults::enableDecode; }
+};
+
+template<typename Schema>
+struct SchemaEnableDecode<Schema, std::enable_if_t<HasSchemaEnableDecode<Schema>::value>> {
+    constexpr static bool get()
+    {
+        using Type = std::decay_t<decltype(Schema::enableDecode)>;
+        static_assert(std::is_same_v<Type, bool>, "Schema::enableDecode must be bool.");
+        return Schema::enableDecode;
+    }
+};
+
+template<typename Schema>
+constexpr bool getEncodeEnabled()
+{
+    return SchemaEnableEncode<Schema>::get();
+}
+
+template<typename Schema>
+constexpr bool getDecodeEnabled()
+{
+    return SchemaEnableDecode<Schema>::get();
+}
+
+// == Object ==
+
+template<typename Schema, typename Owner>
+class ObjectImpl
+{
+private:
+    struct FieldDef {
+        using EncodeFn =
+            void (*)(const Owner&, Json::Value&, EncodeContext<Schema>&, FieldAccessorPtr ptr);
+        using DecodeFn =
+            void (*)(const Json::Value&, Owner&, DecodeContext<Schema>&, FieldAccessorPtr ptr);
+
+        FieldDef(FieldAccessorStorage&& accessor)
+            : accessor(std::move(accessor))
+        {}
+
+        FieldAccessorStorage accessor;
+        FieldAccessorId accessorId = nullptr;  // Note: this is needed to avoid UB casts
+        EncodeFn encode = nullptr;
+        DecodeFn decode = nullptr;
+
+        std::string name;
+        bool isOptional = false;
+    };
+
+public:
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Object name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Object name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (getEnableIntrospection<Schema>()) {
+            setTypeName<Schema, Owner>(name_);
+            getIntrospectionRegistry<Schema>().setObjectName(getTypeId<Owner>(), name_);
+        }
+    }
+
+    template<typename T>
+    void add(T Owner::* member, std::string_view name)
+    {
+        static_assert(
+            isSupportedFieldType<Schema, T>(),
+            "Unsupported field type in Schema::Object<T>::add(...). Provide a Schema::Object / "
+            "Enum / Custom / Variant mapping or use supported scalar/collection types.");
+        // Check if member or name is already mapped
+        auto accessorId = getFieldAccessorId<Owner, T>();
+        for (const auto& field : fields_) {
+            using Ctx = FieldAccessor<Owner, T>;
+            if (field.accessorId == accessorId &&
+                reinterpret_cast<const Ctx*>(field.accessor.get())->member == member)
+            {
+                if constexpr (getEnableAssert<Schema>()) {
+                    assert(false && "Same member is mapped multiple times in Schema::Object.");
+                }
+                return;
+            }
+
+            if (field.name == name) {
+                if constexpr (getEnableAssert<Schema>()) {
+                    assert(false && "Duplicate field name in Schema::Object.");
+                }
+                return;
+            }
+        }
+
+        auto& field = fields_.emplace_back(makeFieldAccessor(member));
+
+        field.name = std::string(name);
+        field.accessorId = accessorId;
+        field.isOptional = IsOptional<T>::value;
+
+        if constexpr (getEncodeEnabled<Schema>()) {
+            field.encode = &encodeFieldThunk<Schema, Owner, T>;
+        }
+
+        if constexpr (getDecodeEnabled<Schema>()) {
+            field.decode = &decodeFieldThunk<Schema, Owner, T>;
+        }
+
+        if constexpr (getEnableIntrospection<Schema>()) {
+            FieldInfo fi;
+            fi.name = std::string(name);
+            fi.type = &makeTypeInfo<Schema, T>();
+            getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
+            ensureTypeRegistration<Schema, Owner, T>();
+        }
+    }
+
+    template<typename S = Schema, typename = std::enable_if_t<getEncodeEnabled<S>()>>
+    void encodeFields(const Owner& src, Json::Value& dst, EncodeContext<Schema>& ctx) const
+    {
+        dst = Json::objectValue;
+        for (const auto& field : fields_) {
+            auto guard = ctx.guard(field.name);
+            Json::Value node;
+            field.encode(src, node, ctx, field.accessor.get());
+            if (!getStrictOptional<Schema>() && field.isOptional && node.isNull()) {
+                continue;
+            }
+            dst[field.name] = std::move(node);
+        }
+    }
+
+    template<typename S = Schema, typename = std::enable_if_t<getDecodeEnabled<S>()>>
+    void decodeFields(const Json::Value& src, Owner& dst, DecodeContext<Schema>& ctx) const
+    {
+        for (const auto& field : fields_) {
+            const auto& key = field.name;
+            if (!src.isMember(key)) {
+                if (!getStrictOptional<Schema>() && field.isOptional) {
+                    auto guard = ctx.guard(key);
+                    field.decode(Json::nullValue, dst, ctx, field.accessor.get());
+                    continue;
+                }
+                ctx.addError(std::string("Missing required field '") + key + "'.");
+                continue;
+            }
+            const Json::Value& node = src[key];
+            auto guard = ctx.guard(key);
+            field.decode(node, dst, ctx, field.accessor.get());
+        }
+    }
+
+    const std::string& name() const { return name_; }
+    bool hasName() const { return hasName_; }
+    bool hasVariantTag() const { return hasName_; }
+    const std::string& variantTag() const { return name_; }
+    const std::vector<FieldDef>& fields() const { return fields_; }
+
+private:
+    std::vector<FieldDef> fields_;
+    std::string name_;
+    bool hasName_ = false;
+};
+
+template<typename Schema, typename T>
+constexpr void validateObjectType()
+{
+    validateObjectSpec<Schema, T>();
+}
+
+template<typename Schema, typename T>
+constexpr void validateObjectSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasObjectTag<Schema, Type>::value,
+        "No schema object mapping for this type. Define `template<> struct Schema::Object<T> : "
+        "aison::Object<Schema, T>` and map its fields.");
+    using ObjectSpec = typename Schema::template Object<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Object<Schema, Type>, ObjectSpec>,
+        "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+}
+
+template<typename Schema, typename T>
+auto& getObjectDef()
+{
+    using Type = typename Schema::template Object<T>;
+    static Type instance{};
+    return instance;
+}
+
+// == Enum ==
+
+template<typename Schema, typename E>
+class EnumImpl
+{
+public:
+    using Entry = std::pair<E, std::string>;
+    using EntryVec = std::vector<Entry>;
+
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Enum name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Enum name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (getEnableIntrospection<Schema>()) {
+            setTypeName<Schema, E>(name_);
+            getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
+        }
+    }
+
+    void add(E value, std::string_view name)
+    {
+        for (const auto& entry : entries_) {
+            // Disallow duplicate value or duplicate name
+            if (entry.first == value || entry.second == name) {
+                if constexpr (getEnableAssert<Schema>()) {
+                    assert(false && "Duplicate enum mapping in Schema::Enum.");
+                }
+                return;
+            }
+        }
+        entries_.emplace_back(value, std::string(name));
+        if constexpr (getEnableIntrospection<Schema>()) {
+            getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
+        }
+    }
+
+    const std::string* find(E value) const
+    {
+        for (auto& entry : entries_) {
+            if (entry.first == value) {
+                return &entry.second;
+            }
+        }
+        return nullptr;
+    }
+
+    const E* find(const std::string& value) const
+    {
+        for (auto& entry : entries_) {
+            if (entry.second == value) {
+                return &entry.first;
+            }
+        }
+        return nullptr;
+    }
+
+    const std::string& name() const { return name_; }
+    bool hasName() const { return hasName_; }
+
+private:
+    std::vector<Entry> entries_;
+    std::string name_;
+    bool hasName_ = false;
+};
+
+template<typename Schema, typename T>
+auto& getEnumDef()
+{
+    using Type = typename Schema::template Enum<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename T>
+constexpr void validateEnumSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasEnumTag<Schema, Type>::value,
+        "No schema enum mapping for this type. Define `template<> struct Schema::Enum<T> : "
+        "aison::Enum<Schema, T>` and list all enum values.");
+    using EnumSpec = typename Schema::template Enum<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Enum<Schema, Type>, EnumSpec>,
+        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+}
+
+// == Variant ==
+
+template<typename Schema, typename... Ts>
+class VariantImpl<Schema, std::variant<Ts...>>
+{
+public:
+    using VariantType = std::variant<Ts...>;
+
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Variant name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Variant name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (getEnableIntrospection<Schema>()) {
+            setTypeName<Schema, VariantType>(name_);
+        }
+    }
+
+    void discriminator(std::string_view key)
+    {
+        if (key.empty()) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Discriminator key cannot be empty.");
+            }
+            return;
+        }
+        if (hasDiscriminator_) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Variant discriminator already set.");
+            }
+            return;
+        }
+        hasDiscriminator_ = true;
+        discriminator_ = std::string(key);
+    }
+
+    bool hasNamesInAlternatives() const
+    {
+        bool hasNames = true;
+        ((hasNames = hasNames && getObjectDef<Schema, Ts>().getImpl().hasName()), ...);
+
+        return hasNames;
+    }
+
+    const std::string& name() const { return name_; }
+    const std::string& discriminator() const { return discriminator_; }
+    bool hasName() const { return hasName_; }
+    bool hasDiscriminator() const { return !discriminator_.empty(); }
+
+private:
+    std::string name_;
+    std::string discriminator_;
+    bool hasName_ = false;
+    bool hasDiscriminator_ = false;
+};
+
+template<typename Schema, typename T>
+auto& getVariantDef()
+{
+    using Type = typename Schema::template Variant<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename Variant, typename Enable = void>
+struct VariantValidator {
+    static constexpr void validate() {}
+};
+
+template<typename Schema, typename T>
+struct VariantAltCheck {
+    static constexpr void check()
+    {
+        static_assert(
+            HasObjectTag<Schema, T>::value,
+            "std::variant alternative is not mapped as an object. "
+            "Define `template<> struct Schema::Object<T> : aison::Object<Schema, T>` "
+            "for each variant alternative.");
+        if constexpr (HasObjectTag<Schema, T>::value) {
+            using ObjectSpec = typename Schema::template Object<T>;
+            static_assert(
+                std::is_base_of_v<Object<Schema, T>, ObjectSpec>,
+                "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+        }
+    }
+};
+
+template<typename Schema, typename... Ts>
+struct VariantValidator<Schema, std::variant<Ts...>, void> {
+    static constexpr void validate()
+    {
+        static_assert(
+            HasVariantTag<Schema, std::variant<Ts...>>::value,
+            "No schema variant mapping for this type. "
+            "Define `template<> struct Schema::Variant<V> : aison::Variant<Schema, V>`.");
+        using VariantSpec = typename Schema::template Variant<std::variant<Ts...>>;
+        static_assert(
+            std::is_base_of_v<Variant<Schema, std::variant<Ts...>>, VariantSpec>,
+            "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
+        static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
+        // Each alternative must have an object mapping.
+        (VariantAltCheck<Schema, Ts>::check(), ...);
+    }
+};
+
+template<typename Schema, typename T>
+constexpr void validateVariantSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        IsVariant<Type>::value,
+        "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
+    VariantValidator<Schema, Type>::validate();
+}
+
+template<typename Schema>
+struct SchemaValidator {
+    template<typename T, typename ObjectDef>
+    static bool validateObject(Context& ctx, const ObjectDef& objectDef)
+    {
+        validateObjectSpec<Schema, T>();
+        if constexpr (getEnableIntrospection<Schema>()) {
+            if (!objectDef.getImpl().hasName()) {
+                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
+                addSchemaErrorOnce<Key>(
+                    ctx,
+                    "(Schema error) Schema::Object<T>::name(...) is required when "
+                    "introspection is enabled.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template<typename T, typename EnumDef>
+    static bool validateEnum(Context& ctx, const EnumDef& enumDef)
+    {
+        validateEnumSpec<Schema, T>();
+        if constexpr (getEnableIntrospection<Schema>()) {
+            if (!enumDef.getImpl().hasName()) {
+                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
+                addSchemaErrorOnce<Key>(
+                    ctx,
+                    "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
+                    "enabled.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template<typename T, typename CustomDef>
+    static bool validateCustom(Context& ctx, const CustomDef& customDef)
+    {
+        validateCustomSpec<Schema, T>();
+        if constexpr (getEnableIntrospection<Schema>()) {
+            if (!customDef.getImpl().hasName()) {
+                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
+                addSchemaErrorOnce<Key>(
+                    ctx,
+                    "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
+                    "is enabled.");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    template<typename Variant, typename VariantDef>
+    static bool validateVariant(Context& ctx, const VariantDef& variantDef)
+    {
+        using Type = std::decay_t<Variant>;
+        validateVariantSpec<Schema, Type>();
+        bool ok = true;
+        if constexpr (getEnableIntrospection<Schema>()) {
+            if (!variantDef.getImpl().hasName()) {
+                using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
+                addSchemaErrorOnce<Key>(
+                    ctx,
+                    "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
+                    "is enabled.");
+                ok = false;
+            }
+        }
+        if (!variantDef.getImpl().hasDiscriminator()) {
+            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
+            addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
+            ok = false;
+        }
+        if (!variantDef.getImpl().hasNamesInAlternatives()) {
+            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
+            addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
+            ok = false;
+        }
+        return ok;
+    }
+};
+
+// == Custom ==
+
+template<typename Schema, typename T>
+class CustomImpl
+{
+public:
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (detail::getEnableAssert<Schema>()) {
+                assert(false && "Custom name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (detail::getEnableAssert<Schema>()) {
+                assert(false && "Custom name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (detail::getEnableIntrospection<Schema>()) {
+            detail::setTypeName<Schema, T>(name_);
+        }
+    }
+
+    const std::string& name() const { return name_; }
+
+    bool hasName() const { return hasName_; }
+
+private:
+    std::string name_;
+    bool hasName_ = false;
+};
+
+template<typename Schema, typename T>
+auto& getCustomDef()
+{
+    using Type = typename Schema::template Custom<T>;
+    static Type instance{};
+    return instance;
+}
+
+template<typename Schema, typename T>
+constexpr void validateCustomSpec()
+{
+    using Type = std::decay_t<T>;
+    static_assert(
+        HasCustomTag<Schema, Type>::value,
+        "No schema custom mapping for this type. Define `template<> struct Schema::Custom<T> : "
+        "aison::Custom<Schema, T>`.");
+    using CustomSpec = typename Schema::template Custom<Type>;
+    static_assert(
+        std::is_base_of_v<aison::Custom<Schema, Type>, CustomSpec>,
+        "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
+}
+
+// == Encoder / Decoder ==
 
 class Context
 {
@@ -510,7 +1248,426 @@ private:
     std::vector<Error> errors_;
 };
 
-// Traits ///////////////////////////////////////////////////////////////////////////////////
+template<typename Schema>
+class EncodeContext : public Context
+{
+public:
+    using Config = typename Schema::ConfigType;
+
+    EncodeContext(const Config& cfg)
+        : config_(cfg)
+    {
+        validateSchemaDefinition<Schema>();
+        static_assert(
+            getEncodeEnabled<Schema>(),
+            "EncodeContext<Schema> cannot be used when Schema::enableEncode is false.");
+    }
+
+    template<typename T>
+    void encode(const T& value, Json::Value& dst)
+    {
+        encodeValue<Schema, T>(value, dst, *this);
+    }
+
+    const Config& config() const { return config_; }
+
+private:
+    const Config& config_;
+};
+
+template<typename Schema>
+class DecodeContext : public Context
+{
+public:
+    using Config = typename Schema::ConfigType;
+
+    DecodeContext(const Config& cfg)
+        : config_(cfg)
+    {
+        validateSchemaBase<Schema>();
+        static_assert(
+            getDecodeEnabled<Schema>(),
+            "DecodeContext<Schema> cannot be used when Schema::enableDecode is false.");
+    }
+
+    template<typename T>
+    void decode(const Json::Value& src, T& value)
+    {
+        decodeValue<Schema, T>(src, value, *this);
+    }
+
+    const Config& config() const { return config_; }
+
+private:
+    const Config& config_;
+};
+
+template<typename Key>
+bool shouldReportSchemaError()
+{
+    // FIXME: reports error once globally
+    static bool reported = false;
+    if (reported) {
+        return false;
+    }
+    reported = true;
+    return true;
+}
+
+template<typename Key>
+void addSchemaErrorOnce(Context& ctx, const std::string& message)
+{
+    // fixme
+    if (shouldReportSchemaError<Key>()) {
+        ctx.addError(message);
+    }
+}
+
+// Encode
+
+template<typename Schema, typename T>
+void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
+{
+    if constexpr (HasCustomTag<Schema, T>::value) {
+        using CustomSpec = typename Schema::template Custom<T>;
+        static_assert(
+            HasCustomEncode<Schema, CustomSpec, T>::value,
+            "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
+        auto& custom = getCustomDef<Schema, T>();
+        SchemaValidator<Schema>::template validateCustom<T>(ctx, custom);
+        custom.encode(src, dst, ctx);
+
+    } else if constexpr (HasObjectTag<Schema, T>::value) {
+        const auto& def = getObjectDef<Schema, T>();
+        SchemaValidator<Schema>::template validateObject<T>(ctx, def);
+        def.getImpl().encodeFields(src, dst, ctx);
+
+    } else if constexpr (HasEnumTag<Schema, T>::value) {
+        using EnumSpec = typename Schema::template Enum<T>;
+        auto& def = getEnumDef<Schema, T>();
+        SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
+        auto* str = def.getImpl().find(src);
+        if (str) {
+            dst = *str;
+        } else {
+            using U = typename std::underlying_type<T>::type;
+            ctx.addError(
+                "Unhandled enum value during encode (underlying = " + std::to_string(U(src)) +
+                ").");
+        }
+
+    } else if constexpr (HasVariantTag<Schema, T>::value) {
+        auto& var = getVariantDef<Schema, T>();
+        if (!SchemaValidator<Schema>::template validateVariant<T>(ctx, var)) {
+            return;
+        }
+
+        dst = Json::objectValue;
+        std::visit(
+            [&](const auto& alt) {
+                using Alt = std::decay_t<decltype(alt)>;
+                auto& obj = getObjectDef<Schema, Alt>();
+                obj.getImpl().encodeFields(alt, dst, ctx);
+                dst[var.getImpl().discriminator()] = obj.getImpl().name();
+            },
+            src);
+
+    } else if constexpr (IsOptional<T>::value) {
+        using U = typename T::value_type;
+        if (!src) {
+            dst = Json::nullValue;
+        } else {
+            encodeValue<Schema, U>(*src, dst, ctx);
+        }
+
+    } else if constexpr (IsVector<T>::value) {
+        using U = typename T::value_type;
+        dst = Json::arrayValue;
+        std::size_t index = 0;
+        for (const auto& elem : src) {
+            Context::PathGuard guard(ctx, index++);
+            Json::Value v;
+            encodeValue<Schema, U>(elem, v, ctx);
+            dst.append(v);
+        }
+
+    } else if constexpr (std::is_same_v<T, bool>) {
+        dst = src;
+
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(src);
+
+    } else if constexpr (std::is_same_v<T, float>) {
+        if (std::isnan(src)) {
+            ctx.addError("NaN is not allowed here.");
+            return;
+        }
+        dst = src;
+
+    } else if constexpr (std::is_same_v<T, double>) {
+        if (std::isnan(src)) {
+            ctx.addError("NaN is not allowed here.");
+            return;
+        }
+        dst = src;
+
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        dst = src;
+
+    } else if constexpr (std::is_enum_v<T>) {
+        static_assert(DependentFalse<T>::value, "Enums must have an Schema::Enum<T> mapping.");
+
+    } else if constexpr (std::is_pointer_v<T>) {
+        static_assert(DependentFalse<T>::value, "Pointers are not supported.");
+
+    } else {
+        static_assert(
+            DependentFalse<T>::value,
+            "Unsupported type. Define Schema::Custom<T> to provide an encoder.");
+    }
+}
+
+// Decode
+
+template<typename Schema, typename T>
+void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
+{
+    if constexpr (HasCustomTag<Schema, T>::value) {
+        using CustomSpec = typename Schema::template Custom<T>;
+        static_assert(
+            HasCustomDecode<Schema, CustomSpec, T>::value,
+            "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
+        auto& custom = getCustomDef<Schema, T>();
+        SchemaValidator<Schema>::template validateCustom<T>(ctx, custom);
+        custom.decode(src, dst, ctx);
+
+    } else if constexpr (HasObjectTag<Schema, T>::value) {
+        if (!src.isObject()) {
+            ctx.addError("Expected object.");
+            return;
+        }
+
+        const auto& obj = getObjectDef<Schema, T>();
+        SchemaValidator<Schema>::template validateObject<T>(ctx, obj);
+        obj.getImpl().decodeFields(src, dst, ctx);
+
+    } else if constexpr (HasEnumTag<Schema, T>::value) {
+        if (!src.isString()) {
+            ctx.addError("Expected string for enum.");
+            return;
+        }
+
+        auto& def = getEnumDef<Schema, T>();
+        SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
+        auto* value = def.getImpl().find(src.asString());
+        if (value) {
+            dst = *value;
+        } else {
+            ctx.addError("Unknown enum value '" + src.asString() + "'.");
+        }
+
+    } else if constexpr (HasVariantTag<Schema, T>::value) {
+        VariantDecoder<Schema, T>::decode(src, dst, ctx);
+
+    } else if constexpr (IsOptional<T>::value) {
+        using U = typename T::value_type;
+        if (src.isNull()) {
+            dst.reset();
+        } else {
+            U tmp{};
+            decodeValue<Schema, U>(src, tmp, ctx);
+            dst = std::move(tmp);
+        }
+
+    } else if constexpr (IsVector<T>::value) {
+        using U = typename T::value_type;
+        dst.clear();
+        if (!src.isArray()) {
+            ctx.addError("Expected array.");
+            return;
+        }
+        for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
+            auto guard = ctx.guard(i);
+            U elem{};
+            decodeValue<Schema, U>(src[i], elem, ctx);
+            dst.push_back(std::move(elem));
+        }
+
+    } else if constexpr (std::is_same_v<T, bool>) {
+        if (!src.isBool()) {
+            ctx.addError("Expected bool.");
+            return;
+        }
+        dst = src.asBool();
+
+    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
+        if (!src.isIntegral()) {
+            ctx.addError("Expected integral value.");
+            return;
+        }
+        if constexpr (std::is_signed_v<T>) {
+            auto v = src.asInt64();
+            if (v < std::numeric_limits<T>::min() || v > std::numeric_limits<T>::max()) {
+                ctx.addError("Integer value out of range.");
+                return;
+            }
+            dst = static_cast<T>(v);
+        } else {
+            auto v = src.asUInt64();
+            if (v > std::numeric_limits<T>::max()) {
+                ctx.addError("Unsigned integer value out of range.");
+                return;
+            }
+            dst = static_cast<T>(v);
+        }
+    } else if constexpr (std::is_same_v<T, float>) {
+        if (!src.isDouble() && !src.isInt()) {
+            ctx.addError("Expected float.");
+            return;
+        }
+        dst = static_cast<float>(src.asDouble());
+    } else if constexpr (std::is_same_v<T, double>) {
+        if (!src.isDouble() && !src.isInt()) {
+            ctx.addError("Expected double.");
+            return;
+        }
+        dst = src.asDouble();
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        if (!src.isString()) {
+            ctx.addError("Expected string.");
+            return;
+        }
+        dst = src.asString();
+
+    } else if constexpr (std::is_enum_v<T>) {
+        static_assert(DependentFalse<T>::value, "Enums must have an Schema::Enum<T> mapping.");
+
+    } else if constexpr (std::is_pointer_v<T>) {
+        static_assert(DependentFalse<T>::value, "Pointers are not supported.");
+
+    } else {
+        static_assert(
+            DependentFalse<T>::value,
+            "Unsupported type. Define Schema::Custom<T> to provide a decoder.");
+    }
+}
+
+// Variant decoding
+
+template<typename Schema, typename... Ts>
+struct VariantDecoder<Schema, std::variant<Ts...>> {
+    using VariantType = std::variant<Ts...>;
+
+    static void decode(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
+    {
+        auto& var = getVariantDef<Schema, VariantType>();
+        if (!SchemaValidator<Schema>::template validateVariant<VariantType>(ctx, var)) {
+            return;
+        }
+
+        if (!src.isObject()) {
+            ctx.addError("Expected object for variant.");
+            return;
+        }
+
+        auto& def = var.getImpl();
+        const auto& tag = def.discriminator();
+        std::string tagValue;
+
+        {
+            auto discGuard = ctx.guard(tag);
+            if (!src.isMember(tag)) {
+                ctx.addError("Missing discriminator field.");
+                return;
+            }
+
+            const Json::Value& tagNode = src[tag];
+            if (!tagNode.isString()) {
+                ctx.addError("Expected string.");
+                return;
+            }
+            tagValue = tagNode.asString();
+        }
+
+        bool matched = false;
+        (tryAlternative<Ts>(tag, tagValue, src, dst, ctx, matched), ...);
+        if (!matched) {
+            auto discGuard = ctx.guard(tag);
+            ctx.addError("Unknown discriminator value for variant.");
+        }
+    }
+
+    template<typename Alt>
+    static void tryAlternative(
+        const std::string& tag,
+        const std::string& tagValue,
+        const Json::Value& src,
+        VariantType& dst,
+        DecodeContext<Schema>& ctx,
+        bool& matched)
+    {
+        using ObjectSpec = typename Schema::template Object<Alt>;
+        const auto& objectDef = getObjectDef<Schema, Alt>();
+        if (matched || tagValue != objectDef.getImpl().variantTag()) {
+            return;
+        }
+
+        matched = true;
+
+        Alt alt{};
+        objectDef.getImpl().decodeFields(src, alt, ctx);
+        dst = std::move(alt);
+    }
+};
+
+// Encode/decode thunks
+
+template<typename Owner, typename T>
+struct FieldAccessor {
+    T Owner::* member;
+};
+
+template<typename Schema, typename Owner, typename T>
+void encodeFieldThunk(
+    const Owner& owner, Json::Value& dst, EncodeContext<Schema>& ctx, FieldAccessorPtr ptr)
+{
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* accessor = static_cast<const Accessor*>(ptr);
+    auto& member = accessor->member;
+    const T& ref = owner.*member;
+    encodeValue<Schema, T>(ref, dst, ctx);
+}
+
+template<typename Schema, typename Owner, typename T>
+void decodeFieldThunk(
+    const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr)
+{
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* accessor = static_cast<const Accessor*>(ptr);
+    auto& member = accessor->member;
+    T& ref = owner.*member;
+    decodeValue<Schema, T>(src, ref, ctx);
+}
+
+// Object implementation
+
+template<typename Owner, typename T>
+FieldAccessorStorage makeFieldAccessor(T Owner::* member)
+{
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* ctx = new Accessor{member};
+    auto deleter = +[](void* p) { delete static_cast<Accessor*>(p); };
+    return {ctx, deleter};
+}
+
+template<typename Owner, typename T>
+FieldAccessorId getFieldAccessorId()
+{
+    static int id = 0xf1e1d1d;
+    return &id;
+}
+
+// Traits
 
 template<typename T>
 struct IsOptional : std::false_type {};
@@ -558,7 +1715,7 @@ template<typename Schema, typename T>
 struct HasCustomTag<Schema, T, std::void_t<typename Schema::template Custom<T>::CustomTag>>
     : std::true_type {};
 
-template<typename Schema, typename CustomSpec, typename T, typename = void>
+template<typename Schema, typename CustomSpec, typename T, typename>
 struct HasCustomEncode : std::false_type {};
 
 template<typename Schema, typename CustomSpec, typename T>
@@ -571,7 +1728,7 @@ struct HasCustomEncode<
         std::declval<Json::Value&>(),
         std::declval<EncodeContext<Schema>&>()))>> : std::true_type {};
 
-template<typename Schema, typename CustomSpec, typename T, typename = void>
+template<typename Schema, typename CustomSpec, typename T, typename>
 struct HasCustomDecode : std::false_type {};
 
 template<typename Schema, typename CustomSpec, typename T>
@@ -626,19 +1783,7 @@ constexpr bool isSupportedFieldType()
     }
 }
 
-template<typename Schema, typename Owner, typename T>
-void ensureTypeRegistration();
-
-template<typename Schema, typename T>
-TypeInfo& makeTypeInfo();
-
-template<typename Schema, typename Variant>
-TypeInfo& makeVariantTypeInfo();
-
-template<typename Schema, typename T>
-void setTypeName(const std::string& name);
-
-// TypeInfo ////////////////////////////////////////////////////////////////////
+// == Introspection ==
 
 template<typename Schema, typename Variant, std::size_t... Is>
 const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>)
@@ -839,6 +1984,7 @@ TypeInfo& makeVariantTypeInfo()
 template<typename Schema, typename T>
 void setTypeName(const std::string& name)
 {
+    // todo revise
     static std::string storedName;
     storedName = name;
     auto& info = makeTypeInfo<Schema, T>();
@@ -931,1136 +2077,6 @@ IntrospectionRegistry<Schema>& getIntrospectionRegistry()
     static IntrospectionRegistry<Schema> reg;
     return reg;
 }
-
-// Enum impl + validation //////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename E>
-class EnumImpl
-{
-public:
-    using Entry = std::pair<E, std::string>;
-    using EntryVec = std::vector<Entry>;
-
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Enum name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Enum name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, E>(name_);
-            getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
-        }
-    }
-
-    void add(E value, std::string_view name)
-    {
-        for (const auto& entry : entries_) {
-            // Disallow duplicate value or duplicate name
-            if (entry.first == value || entry.second == name) {
-                if constexpr (getEnableAssert<Schema>()) {
-                    assert(false && "Duplicate enum mapping in Schema::Enum.");
-                }
-                return;
-            }
-        }
-        entries_.emplace_back(value, std::string(name));
-        if constexpr (getEnableIntrospection<Schema>()) {
-            getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
-        }
-    }
-
-    const std::string* find(E value) const
-    {
-        for (auto& entry : entries_) {
-            if (entry.first == value) {
-                return &entry.second;
-            }
-        }
-        return nullptr;
-    }
-
-    const E* find(const std::string& value) const
-    {
-        for (auto& entry : entries_) {
-            if (entry.second == value) {
-                return &entry.first;
-            }
-        }
-        return nullptr;
-    }
-
-    const std::string& name() const { return name_; }
-    bool hasName() const { return hasName_; }
-
-private:
-    std::vector<Entry> entries_;
-    std::string name_;
-    bool hasName_ = false;
-};
-
-template<typename Schema, typename... Ts>
-class VariantImpl<Schema, std::variant<Ts...>>
-{
-public:
-    using VariantType = std::variant<Ts...>;
-
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, VariantType>(name_);
-        }
-    }
-
-    void discriminator(std::string_view key)
-    {
-        if (key.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Discriminator key cannot be empty.");
-            }
-            return;
-        }
-        if (hasDiscriminator_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant discriminator already set.");
-            }
-            return;
-        }
-        hasDiscriminator_ = true;
-        discriminator_ = std::string(key);
-    }
-
-    bool hasNamesInAlternatives() const
-    {
-        bool hasNames = true;
-        ((hasNames = hasNames && getObjectDef<Schema, Ts>().getImpl().hasName()), ...);
-
-        return hasNames;
-    }
-
-    const std::string& name() const { return name_; }
-    const std::string& discriminator() const { return discriminator_; }
-    bool hasName() const { return hasName_; }
-    bool hasDiscriminator() const { return !discriminator_.empty(); }
-
-private:
-    std::string name_;
-    std::string discriminator_;
-    bool hasName_ = false;
-    bool hasDiscriminator_ = false;
-};
-
-template<typename Schema, typename T>
-class CustomImpl
-{
-public:
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-        if constexpr (detail::getEnableIntrospection<Schema>()) {
-            detail::setTypeName<Schema, T>(name_);
-        }
-    }
-
-    const std::string& name() const { return name_; }
-
-    bool hasName() const { return hasName_; }
-
-private:
-    std::string name_;
-    bool hasName_ = false;
-};
-
-template<typename Schema, typename T>
-constexpr void validateObjectType()
-{
-    validateObjectSpec<Schema, T>();
-}
-
-// Variant validation //////////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename Variant, typename Enable = void>
-struct VariantValidator {
-    static constexpr void validate() {}
-};
-
-template<typename Schema, typename T>
-struct VariantAltCheck {
-    static constexpr void check()
-    {
-        static_assert(
-            HasObjectTag<Schema, T>::value,
-            "std::variant alternative is not mapped as an object. "
-            "Define `template<> struct Schema::Object<T> : aison::Object<Schema, T>` "
-            "for each variant alternative.");
-        if constexpr (HasObjectTag<Schema, T>::value) {
-            using ObjectSpec = typename Schema::template Object<T>;
-            static_assert(
-                std::is_base_of_v<Object<Schema, T>, ObjectSpec>,
-                "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
-        }
-    }
-};
-
-template<typename Schema, typename... Ts>
-struct VariantValidator<Schema, std::variant<Ts...>, void> {
-    static constexpr void validate()
-    {
-        static_assert(
-            HasVariantTag<Schema, std::variant<Ts...>>::value,
-            "No schema variant mapping for this type. "
-            "Define `template<> struct Schema::Variant<V> : aison::Variant<Schema, V>`.");
-        using VariantSpec = typename Schema::template Variant<std::variant<Ts...>>;
-        static_assert(
-            std::is_base_of_v<Variant<Schema, std::variant<Ts...>>, VariantSpec>,
-            "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
-        static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
-        // Each alternative must have an object mapping.
-        (VariantAltCheck<Schema, Ts>::check(), ...);
-    }
-};
-
-template<typename Key>
-bool shouldReportSchemaError()
-{
-    static bool reported = false;
-    if (reported) {
-        return false;
-    }
-    reported = true;
-    return true;
-}
-
-template<typename...>
-struct SchemaErrorKeyTag {};
-
-template<typename Key>
-void addSchemaErrorOnce(Context& ctx, const std::string& message)
-{
-    if (shouldReportSchemaError<Key>()) {
-        ctx.addError(message);
-    }
-}
-
-template<typename Schema, typename T>
-constexpr void validateObjectSpec()
-{
-    using Type = std::decay_t<T>;
-    static_assert(
-        HasObjectTag<Schema, Type>::value,
-        "No schema object mapping for this type. Define `template<> struct Schema::Object<T> : "
-        "aison::Object<Schema, T>` and map its fields.");
-    using ObjectSpec = typename Schema::template Object<Type>;
-    static_assert(
-        std::is_base_of_v<aison::Object<Schema, Type>, ObjectSpec>,
-        "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
-}
-
-template<typename Schema, typename T>
-constexpr void validateEnumSpec()
-{
-    using Type = std::decay_t<T>;
-    static_assert(
-        HasEnumTag<Schema, Type>::value,
-        "No schema enum mapping for this type. Define `template<> struct Schema::Enum<T> : "
-        "aison::Enum<Schema, T>` and list all enum values.");
-    using EnumSpec = typename Schema::template Enum<Type>;
-    static_assert(
-        std::is_base_of_v<aison::Enum<Schema, Type>, EnumSpec>,
-        "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
-}
-
-template<typename Schema, typename T>
-constexpr void validateCustomSpec()
-{
-    using Type = std::decay_t<T>;
-    static_assert(
-        HasCustomTag<Schema, Type>::value,
-        "No schema custom mapping for this type. Define `template<> struct Schema::Custom<T> : "
-        "aison::Custom<Schema, T>`.");
-    using CustomSpec = typename Schema::template Custom<Type>;
-    static_assert(
-        std::is_base_of_v<aison::Custom<Schema, Type>, CustomSpec>,
-        "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
-}
-
-template<typename Schema, typename T>
-constexpr void validateVariantSpec()
-{
-    using Type = std::decay_t<T>;
-    static_assert(
-        IsVariant<Type>::value,
-        "Schema::Variant<T> must map a std::variant of object-mapped alternatives.");
-    VariantValidator<Schema, Type>::validate();
-}
-
-template<typename Schema>
-struct SchemaValidator {
-    template<typename T, typename ObjectDef>
-    static bool validateObject(Context& ctx, const ObjectDef& objectDef)
-    {
-        validateObjectSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
-            if (!objectDef.getImpl().hasName()) {
-                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
-                addSchemaErrorOnce<Key>(
-                    ctx,
-                    "(Schema error) Schema::Object<T>::name(...) is required when "
-                    "introspection is enabled.");
-                return false;
-            }
-        }
-        return true;
-    }
-
-    template<typename T, typename EnumDef>
-    static bool validateEnum(Context& ctx, const EnumDef& enumDef)
-    {
-        validateEnumSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
-            if (!enumDef.getImpl().hasName()) {
-                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
-                addSchemaErrorOnce<Key>(
-                    ctx,
-                    "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
-                    "enabled.");
-                return false;
-            }
-        }
-        return true;
-    }
-
-    template<typename T, typename CustomDef>
-    static bool validateCustom(Context& ctx, const CustomDef& customDef)
-    {
-        validateCustomSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
-            if (!customDef.getImpl().hasName()) {
-                using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
-                addSchemaErrorOnce<Key>(
-                    ctx,
-                    "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
-                    "is enabled.");
-                return false;
-            }
-        }
-        return true;
-    }
-
-    template<typename Variant, typename VariantDef>
-    static bool validateVariant(Context& ctx, const VariantDef& variantDef)
-    {
-        using Type = std::decay_t<Variant>;
-        validateVariantSpec<Schema, Type>();
-        bool ok = true;
-        if constexpr (getEnableIntrospection<Schema>()) {
-            if (!variantDef.getImpl().hasName()) {
-                using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
-                addSchemaErrorOnce<Key>(
-                    ctx,
-                    "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
-                    "is enabled.");
-                ok = false;
-            }
-        }
-        if (!variantDef.getImpl().hasDiscriminator()) {
-            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
-            addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
-            ok = false;
-        }
-        if (!variantDef.getImpl().hasNamesInAlternatives()) {
-            using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
-            addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
-            ok = false;
-        }
-        return ok;
-    }
-};
-
-template<typename Schema, typename T>
-auto& getVariantDef()
-{
-    using Type = typename Schema::template Variant<T>;
-    static Type instance{};
-    return instance;
-}
-
-template<typename Schema, typename T>
-auto& getObjectDef()
-{
-    using Type = typename Schema::template Object<T>;
-    static Type instance{};
-    return instance;
-}
-
-template<typename Schema, typename T>
-auto& getEnumDef()
-{
-    using Type = typename Schema::template Enum<T>;
-    static Type instance{};
-    return instance;
-}
-
-template<typename Schema, typename T>
-auto& getCustomDef()
-{
-    using Type = typename Schema::template Custom<T>;
-    static Type instance{};
-    return instance;
-}
-
-// EnableAssert
-
-template<typename Schema, typename>
-struct HasSchemaEnableAssert : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableAssert<Schema, std::void_t<decltype(Schema::enableAssert)>>
-    : std::true_type {};
-
-template<typename Schema, typename>
-struct SchemaEnableAssert {
-    constexpr static bool get() { return SchemaDefaults::enableAssert; }
-};
-
-template<typename Schema>
-struct SchemaEnableAssert<Schema, std::enable_if_t<HasSchemaEnableAssert<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableAssert)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableAssert must be bool.");
-        return Schema::enableAssert;
-    }
-};
-
-template<typename Schema>
-constexpr bool getEnableAssert()
-{
-    return SchemaEnableAssert<Schema>::get();
-}
-
-// Optional strictness
-
-template<typename Schema, typename>
-struct HasSchemaStrictOptional : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaStrictOptional<Schema, std::void_t<decltype(Schema::strictOptional)>>
-    : std::true_type {};
-
-template<typename Schema, typename>
-struct SchemaStrictOptional {
-    constexpr static bool get() { return SchemaDefaults::strictOptional; }
-};
-
-template<typename Schema>
-struct SchemaStrictOptional<Schema, std::enable_if_t<HasSchemaStrictOptional<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::strictOptional)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::strictOptional must be bool.");
-        return Schema::strictOptional;
-    }
-};
-
-template<typename Schema>
-constexpr bool getStrictOptional()
-{
-    return SchemaStrictOptional<Schema>::get();
-}
-
-// Introspection flag
-
-template<typename Schema, typename>
-struct HasSchemaEnableIntrospection : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableIntrospection<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
-    : std::true_type {};
-
-template<typename Schema, typename>
-struct SchemaEnableIntrospection {
-    constexpr static bool get() { return SchemaDefaults::enableIntrospect; }
-};
-
-template<typename Schema>
-struct SchemaEnableIntrospection<
-    Schema,
-    std::enable_if_t<HasSchemaEnableIntrospection<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableIntrospect)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableIntrospect must be bool.");
-        return Schema::enableIntrospect;
-    }
-};
-
-template<typename Schema>
-constexpr bool getEnableIntrospection()
-{
-    return SchemaEnableIntrospection<Schema>::get();
-}
-
-template<typename Schema, typename = void>
-struct HasSchemaTag : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true_type {};
-
-template<typename Schema>
-constexpr void validateSchemaDefinition()
-{
-    static_assert(
-        HasSchemaTag<Schema>::value,
-        "Schema must define SchemaTag. Did you inherit from aison::Schema<...>?");
-    using Base = aison::Schema<Schema, typename Schema::ConfigType>;
-    static_assert(
-        std::is_base_of_v<Base, Schema>,
-        "Schema must inherit from aison::Schema<Derived, Config>.");
-}
-
-template<typename Schema>
-constexpr void validateSchemaBase()
-{
-    validateSchemaDefinition<Schema>();
-}
-
-// EncoderImpl / DecoderImpl ///////////////////////////////////////////////////////////////
-
-template<typename Schema>
-class EncodeContext : public Context
-{
-public:
-    using Config = typename Schema::ConfigType;
-
-    EncodeContext(const Config& cfg)
-        : config_(cfg)
-    {
-        validateSchemaDefinition<Schema>();
-        static_assert(
-            getEncodeEnabled<Schema>(),
-            "EncodeContext<Schema> cannot be used when Schema::enableEncode is false.");
-    }
-
-    template<typename T>
-    void encode(const T& value, Json::Value& dst)
-    {
-        encodeValue<Schema, T>(value, dst, *this);
-    }
-
-    const Config& config() const { return config_; }
-
-private:
-    const Config& config_;
-};
-
-template<typename Schema>
-class DecodeContext : public Context
-{
-public:
-    using Config = typename Schema::ConfigType;
-
-    DecodeContext(const Config& cfg)
-        : config_(cfg)
-    {
-        validateSchemaBase<Schema>();
-        static_assert(
-            getDecodeEnabled<Schema>(),
-            "DecodeContext<Schema> cannot be used when Schema::enableDecode is false.");
-    }
-
-    template<typename T>
-    void decode(const Json::Value& src, T& value)
-    {
-        decodeValue<Schema, T>(src, value, *this);
-    }
-
-    const Config& config() const { return config_; }
-
-private:
-    const Config& config_;
-};
-
-// Encode ///////////////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename T>
-void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
-{
-    if constexpr (HasCustomTag<Schema, T>::value) {
-        using CustomSpec = typename Schema::template Custom<T>;
-        static_assert(
-            HasCustomEncode<Schema, CustomSpec, T>::value,
-            "Schema::Custom<T> must implement encode(const T&, Json::Value&, EncodeContext&).");
-        auto& custom = getCustomDef<Schema, T>();
-        SchemaValidator<Schema>::template validateCustom<T>(ctx, custom);
-        custom.encode(src, dst, ctx);
-
-    } else if constexpr (HasObjectTag<Schema, T>::value) {
-        const auto& def = getObjectDef<Schema, T>();
-        SchemaValidator<Schema>::template validateObject<T>(ctx, def);
-        def.getImpl().encodeFields(src, dst, ctx);
-
-    } else if constexpr (HasEnumTag<Schema, T>::value) {
-        using EnumSpec = typename Schema::template Enum<T>;
-        auto& def = getEnumDef<Schema, T>();
-        SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
-        auto* str = def.getImpl().find(src);
-        if (str) {
-            dst = *str;
-        } else {
-            using U = typename std::underlying_type<T>::type;
-            ctx.addError(
-                "Unhandled enum value during encode (underlying = " + std::to_string(U(src)) +
-                ").");
-        }
-
-    } else if constexpr (HasVariantTag<Schema, T>::value) {
-        auto& var = getVariantDef<Schema, T>();
-        if (!SchemaValidator<Schema>::template validateVariant<T>(ctx, var)) {
-            return;
-        }
-
-        dst = Json::objectValue;
-        std::visit(
-            [&](const auto& alt) {
-                using Alt = std::decay_t<decltype(alt)>;
-                auto& obj = getObjectDef<Schema, Alt>();
-                obj.getImpl().encodeFields(alt, dst, ctx);
-                dst[var.getImpl().discriminator()] = obj.getImpl().name();
-            },
-            src);
-
-    } else if constexpr (IsOptional<T>::value) {
-        using U = typename T::value_type;
-        if (!src) {
-            dst = Json::nullValue;
-        } else {
-            encodeValue<Schema, U>(*src, dst, ctx);
-        }
-
-    } else if constexpr (IsVector<T>::value) {
-        using U = typename T::value_type;
-        dst = Json::arrayValue;
-        std::size_t index = 0;
-        for (const auto& elem : src) {
-            Context::PathGuard guard(ctx, index++);
-            Json::Value v;
-            encodeValue<Schema, U>(elem, v, ctx);
-            dst.append(v);
-        }
-
-    } else if constexpr (std::is_same_v<T, bool>) {
-        dst = src;
-
-    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        dst = static_cast<std::conditional_t<std::is_signed_v<T>, int64_t, uint64_t>>(src);
-
-    } else if constexpr (std::is_same_v<T, float>) {
-        if (std::isnan(src)) {
-            ctx.addError("NaN is not allowed here.");
-            return;
-        }
-        dst = src;
-
-    } else if constexpr (std::is_same_v<T, double>) {
-        if (std::isnan(src)) {
-            ctx.addError("NaN is not allowed here.");
-            return;
-        }
-        dst = src;
-
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        dst = src;
-
-    } else if constexpr (std::is_enum_v<T>) {
-        static_assert(DependentFalse<T>::value, "Enums must have an Schema::Enum<T> mapping.");
-
-    } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(DependentFalse<T>::value, "Pointers are not supported.");
-
-    } else {
-        static_assert(
-            DependentFalse<T>::value,
-            "Unsupported type. Define Schema::Custom<T> to provide an encoder.");
-    }
-}
-
-// Decode //////////////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename T>
-void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
-{
-    if constexpr (HasCustomTag<Schema, T>::value) {
-        using CustomSpec = typename Schema::template Custom<T>;
-        static_assert(
-            HasCustomDecode<Schema, CustomSpec, T>::value,
-            "Schema::Custom<T> must implement decode(const Json::Value&, T&, DecodeContext&).");
-        auto& custom = getCustomDef<Schema, T>();
-        SchemaValidator<Schema>::template validateCustom<T>(ctx, custom);
-        custom.decode(src, dst, ctx);
-
-    } else if constexpr (HasObjectTag<Schema, T>::value) {
-        if (!src.isObject()) {
-            ctx.addError("Expected object.");
-            return;
-        }
-
-        const auto& obj = getObjectDef<Schema, T>();
-        SchemaValidator<Schema>::template validateObject<T>(ctx, obj);
-        obj.getImpl().decodeFields(src, dst, ctx);
-
-    } else if constexpr (HasEnumTag<Schema, T>::value) {
-        if (!src.isString()) {
-            ctx.addError("Expected string for enum.");
-            return;
-        }
-
-        auto& def = getEnumDef<Schema, T>();
-        SchemaValidator<Schema>::template validateEnum<T>(ctx, def);
-        auto* value = def.getImpl().find(src.asString());
-        if (value) {
-            dst = *value;
-        } else {
-            ctx.addError("Unknown enum value '" + src.asString() + "'.");
-        }
-
-    } else if constexpr (HasVariantTag<Schema, T>::value) {
-        VariantDecoder<Schema, T>::decode(src, dst, ctx);
-
-    } else if constexpr (IsOptional<T>::value) {
-        using U = typename T::value_type;
-        if (src.isNull()) {
-            dst.reset();
-        } else {
-            U tmp{};
-            decodeValue<Schema, U>(src, tmp, ctx);
-            dst = std::move(tmp);
-        }
-
-    } else if constexpr (IsVector<T>::value) {
-        using U = typename T::value_type;
-        dst.clear();
-        if (!src.isArray()) {
-            ctx.addError("Expected array.");
-            return;
-        }
-        for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
-            auto guard = ctx.guard(i);
-            U elem{};
-            decodeValue<Schema, U>(src[i], elem, ctx);
-            dst.push_back(std::move(elem));
-        }
-
-    } else if constexpr (std::is_same_v<T, bool>) {
-        if (!src.isBool()) {
-            ctx.addError("Expected bool.");
-            return;
-        }
-        dst = src.asBool();
-
-    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        if (!src.isIntegral()) {
-            ctx.addError("Expected integral value.");
-            return;
-        }
-        if constexpr (std::is_signed_v<T>) {
-            auto v = src.asInt64();
-            if (v < std::numeric_limits<T>::min() || v > std::numeric_limits<T>::max()) {
-                ctx.addError("Integer value out of range.");
-                return;
-            }
-            dst = static_cast<T>(v);
-        } else {
-            auto v = src.asUInt64();
-            if (v > std::numeric_limits<T>::max()) {
-                ctx.addError("Unsigned integer value out of range.");
-                return;
-            }
-            dst = static_cast<T>(v);
-        }
-    } else if constexpr (std::is_same_v<T, float>) {
-        if (!src.isDouble() && !src.isInt()) {
-            ctx.addError("Expected float.");
-            return;
-        }
-        dst = static_cast<float>(src.asDouble());
-    } else if constexpr (std::is_same_v<T, double>) {
-        if (!src.isDouble() && !src.isInt()) {
-            ctx.addError("Expected double.");
-            return;
-        }
-        dst = src.asDouble();
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        if (!src.isString()) {
-            ctx.addError("Expected string.");
-            return;
-        }
-        dst = src.asString();
-
-    } else if constexpr (std::is_enum_v<T>) {
-        static_assert(DependentFalse<T>::value, "Enums must have an Schema::Enum<T> mapping.");
-
-    } else if constexpr (std::is_pointer_v<T>) {
-        static_assert(DependentFalse<T>::value, "Pointers are not supported.");
-
-    } else {
-        static_assert(
-            DependentFalse<T>::value,
-            "Unsupported type. Define Schema::Custom<T> to provide a decoder.");
-    }
-}
-
-// Variant decoding /////////////////////////////////////////////////////////////////////////
-
-template<typename Schema, typename... Ts>
-struct VariantDecoder<Schema, std::variant<Ts...>> {
-    using VariantType = std::variant<Ts...>;
-
-    static void decode(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
-    {
-        auto& var = getVariantDef<Schema, VariantType>();
-        if (!SchemaValidator<Schema>::template validateVariant<VariantType>(ctx, var)) {
-            return;
-        }
-
-        if (!src.isObject()) {
-            ctx.addError("Expected object for variant.");
-            return;
-        }
-
-        auto& def = var.getImpl();
-        const auto& tag = def.discriminator();
-        std::string tagValue;
-
-        {
-            auto discGuard = ctx.guard(tag);
-            if (!src.isMember(tag)) {
-                ctx.addError("Missing discriminator field.");
-                return;
-            }
-
-            const Json::Value& tagNode = src[tag];
-            if (!tagNode.isString()) {
-                ctx.addError("Expected string.");
-                return;
-            }
-            tagValue = tagNode.asString();
-        }
-
-        bool matched = false;
-        (tryAlternative<Ts>(tag, tagValue, src, dst, ctx, matched), ...);
-        if (!matched) {
-            auto discGuard = ctx.guard(tag);
-            ctx.addError("Unknown discriminator value for variant.");
-        }
-    }
-
-    template<typename Alt>
-    static void tryAlternative(
-        const std::string& tag,
-        const std::string& tagValue,
-        const Json::Value& src,
-        VariantType& dst,
-        DecodeContext<Schema>& ctx,
-        bool& matched)
-    {
-        using ObjectSpec = typename Schema::template Object<Alt>;
-        const auto& objectDef = getObjectDef<Schema, Alt>();
-        if (matched || tagValue != objectDef.getImpl().variantTag()) {
-            return;
-        }
-
-        matched = true;
-
-        Alt alt{};
-        objectDef.getImpl().decodeFields(src, alt, ctx);
-        dst = std::move(alt);
-    }
-};
-
-// Encode/decode thunks /////////////////////////////////////////////////////////////
-
-template<typename Owner, typename T>
-struct FieldAccessor {
-    T Owner::* member;
-};
-
-template<typename Schema, typename Owner, typename T>
-void encodeFieldThunk(
-    const Owner& owner, Json::Value& dst, EncodeContext<Schema>& ctx, FieldAccessorPtr ptr)
-{
-    using Accessor = FieldAccessor<Owner, T>;
-    auto* accessor = static_cast<const Accessor*>(ptr);
-    auto& member = accessor->member;
-    const T& ref = owner.*member;
-    encodeValue<Schema, T>(ref, dst, ctx);
-}
-
-template<typename Schema, typename Owner, typename T>
-void decodeFieldThunk(
-    const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr)
-{
-    using Accessor = FieldAccessor<Owner, T>;
-    auto* accessor = static_cast<const Accessor*>(ptr);
-    auto& member = accessor->member;
-    T& ref = owner.*member;
-    decodeValue<Schema, T>(src, ref, ctx);
-}
-
-// Object implementation /////////////////////////////////////////////////////////
-
-template<typename Owner, typename T>
-FieldAccessorStorage makeFieldAccessor(T Owner::* member)
-{
-    using Accessor = FieldAccessor<Owner, T>;
-    auto* ctx = new Accessor{member};
-    auto deleter = +[](void* p) { delete static_cast<Accessor*>(p); };
-    return {ctx, deleter};
-}
-
-template<typename Owner, typename T>
-FieldAccessorId getFieldAccessorId()
-{
-    static int id = 0xf1e1d1d;
-    return &id;
-}
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableEncode : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableEncode<Schema, std::void_t<decltype(Schema::enableEncode)>>
-    : std::true_type {};
-
-template<typename Schema, typename = void>
-struct HasSchemaEnableDecode : std::false_type {};
-
-template<typename Schema>
-struct HasSchemaEnableDecode<Schema, std::void_t<decltype(Schema::enableDecode)>>
-    : std::true_type {};
-
-template<typename Schema, typename = void>
-struct SchemaEnableEncode {
-    constexpr static bool get() { return SchemaDefaults::enableEncode; }
-};
-
-template<typename Schema>
-struct SchemaEnableEncode<Schema, std::enable_if_t<HasSchemaEnableEncode<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableEncode)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableEncode must be bool.");
-        return Schema::enableEncode;
-    }
-};
-
-template<typename Schema, typename = void>
-struct SchemaEnableDecode {
-    constexpr static bool get() { return SchemaDefaults::enableDecode; }
-};
-
-template<typename Schema>
-struct SchemaEnableDecode<Schema, std::enable_if_t<HasSchemaEnableDecode<Schema>::value>> {
-    constexpr static bool get()
-    {
-        using Type = std::decay_t<decltype(Schema::enableDecode)>;
-        static_assert(std::is_same_v<Type, bool>, "Schema::enableDecode must be bool.");
-        return Schema::enableDecode;
-    }
-};
-
-template<typename Schema>
-constexpr bool getEncodeEnabled()
-{
-    return SchemaEnableEncode<Schema>::get();
-}
-
-template<typename Schema>
-constexpr bool getDecodeEnabled()
-{
-    return SchemaEnableDecode<Schema>::get();
-}
-
-template<typename Schema, typename Owner>
-class ObjectImpl
-{
-private:
-    struct FieldDef {
-        using EncodeFn =
-            void (*)(const Owner&, Json::Value&, EncodeContext<Schema>&, FieldAccessorPtr ptr);
-        using DecodeFn =
-            void (*)(const Json::Value&, Owner&, DecodeContext<Schema>&, FieldAccessorPtr ptr);
-
-        FieldDef(FieldAccessorStorage&& accessor)
-            : accessor(std::move(accessor))
-        {}
-
-        FieldAccessorStorage accessor;
-        FieldAccessorId accessorId = nullptr;  // Note: this is needed to avoid UB casts
-        EncodeFn encode = nullptr;
-        DecodeFn decode = nullptr;
-
-        std::string name;
-        bool isOptional = false;
-    };
-
-public:
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Object name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Object name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, Owner>(name_);
-            getIntrospectionRegistry<Schema>().setObjectName(detail::getTypeId<Owner>(), name_);
-        }
-    }
-
-    template<typename T>
-    void add(T Owner::* member, std::string_view name)
-    {
-        static_assert(
-            isSupportedFieldType<Schema, T>(),
-            "Unsupported field type in Schema::Object<T>::add(...). Provide a Schema::Object / "
-            "Enum / Custom / Variant mapping or use supported scalar/collection types.");
-        // Check if member or name is already mapped
-        auto accessorId = getFieldAccessorId<Owner, T>();
-        for (const auto& field : fields_) {
-            using Ctx = FieldAccessor<Owner, T>;
-            if (field.accessorId == accessorId &&
-                reinterpret_cast<const Ctx*>(field.accessor.get())->member == member)
-            {
-                if constexpr (getEnableAssert<Schema>()) {
-                    assert(false && "Same member is mapped multiple times in Schema::Object.");
-                }
-                return;
-            }
-
-            if (field.name == name) {
-                if constexpr (getEnableAssert<Schema>()) {
-                    assert(false && "Duplicate field name in Schema::Object.");
-                }
-                return;
-            }
-        }
-
-        auto& field = fields_.emplace_back(makeFieldAccessor(member));
-
-        field.name = std::string(name);
-        field.accessorId = accessorId;
-        field.isOptional = IsOptional<T>::value;
-
-        if constexpr (getEncodeEnabled<Schema>()) {
-            field.encode = &encodeFieldThunk<Schema, Owner, T>;
-        }
-
-        if constexpr (getDecodeEnabled<Schema>()) {
-            field.decode = &decodeFieldThunk<Schema, Owner, T>;
-        }
-
-        if constexpr (getEnableIntrospection<Schema>()) {
-            FieldInfo fi;
-            fi.name = std::string(name);
-            fi.type = &makeTypeInfo<Schema, T>();
-            getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
-            ensureTypeRegistration<Schema, Owner, T>();
-        }
-    }
-
-    template<typename S = Schema, typename = std::enable_if_t<getEncodeEnabled<S>()>>
-    void encodeFields(const Owner& src, Json::Value& dst, EncodeContext<Schema>& ctx) const
-    {
-        dst = Json::objectValue;
-        for (const auto& field : fields_) {
-            Context::PathGuard guard(ctx, field.name);
-            Json::Value node;
-            field.encode(src, node, ctx, field.accessor.get());
-            if (!getStrictOptional<Schema>() && field.isOptional && node.isNull()) {
-                continue;
-            }
-            dst[field.name] = std::move(node);
-        }
-    }
-
-    template<typename S = Schema, typename = std::enable_if_t<getDecodeEnabled<S>()>>
-    void decodeFields(const Json::Value& src, Owner& dst, DecodeContext<Schema>& ctx) const
-    {
-        for (const auto& field : fields_) {
-            const auto& key = field.name;
-            if (!src.isMember(key)) {
-                if (!getStrictOptional<Schema>() && field.isOptional) {
-                    auto guard = ctx.guard(key);
-                    field.decode(Json::nullValue, dst, ctx, field.accessor.get());
-                    continue;
-                }
-                ctx.addError(std::string("Missing required field '") + key + "'.");
-                continue;
-            }
-            const Json::Value& node = src[key];
-            auto guard = ctx.guard(key);
-            field.decode(node, dst, ctx, field.accessor.get());
-        }
-    }
-
-    const std::string& name() const { return name_; }
-    bool hasName() const { return hasName_; }
-    bool hasVariantTag() const { return hasName_; }
-    const std::string& variantTag() const { return name_; }
-    const std::vector<FieldDef>& fields() const { return fields_; }
-
-private:
-    std::vector<FieldDef> fields_;
-    std::string name_;
-    bool hasName_ = false;
-};
 
 template<typename Schema>
 class IntrospectionImpl
@@ -2234,17 +2250,12 @@ private:
 
 namespace aison {
 
-// API types //////////////////////////////////////////////////////////////
+// Definitions (CRTP base types) ///////////////////////////////////////////////////////////////////
 
 template<typename Derived, typename Config = EmptyConfig>
 struct Schema {
     using SchemaTag = void;
     using ConfigType = Config;
-
-    // template<typename T> struct Custom;
-    // template<typename T> struct Object;
-    // template<typename T> struct Variant;
-    // template<typename T> struct Enum;
 };
 
 template<typename Schema, typename T>
@@ -2322,10 +2333,17 @@ private:
     Impl impl_;
 };
 
-// API functions //////////////////////////////////////////////////////////////////////
+// Definitions (API functions) /////////////////////////////////////////////////////////////////////
+
+template<typename T>
+TypeId getTypeId()
+{
+    static int id = 0x71931d;
+    return &id;
+}
 
 template<typename Schema, typename T>
-Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config = {})
+Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config)
 {
     detail::validateSchemaDefinition<Schema>();
     detail::EncodeContext<Schema> ctx(config);
@@ -2334,7 +2352,7 @@ Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigTyp
 }
 
 template<typename Schema, typename T>
-Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {})
+Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config)
 {
     detail::validateSchemaDefinition<Schema>();
     detail::DecodeContext<Schema> ctx(config);
