@@ -3,8 +3,6 @@
 #include <json/json.h>
 
 #include <string>
-#include <variant>
-#include <vector>
 
 namespace {
 
@@ -27,6 +25,8 @@ struct DupMember {
 
 template<>
 struct GuardSchema::Object<DupField> : aison::Object<GuardSchema, DupField> {
+    static constexpr auto name = "dupField";
+
     Object()
     {
         add(&DupField::a, "value");
@@ -36,158 +36,13 @@ struct GuardSchema::Object<DupField> : aison::Object<GuardSchema, DupField> {
 
 template<>
 struct GuardSchema::Object<DupMember> : aison::Object<GuardSchema, DupMember> {
+    static constexpr auto name = "dupMember";
+
     Object()
     {
         add(&DupMember::v, "primary");
         add(&DupMember::v, "alias");  // duplicate member mapping would assert otherwise
     }
-};
-
-// Variant guard scenarios -----------------------------------------------------
-
-struct Circle {
-    double r = 0.0;
-};
-
-struct Rect {
-    double w = 0.0;
-};
-
-using ShapeBadVariant = std::variant<Circle, Rect>;
-
-struct SceneBad {
-    ShapeBadVariant shape;
-};
-
-// Missing name on Circle triggers validation; asserts disabled to avoid abort.
-struct SchemaMissingDiscriminator : aison::Schema<SchemaMissingDiscriminator> {
-    static constexpr auto enableAssert = false;
-
-    template<typename T>
-    struct Object;
-    template<typename T>
-    struct Variant;
-};
-
-template<>
-struct SchemaMissingDiscriminator::Variant<ShapeBadVariant>
-    : aison::Variant<SchemaMissingDiscriminator, ShapeBadVariant> {
-    Variant()
-    {
-        name("ShapeBadVariant");
-        discriminator("kind");
-    }
-};
-
-template<>
-struct SchemaMissingDiscriminator::Object<Circle>
-    : aison::Object<SchemaMissingDiscriminator, Circle> {
-    Object() { add(&Circle::r, "r"); }  // no discriminator()
-};
-
-template<>
-struct SchemaMissingDiscriminator::Object<Rect> : aison::Object<SchemaMissingDiscriminator, Rect> {
-    Object()
-    {
-        name("rect");
-        add(&Rect::w, "w");
-    }
-};
-
-template<>
-struct SchemaMissingDiscriminator::Object<SceneBad>
-    : aison::Object<SchemaMissingDiscriminator, SceneBad> {
-    Object() { add(&SceneBad::shape, "shape"); }
-};
-
-// Missing discriminator key ---------------------------------------------------
-
-using ShapeMismatched = std::variant<Circle, Rect>;
-
-struct SceneMismatch {
-    std::vector<ShapeMismatched> shapes;
-};
-
-struct SchemaMissingVariantKey : aison::Schema<SchemaMissingVariantKey> {
-    static constexpr auto enableAssert = false;
-
-    template<typename T>
-    struct Object;
-    template<typename T>
-    struct Variant;
-};
-
-template<>
-struct SchemaMissingVariantKey::Variant<ShapeMismatched>
-    : aison::Variant<SchemaMissingVariantKey, ShapeMismatched> {
-    Variant() { name("ShapeMismatched"); }  // no discriminator set
-};
-
-template<>
-struct SchemaMissingVariantKey::Object<Circle> : aison::Object<SchemaMissingVariantKey, Circle> {
-    Object()
-    {
-        name("circle");
-        add(&Circle::r, "r");
-    }
-};
-
-template<>
-struct SchemaMissingVariantKey::Object<Rect> : aison::Object<SchemaMissingVariantKey, Rect> {
-    Object()
-    {
-        name("rect");
-        add(&Rect::w, "w");
-    }
-};
-
-template<>
-struct SchemaMissingVariantKey::Object<SceneMismatch>
-    : aison::Object<SchemaMissingVariantKey, SceneMismatch> {
-    Object() { add(&SceneMismatch::shapes, "shapes"); }
-};
-
-// Empty discriminator key -----------------------------------------------------
-
-struct SchemaEmptyKey : aison::Schema<SchemaEmptyKey> {
-    static constexpr auto enableAssert = false;
-
-    template<typename T>
-    struct Object;
-    template<typename T>
-    struct Variant;
-};
-
-template<>
-struct SchemaEmptyKey::Variant<ShapeBadVariant> : aison::Variant<SchemaEmptyKey, ShapeBadVariant> {
-    Variant()
-    {
-        name("ShapeBadVariant");
-        discriminator("");  // invalid empty key would assert if enabled
-    }
-};
-
-template<>
-struct SchemaEmptyKey::Object<Circle> : aison::Object<SchemaEmptyKey, Circle> {
-    Object()
-    {
-        name("circle");
-        add(&Circle::r, "r");
-    }
-};
-
-template<>
-struct SchemaEmptyKey::Object<Rect> : aison::Object<SchemaEmptyKey, Rect> {
-    Object()
-    {
-        name("rect");
-        add(&Rect::w, "w");
-    }
-};
-
-template<>
-struct SchemaEmptyKey::Object<SceneBad> : aison::Object<SchemaEmptyKey, SceneBad> {
-    Object() { add(&SceneBad::shape, "shape"); }
 };
 
 TEST_SUITE("Runtime asserts (asserts disabled)")
@@ -217,44 +72,6 @@ TEST_SUITE("Runtime asserts (asserts disabled)")
         CHECK_FALSE(json.isMember("alias"));
         CHECK(json["primary"].asInt() == 7);
     }
-
-    TEST_CASE("Variant alternative missing name yields runtime error when asserts disabled")
-    {
-        SceneBad scene;
-        scene.shape = Circle{3.0};
-
-        Json::Value json;
-        auto enc = aison::encode<SchemaMissingDiscriminator>(scene, json);
-        CHECK_FALSE(enc);
-        REQUIRE_FALSE(enc.errors.empty());
-        CHECK(enc.errors[0].message.find("missing name") != std::string::npos);
-    }
-
-    TEST_CASE("Variant without discriminator key fails validation")
-    {
-        SceneMismatch scene;
-        scene.shapes.push_back(Circle{1.0});
-        scene.shapes.push_back(Rect{2.0});
-
-        Json::Value json;
-        auto enc = aison::encode<SchemaMissingVariantKey>(scene, json);
-        CHECK_FALSE(enc);
-        REQUIRE_FALSE(enc.errors.empty());
-        CHECK(enc.errors[0].message.find("Discriminator key not set") != std::string::npos);
-    }
-
-    TEST_CASE("Empty discriminator key surfaces validation error when asserts disabled")
-    {
-        SceneBad scene;
-        scene.shape = Rect{5.0};
-
-        Json::Value json;
-        auto enc = aison::encode<SchemaEmptyKey>(scene, json);
-        CHECK_FALSE(enc);
-        REQUIRE_FALSE(enc.errors.empty());
-        CHECK(enc.errors[0].message.find("Discriminator key not set") != std::string::npos);
-    }
-
 }  // TEST_SUITE
 
 }  // namespace

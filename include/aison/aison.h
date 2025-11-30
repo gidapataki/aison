@@ -293,6 +293,21 @@ constexpr void validateVariantSpec();
 template<typename Schema, typename T>
 std::string schemaTypeName();
 
+template<typename Schema, typename T>
+constexpr std::string_view getObjectName();
+
+template<typename Schema, typename T>
+constexpr std::string_view getEnumName();
+
+template<typename Schema, typename T>
+constexpr std::string_view getVariantName();
+
+template<typename Schema, typename T>
+constexpr std::string_view getVariantDiscriminator();
+
+template<typename Schema, typename T>
+constexpr std::string_view getCustomName();
+
 template<typename Owner, typename T>
 FieldAccessorId getFieldAccessorId();
 
@@ -342,22 +357,15 @@ struct HasSchemaTag<Schema, std::void_t<typename Schema::SchemaTag>> : std::true
 template<typename Schema, typename T>
 std::string schemaTypeName()
 {
-    if constexpr (HasObjectTag<Schema, T>::value) {
-        if (auto& def = getObjectDef<Schema, T>(); def.getImpl().hasName()) {
-            return def.getImpl().name();
-        }
-    } else if constexpr (HasEnumTag<Schema, T>::value) {
-        if (auto& def = getEnumDef<Schema, T>(); def.getImpl().hasName()) {
-            return def.getImpl().name();
-        }
-    } else if constexpr (HasVariantTag<Schema, T>::value) {
-        if (auto& def = getVariantDef<Schema, T>(); def.getImpl().hasName()) {
-            return def.getImpl().name();
-        }
-    } else if constexpr (HasCustomTag<Schema, T>::value) {
-        if (auto& def = getCustomDef<Schema, T>(); def.getImpl().hasName()) {
-            return def.getImpl().name();
-        }
+    using Type = std::decay_t<T>;
+    if constexpr (HasObjectTag<Schema, Type>::value) {
+        return std::string(getObjectName<Schema, Type>());
+    } else if constexpr (HasEnumTag<Schema, Type>::value) {
+        return std::string(getEnumName<Schema, Type>());
+    } else if constexpr (HasVariantTag<Schema, Type>::value) {
+        return std::string(getVariantName<Schema, Type>());
+    } else if constexpr (HasCustomTag<Schema, Type>::value) {
+        return std::string(getCustomName<Schema, Type>());
     }
     return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(getTypeId<T>()));
 }
@@ -491,6 +499,114 @@ constexpr void validateSchemaDefinition()
         "Schema must inherit from aison::Schema<Derived, Config>.");
 }
 
+// == Schema names and discriminators ==
+
+template<typename T, typename = void>
+struct HasStaticNameMember : std::false_type {};
+
+template<typename T>
+struct HasStaticNameMember<T, std::void_t<decltype(T::name)>> : std::true_type {};
+
+template<typename T, typename = void>
+struct HasStaticDiscriminatorMember : std::false_type {};
+
+template<typename T>
+struct HasStaticDiscriminatorMember<T, std::void_t<decltype(T::discriminator)>> : std::true_type {};
+
+constexpr std::string_view toStringView(std::string_view value)
+{
+    return value;
+}
+
+template<std::size_t N>
+constexpr std::string_view toStringView(const char (&value)[N])
+{
+    return std::string_view{value, N - 1};
+}
+
+constexpr std::string_view toStringView(const char* value)
+{
+    return value ? std::string_view{value} : std::string_view{};
+}
+
+template<typename Spec>
+constexpr std::string_view getStaticName()
+{
+    if constexpr (HasStaticNameMember<Spec>::value) {
+        return toStringView(Spec::name);
+    }
+    return {};
+}
+
+template<typename Spec>
+constexpr std::string_view getStaticDiscriminator()
+{
+    if constexpr (HasStaticDiscriminatorMember<Spec>::value) {
+        return toStringView(Spec::discriminator);
+    }
+    return {};
+}
+
+template<typename Schema, typename T>
+constexpr std::string_view getObjectName()
+{
+    using Spec = SchemaObject<Schema, std::decay_t<T>>;
+    static_assert(
+        HasStaticNameMember<Spec>::value,
+        "Schema::Object<T> must declare `static constexpr auto name = \"...\";`.");
+    constexpr auto name = getStaticName<Spec>();
+    static_assert(name.size() > 0, "Schema::Object<T>::name must be non-empty.");
+    return name;
+}
+
+template<typename Schema, typename T>
+constexpr std::string_view getEnumName()
+{
+    using Spec = SchemaEnum<Schema, std::decay_t<T>>;
+    static_assert(
+        HasStaticNameMember<Spec>::value,
+        "Schema::Enum<T> must declare `static constexpr auto name = \"...\";`.");
+    constexpr auto name = getStaticName<Spec>();
+    static_assert(name.size() > 0, "Schema::Enum<T>::name must be non-empty.");
+    return name;
+}
+
+template<typename Schema, typename T>
+constexpr std::string_view getVariantName()
+{
+    using Spec = SchemaVariant<Schema, std::decay_t<T>>;
+    static_assert(
+        HasStaticNameMember<Spec>::value,
+        "Schema::Variant<V> must declare `static constexpr auto name = \"...\";`.");
+    constexpr auto name = getStaticName<Spec>();
+    static_assert(name.size() > 0, "Schema::Variant<V>::name must be non-empty.");
+    return name;
+}
+
+template<typename Schema, typename T>
+constexpr std::string_view getVariantDiscriminator()
+{
+    using Spec = SchemaVariant<Schema, std::decay_t<T>>;
+    static_assert(
+        HasStaticDiscriminatorMember<Spec>::value,
+        "Schema::Variant<V> must declare `static constexpr auto discriminator = \"...\";`.");
+    constexpr auto disc = getStaticDiscriminator<Spec>();
+    static_assert(disc.size() > 0, "Schema::Variant<V>::discriminator must be non-empty.");
+    return disc;
+}
+
+template<typename Schema, typename T>
+constexpr std::string_view getCustomName()
+{
+    using Spec = SchemaCustom<Schema, std::decay_t<T>>;
+    static_assert(
+        HasStaticNameMember<Spec>::value,
+        "Schema::Custom<T> must declare `static constexpr auto name = \"...\";`.");
+    constexpr auto name = getStaticName<Spec>();
+    static_assert(name.size() > 0, "Schema::Custom<T>::name must be non-empty.");
+    return name;
+}
+
 // == Object ==
 
 template<typename Schema, typename Owner>
@@ -518,24 +634,6 @@ public:
         TypeId typeId = nullptr;
         bool isRequired = true;
     };
-
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Object name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Object name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-    }
 
     template<typename T>
     void add(T Owner::* member, std::string_view name)
@@ -620,16 +718,14 @@ public:
         }
     }
 
-    const std::string& name() const { return name_; }
-    bool hasName() const { return hasName_; }
-    bool hasVariantTag() const { return hasName_; }
-    const std::string& variantTag() const { return name_; }
+    static constexpr std::string_view name() { return getObjectName<Schema, Owner>(); }
+    static constexpr bool hasName() { return true; }
+    static constexpr bool hasVariantTag() { return true; }
+    static constexpr std::string_view variantTag() { return name(); }
     const std::vector<FieldDef>& fields() const { return fields_; }
 
 private:
     std::vector<FieldDef> fields_;
-    std::string name_;
-    bool hasName_ = false;
 };
 
 template<typename Schema, typename T>
@@ -650,6 +746,7 @@ constexpr void validateObjectSpec()
     static_assert(
         std::is_base_of_v<aison::Object<Schema, Type>, ObjectSpec>,
         "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+    (void)getObjectName<Schema, Type>();
 }
 
 template<typename Schema, typename T>
@@ -668,24 +765,6 @@ class EnumImpl
 public:
     using Entry = std::pair<E, std::string>;
     using EntryVec = std::vector<Entry>;
-
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Enum name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Enum name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-    }
 
     void add(E value, std::string_view name)
     {
@@ -721,14 +800,12 @@ public:
         return nullptr;
     }
 
-    const std::string& name() const { return name_; }
-    bool hasName() const { return hasName_; }
+    static constexpr std::string_view name() { return getEnumName<Schema, E>(); }
+    static constexpr bool hasName() { return true; }
     const EntryVec& entries() const { return entries_; }
 
 private:
     std::vector<Entry> entries_;
-    std::string name_;
-    bool hasName_ = false;
 };
 
 template<typename Schema, typename T>
@@ -751,6 +828,7 @@ constexpr void validateEnumSpec()
     static_assert(
         std::is_base_of_v<aison::Enum<Schema, Type>, EnumSpec>,
         "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
+    (void)getEnumName<Schema, Type>();
 }
 
 // == Variant ==
@@ -761,60 +839,14 @@ class VariantImpl<Schema, std::variant<Ts...>>
 public:
     using VariantType = std::variant<Ts...>;
 
-    void name(std::string_view value)
+    static constexpr std::string_view name() { return getVariantName<Schema, VariantType>(); }
+    static constexpr std::string_view discriminator()
     {
-        if (value.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
+        return getVariantDiscriminator<Schema, VariantType>();
     }
-
-    void discriminator(std::string_view key)
-    {
-        if (key.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Discriminator key cannot be empty.");
-            }
-            return;
-        }
-        if (hasDiscriminator_) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant discriminator already set.");
-            }
-            return;
-        }
-
-        hasDiscriminator_ = true;
-        discriminator_ = std::string(key);
-    }
-
-    bool hasNamesInAlternatives() const
-    {
-        bool hasNames = true;
-        ((hasNames = hasNames && getObjectDef<Schema, Ts>().getImpl().hasName()), ...);
-        return hasNames;
-    }
-
-    const std::string& name() const { return name_; }
-    const std::string& discriminator() const { return discriminator_; }
-    bool hasName() const { return hasName_; }
-    bool hasDiscriminator() const { return !discriminator_.empty(); }
-
-private:
-    std::string name_;
-    std::string discriminator_;
-    bool hasName_ = false;
-    bool hasDiscriminator_ = false;
+    static constexpr bool hasName() { return true; }
+    static constexpr bool hasDiscriminator() { return true; }
+    static constexpr bool hasNamesInAlternatives() { return true; }
 };
 
 template<typename Schema, typename T>
@@ -844,6 +876,7 @@ struct VariantAltCheck {
             static_assert(
                 std::is_base_of_v<Object<Schema, T>, ObjectSpec>,
                 "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
+            (void)getObjectName<Schema, T>();
         }
     }
 };
@@ -861,6 +894,8 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
             std::is_base_of_v<Variant<Schema, std::variant<Ts...>>, VariantSpec>,
             "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
         static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
+        (void)getVariantName<Schema, std::variant<Ts...>>();
+        (void)getVariantDiscriminator<Schema, std::variant<Ts...>>();
         // Each alternative must have an object mapping.
         (VariantAltCheck<Schema, Ts>::check(), ...);
     }
@@ -880,16 +915,8 @@ template<typename Schema, typename T, typename ObjectDef>
 bool validateObject(Context& ctx, const ObjectDef& objectDef)
 {
     validateObjectSpec<Schema, T>();
-    // if constexpr (getIntrospectEnabled<Schema>()) {
-    //     if (!objectDef.getImpl().hasName()) {
-    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
-    //         addSchemaErrorOnce<Key>(
-    //             ctx,
-    //             "(Schema error) Schema::Object<T>::name(...) is required when "
-    //             "introspection is enabled.");
-    //         return false;
-    //     }
-    // }
+    (void)ctx;
+    (void)objectDef;
     return true;
 }
 
@@ -897,16 +924,8 @@ template<typename Schema, typename T, typename EnumDef>
 bool validateEnum(Context& ctx, const EnumDef& enumDef)
 {
     validateEnumSpec<Schema, T>();
-    // if constexpr (getIntrospectEnabled<Schema>()) {
-    //     if (!enumDef.getImpl().hasName()) {
-    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
-    //         addSchemaErrorOnce<Key>(
-    //             ctx,
-    //             "(Schema error) Schema::Enum<T>::name(...) is required when introspection is "
-    //             "enabled.");
-    //         return false;
-    //     }
-    // }
+    (void)ctx;
+    (void)enumDef;
     return true;
 }
 
@@ -914,16 +933,8 @@ template<typename Schema, typename T, typename CustomDef>
 bool validateCustom(Context& ctx, const CustomDef& customDef)
 {
     validateCustomSpec<Schema, T>();
-    // if constexpr (getIntrospectEnabled<Schema>()) {
-    //     if (!customDef.getImpl().hasName()) {
-    //         using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
-    //         addSchemaErrorOnce<Key>(
-    //             ctx,
-    //             "(Schema error) Schema::Custom<T>::name(...) is required when introspection "
-    //             "is enabled.");
-    //         return false;
-    //     }
-    // }
+    (void)ctx;
+    (void)customDef;
     return true;
 }
 
@@ -932,28 +943,9 @@ bool validateVariant(Context& ctx, const VariantDef& variantDef)
 {
     using Type = std::decay_t<Variant>;
     validateVariantSpec<Schema, Type>();
-    bool ok = true;
-    // if constexpr (getIntrospectEnabled<Schema>()) {
-    //     if (!variantDef.getImpl().hasName()) {
-    //         using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
-    //         addSchemaErrorOnce<Key>(
-    //             ctx,
-    //             "(Schema error) Schema::Variant<V>::name(...) is required when introspection "
-    //             "is enabled.");
-    //         ok = false;
-    //     }
-    // }
-    if (!variantDef.getImpl().hasDiscriminator()) {
-        using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
-        addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
-        ok = false;
-    }
-    if (!variantDef.getImpl().hasNamesInAlternatives()) {
-        using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
-        addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
-        ok = false;
-    }
-    return ok;
+    (void)ctx;
+    (void)variantDef;
+    return true;
 }
 
 // == Custom ==
@@ -962,31 +954,8 @@ template<typename Schema, typename T>
 class CustomImpl
 {
 public:
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-    }
-
-    const std::string& name() const { return name_; }
-
-    bool hasName() const { return hasName_; }
-
-private:
-    std::string name_;
-    bool hasName_ = false;
+    static constexpr std::string_view name() { return detail::getCustomName<Schema, T>(); }
+    static constexpr bool hasName() { return true; }
 };
 
 template<typename Schema, typename T>
@@ -1007,6 +976,7 @@ constexpr void validateCustomSpec()
     static_assert(
         std::is_base_of_v<aison::Custom<Schema, Type>, SchemaCustom<Schema, Type>>,
         "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
+    (void)getCustomName<Schema, Type>();
 }
 
 // == Context ==
@@ -1240,7 +1210,8 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
                 using Alt = std::decay_t<decltype(alt)>;
                 auto& obj = getObjectDef<Schema, Alt>();
                 obj.getImpl().encodeFields(alt, dst, ctx);
-                dst[var.getImpl().discriminator()] = obj.getImpl().name();
+                dst[std::string(var.getImpl().discriminator())] =
+                    std::string(obj.getImpl().name());
             },
             src);
 
@@ -1443,7 +1414,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         }
 
         auto& def = var.getImpl();
-        const auto& tag = def.discriminator();
+        const auto tag = std::string(def.discriminator());
         std::string tagValue;
 
         {
@@ -1462,7 +1433,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         }
 
         bool matched = false;
-        (tryAlternative<Ts>(tag, tagValue, src, dst, ctx, matched), ...);
+        (tryAlternative<Ts>(tagValue, src, dst, ctx, matched), ...);
         if (!matched) {
             auto discGuard = ctx.guard(tag);
             ctx.addError("Unknown discriminator value for variant.");
@@ -1471,7 +1442,6 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
 
     template<typename Alt>
     static void tryAlternative(
-        const std::string& tag,
         const std::string& tagValue,
         const Json::Value& src,
         VariantType& dst,
@@ -1821,8 +1791,6 @@ struct Object {
         impl_.add(member, name);
     }
 
-    void name(std::string_view value) { impl_.name(value); }
-
     Impl& getImpl() { return impl_; }
     const Impl& getImpl() const { return impl_; }
 
@@ -1837,7 +1805,6 @@ struct Enum {
 
     Enum() { detail::validateEnumSpec<Schema, T>(); }
 
-    void name(std::string_view value) { impl_.name(value); }
     void add(T value, std::string_view name) { impl_.add(value, name); }
 
     Impl& getImpl() { return impl_; }
@@ -1853,9 +1820,6 @@ struct Variant {
     using Impl = detail::VariantImpl<Schema, T>;
 
     Variant() { detail::validateVariantSpec<Schema, T>(); }
-
-    void name(std::string_view value) { impl_.name(value); }
-    void discriminator(std::string_view key) { impl_.discriminator(key); }
 
     Impl& getImpl() { return impl_; }
     const Impl& getImpl() const { return impl_; }
@@ -1874,7 +1838,6 @@ struct Custom {
     using Impl = detail::CustomImpl<Schema, T>;
 
     Custom() { detail::validateCustomSpec<Schema, T>(); }
-    void name(std::string_view value) { impl_.name(value); }
 
     Impl& getImpl() { return impl_; }
     const Impl& getImpl() const { return impl_; }

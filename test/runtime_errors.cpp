@@ -45,6 +45,8 @@ struct ErrorSchema : aison::Schema<ErrorSchema> {
 
 template<>
 struct ErrorSchema::Enum<Mode> : aison::Enum<ErrorSchema, Mode> {
+    static constexpr auto name = "Mode";
+
     Enum()
     {
         add(Mode::Off, "off");
@@ -54,6 +56,8 @@ struct ErrorSchema::Enum<Mode> : aison::Enum<ErrorSchema, Mode> {
 
 template<>
 struct ErrorSchema::Object<Point> : aison::Object<ErrorSchema, Point> {
+    static constexpr auto name = "point";
+
     Object()
     {
         add(&Point::x, "x");
@@ -63,27 +67,26 @@ struct ErrorSchema::Object<Point> : aison::Object<ErrorSchema, Point> {
 
 template<>
 struct ErrorSchema::Variant<Shape> : aison::Variant<ErrorSchema, Shape> {
-    Variant()
-    {
-        name("Shape");
-        discriminator("kind");
-    }
+    static constexpr auto name = "Shape";
+    static constexpr auto discriminator = "kind";
 };
 
 template<>
 struct ErrorSchema::Object<Circle> : aison::Object<ErrorSchema, Circle> {
+    static constexpr auto name = "circle";
+
     Object()
     {
-        name("circle");
         add(&Circle::r, "r");
     }
 };
 
 template<>
 struct ErrorSchema::Object<Rectangle> : aison::Object<ErrorSchema, Rectangle> {
+    static constexpr auto name = "rect";
+
     Object()
     {
-        name("rect");
         add(&Rectangle::w, "w");
         add(&Rectangle::h, "h");
     }
@@ -91,6 +94,8 @@ struct ErrorSchema::Object<Rectangle> : aison::Object<ErrorSchema, Rectangle> {
 
 template<>
 struct ErrorSchema::Object<Doc> : aison::Object<ErrorSchema, Doc> {
+    static constexpr auto name = "doc";
+
     Object()
     {
         add(&Doc::origin, "origin");

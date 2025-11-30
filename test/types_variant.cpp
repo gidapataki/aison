@@ -34,18 +34,16 @@ struct SchemaKindKey : aison::Schema<SchemaKindKey> {
 
 template<>
 struct SchemaKindKey::Variant<ShapeVariantA> : aison::Variant<SchemaKindKey, ShapeVariantA> {
-    Variant()
-    {
-        name("ShapeVariantA");
-        discriminator("kind");
-    }
+    static constexpr auto name = "ShapeVariantA";
+    static constexpr auto discriminator = "kind";
 };
 
 template<>
 struct SchemaKindKey::Object<ShapeA> : aison::Object<SchemaKindKey, ShapeA> {
+    static constexpr auto name = "shapeA";
+
     Object()
     {
-        name("shapeA");
         add(&ShapeA::x, "x");
         add(&ShapeA::y, "y");
     }
@@ -53,15 +51,18 @@ struct SchemaKindKey::Object<ShapeA> : aison::Object<SchemaKindKey, ShapeA> {
 
 template<>
 struct SchemaKindKey::Object<ShapeB> : aison::Object<SchemaKindKey, ShapeB> {
+    static constexpr auto name = "shapeB";
+
     Object()
     {
-        name("shapeB");
         add(&ShapeB::radius, "radius");
     }
 };
 
 template<>
 struct SchemaKindKey::Object<SceneA> : aison::Object<SchemaKindKey, SceneA> {
+    static constexpr auto name = "sceneA";
+
     Object() { add(&SceneA::shapes, "shapes"); }
 };
 
@@ -95,18 +96,16 @@ struct SchemaExplicitKey : aison::Schema<SchemaExplicitKey> {
 template<>
 struct SchemaExplicitKey::Variant<ShapeVariantB>
     : aison::Variant<SchemaExplicitKey, ShapeVariantB> {
-    Variant()
-    {
-        name("ShapeVariantB");
-        discriminator("type");
-    }
+    static constexpr auto name = "ShapeVariantB";
+    static constexpr auto discriminator = "type";
 };
 
 template<>
 struct SchemaExplicitKey::Object<Rect> : aison::Object<SchemaExplicitKey, Rect> {
+    static constexpr auto name = "rect";
+
     Object()
     {
-        name("rect");
         add(&Rect::w, "w");
         add(&Rect::h, "h");
     }
@@ -114,9 +113,10 @@ struct SchemaExplicitKey::Object<Rect> : aison::Object<SchemaExplicitKey, Rect> 
 
 template<>
 struct SchemaExplicitKey::Object<Ellipse> : aison::Object<SchemaExplicitKey, Ellipse> {
+    static constexpr auto name = "ellipse";
+
     Object()
     {
-        name("ellipse");
         add(&Ellipse::rx, "rx");
         add(&Ellipse::ry, "ry");
         add(&Ellipse::color, "color");
@@ -125,6 +125,8 @@ struct SchemaExplicitKey::Object<Ellipse> : aison::Object<SchemaExplicitKey, Ell
 
 template<>
 struct SchemaExplicitKey::Object<SceneB> : aison::Object<SchemaExplicitKey, SceneB> {
+    static constexpr auto name = "sceneB";
+
     Object()
     {
         add(&SceneB::mainShape, "mainShape");

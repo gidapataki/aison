@@ -30,6 +30,8 @@ struct TextSchema : aison::Schema<TextSchema, Config> {
 
 template<>
 struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
+    static constexpr auto name = "Alignment";
+
     Enum()
     {
         add(Alignment::kLeft, "left");
@@ -40,6 +42,8 @@ struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
 
 template<>
 struct TextSchema::Object<Span> : aison::Object<TextSchema, Span> {
+    static constexpr auto name = "Span";
+
     Object()
     {
         add(&Span::str, "str");
@@ -50,6 +54,8 @@ struct TextSchema::Object<Span> : aison::Object<TextSchema, Span> {
 
 template<>
 struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
+    static constexpr auto name = "Paragraph";
+
     Object()
     {
         add(&Paragraph::spans, "spans");
@@ -59,6 +65,8 @@ struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
 
 template<>
 struct TextSchema::Object<Text> : aison::Object<TextSchema, Text> {
+    static constexpr auto name = "Text";
+
     Object()
     {
         add(&Text::paragraphs, "paragraphs");
@@ -68,7 +76,7 @@ struct TextSchema::Object<Text> : aison::Object<TextSchema, Text> {
 
 template<>
 struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
-    Custom() { name("Color"); }
+    static constexpr auto name = "Color";
 
     void encode(const RGBColor& src, Json::Value& dst, EncodeContext& ctx) const
     {
@@ -103,6 +111,8 @@ struct ColorSchema : aison::Schema<ColorSchema> {
 
 template<>
 struct ColorSchema::Custom<Channels> : aison::Custom<ColorSchema, Channels> {
+    static constexpr auto name = "Channels";
+
     void encode(const Channels& src, Json::Value& dst, EncodeContext& ctx)
     {
         auto size = src.r.size();
@@ -121,6 +131,8 @@ struct ColorSchema::Custom<Channels> : aison::Custom<ColorSchema, Channels> {
 
 template<>
 struct ColorSchema::Custom<RGBColor> : aison::Custom<ColorSchema, RGBColor> {
+    static constexpr auto name = "Color";
+
     void encode(const RGBColor& src, Json::Value& dst, EncodeContext&)
     {
         dst = toHexColor(src, true);

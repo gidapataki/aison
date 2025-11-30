@@ -23,9 +23,10 @@ struct DemoSchema : aison::Schema<DemoSchema> {
 
 template<>
 struct DemoSchema::Enum<Flavor> : aison::Enum<DemoSchema, Flavor> {
+    static constexpr auto name = "Flavor";
+
     Enum()
     {
-        name("Flavor");
         add(Flavor::kVanilla, "vanilla");
         add(Flavor::kChocolate, "chocolate");
     }
@@ -33,9 +34,10 @@ struct DemoSchema::Enum<Flavor> : aison::Enum<DemoSchema, Flavor> {
 
 template<>
 struct DemoSchema::Object<Topping> : aison::Object<DemoSchema, Topping> {
+    static constexpr auto name = "Topping";
+
     Object()
     {
-        name("Topping");
         add(&Topping::name, "name");
         add(&Topping::crunchy, "crunchy");
     }
@@ -43,18 +45,16 @@ struct DemoSchema::Object<Topping> : aison::Object<DemoSchema, Topping> {
 
 template<>
 struct DemoSchema::Variant<Dessert> : aison::Variant<DemoSchema, Dessert> {
-    Variant()
-    {
-        name("Dessert");
-        discriminator("kind");
-    }
+    static constexpr auto name = "Dessert";
+    static constexpr auto discriminator = "kind";
 };
 
 template<>
 struct DemoSchema::Object<Cone> : aison::Object<DemoSchema, Cone> {
+    static constexpr auto name = "Cone";
+
     Object()
     {
-        name("Cone");
         add(&Cone::scoops, "scoops");
         add(&Cone::flavor, "flavor");
         add(&Cone::toppings, "toppings");
@@ -63,9 +63,10 @@ struct DemoSchema::Object<Cone> : aison::Object<DemoSchema, Cone> {
 
 template<>
 struct DemoSchema::Object<Cup> : aison::Object<DemoSchema, Cup> {
+    static constexpr auto name = "Cup";
+
     Object()
     {
-        name("Cup");
         add(&Cup::sprinkles, "sprinkles");
         add(&Cup::drizzle, "drizzle");
     }
@@ -73,9 +74,10 @@ struct DemoSchema::Object<Cup> : aison::Object<DemoSchema, Cup> {
 
 template<>
 struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
+    static constexpr auto name = "Order";
+
     Object()
     {
-        name("Order");
         add(&Order::customer, "customer");
         add(&Order::dessert, "dessert");
         add(&Order::extras, "extras");

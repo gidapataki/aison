@@ -17,27 +17,26 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
 
 template<>
 struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
-    Variant()
-    {
-        name("Shape");
-        discriminator("__type__");
-    }
+    static constexpr auto name = "Shape";
+    static constexpr auto discriminator = "__type__";
 };
 
 template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
+    static constexpr auto name = "Circle";
+
     Object()
     {
-        name("Circle");
         add(&Circle::radius, "radius");
     }
 };
 
 template<>
 struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
+    static constexpr auto name = "Rectangle";
+
     Object()
     {
-        name("Rectangle");
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }

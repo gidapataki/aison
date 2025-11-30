@@ -24,7 +24,7 @@ struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema> {
 
 template<>
 struct EncodeOnlySchema::Custom<EncodeOnlyText> : aison::Custom<EncodeOnlySchema, EncodeOnlyText> {
-    Custom() { name("EncodeOnlyText"); }
+    static constexpr auto name = "EncodeOnlyText";
 
     void encode(const EncodeOnlyText& src, Json::Value& dst, EncodeContext&) const
     {
@@ -47,7 +47,7 @@ struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema> {
 template<>
 struct DecodeOnlySchema::Custom<DecodeOnlyNumber>
     : aison::Custom<DecodeOnlySchema, DecodeOnlyNumber> {
-    Custom() { name("DecodeOnlyNumber"); }
+    static constexpr auto name = "DecodeOnlyNumber";
 
     void decode(const Json::Value& src, DecodeOnlyNumber& dst, DecodeContext& ctx) const
     {
@@ -125,7 +125,7 @@ struct ColorSchema : aison::Schema<ColorSchema, ColorConfig> {
 
 template<>
 struct ColorSchema::Custom<Color> : aison::Custom<ColorSchema, Color> {
-    Custom() { name("Color"); }
+    static constexpr auto name = "Color";
 
     void encode(const Color& src, Json::Value& dst, EncodeContext& ctx) const
     {
@@ -147,6 +147,8 @@ struct ColorSchema::Custom<Color> : aison::Custom<ColorSchema, Color> {
 
 template<>
 struct ColorSchema::Object<PaletteDoc> : aison::Object<ColorSchema, PaletteDoc> {
+    static constexpr auto name = "paletteDoc";
+
     Object()
     {
         add(&PaletteDoc::primary, "primary");
