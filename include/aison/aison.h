@@ -1076,10 +1076,6 @@ template<typename Schema, typename T>
 class CustomImpl
 {
 public:
-    using ConfigType = typename Schema::ConfigType;
-    using EncodeContext = detail::EncodeContext<Schema>;
-    using DecodeContext = detail::DecodeContext<Schema>;
-
     void name(std::string_view value)
     {
         if (value.empty()) {
@@ -1236,11 +1232,11 @@ constexpr void validateVariantSpec()
 template<typename Schema>
 struct SchemaValidator {
     template<typename T, typename ObjectDef>
-    static bool validateObject(Context& ctx, const ObjectDef& obj)
+    static bool validateObject(Context& ctx, const ObjectDef& objectDef)
     {
         validateObjectSpec<Schema, T>();
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!obj.hasName()) {
+            if (!objectDef.hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1270,11 +1266,11 @@ struct SchemaValidator {
     }
 
     template<typename T, typename CustomDef>
-    static bool validateCustom(Context& ctx, const CustomDef& custom)
+    static bool validateCustom(Context& ctx, const CustomDef& customDef)
     {
         validateCustomSpec<Schema, T>();
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!custom.hasName()) {
+            if (!customDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1287,13 +1283,13 @@ struct SchemaValidator {
     }
 
     template<typename Variant, typename VariantDef>
-    static bool validateVariant(Context& ctx, const VariantDef& def)
+    static bool validateVariant(Context& ctx, const VariantDef& variantDef)
     {
         using Type = std::decay_t<Variant>;
         validateVariantSpec<Schema, Type>();
         bool ok = true;
         if constexpr (getEnableIntrospection<Schema>()) {
-            if (!def.hasName()) {
+            if (!variantDef.hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
                 addSchemaErrorOnce<Key>(
                     ctx,
@@ -1302,12 +1298,12 @@ struct SchemaValidator {
                 ok = false;
             }
         }
-        if (!def.hasDiscriminator()) {
+        if (!variantDef.hasDiscriminator()) {
             using Key = SchemaErrorKeyTag<Schema, Type, struct VariantDiscriminatorMissing>;
             addSchemaErrorOnce<Key>(ctx, "(Schema error) Discriminator key not set.");
             ok = false;
         }
-        if (!def.hasNamesInAlternatives()) {
+        if (!variantDef.hasNamesInAlternatives()) {
             using Key = SchemaErrorKeyTag<Schema, Type, struct VariantAltNameMissing>;
             addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing name.");
             ok = false;
@@ -2282,13 +2278,21 @@ struct Variant : detail::VariantImpl<Schema, T> {
 };
 
 template<typename Schema, typename T>
-struct Custom : detail::CustomImpl<Schema, T> {
+struct Custom {
     using CustomTag = void;
+    using ConfigType = typename Schema::ConfigType;
+    using EncodeContext = detail::EncodeContext<Schema>;
+    using DecodeContext = detail::DecodeContext<Schema>;
+
     using Impl = detail::CustomImpl<Schema, T>;
 
     Custom() { detail::validateCustomSpec<Schema, T>(); }
+    void name(std::string_view value) { impl_.name(value); }
 
-    using Impl::name;
+    Impl& getImpl() { return impl_; }
+
+private:
+    Impl impl_;
 };
 
 // API functions //////////////////////////////////////////////////////////////////////
