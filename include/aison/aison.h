@@ -485,8 +485,11 @@ public:
         return result;
     }
 
-    void addError(const std::string& msg) { errors_.push_back(Error{buildPath(), msg}); }
+    PathGuard guard(const std::string& key) { return PathGuard(*this, key); }
+    PathGuard guard(const char* key) { return PathGuard(*this, key); }
+    PathGuard guard(std::size_t index) { return PathGuard(*this, index); }
 
+    void addError(const std::string& msg) { errors_.push_back(Error{buildPath(), msg}); }
     size_t errorCount() const { return errors_.size(); }
     std::vector<Error> takeErrors() { return std::move(errors_); }
     const std::vector<Error>& errors() const { return errors_; }
@@ -1627,7 +1630,7 @@ void decodeValue(const Json::Value& src, T& dst, DecodeContext<Schema>& ctx)
             return;
         }
         for (Json::ArrayIndex i = 0; i < src.size(); ++i) {
-            Context::PathGuard guard(ctx, i);
+            auto guard = ctx.guard(i);
             U elem{};
             decodeValue<Schema, U>(src[i], elem, ctx);
             dst.push_back(std::move(elem));
@@ -1714,7 +1717,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         std::string tagValue;
 
         {
-            Context::PathGuard discGuard(ctx, tag);
+            auto discGuard = ctx.guard(tag);
             if (!src.isMember(tag)) {
                 ctx.addError("Missing discriminator field.");
                 return;
@@ -1731,7 +1734,7 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
         bool matched = false;
         (tryAlternative<Ts>(tag, tagValue, src, dst, ctx, matched), ...);
         if (!matched) {
-            Context::PathGuard discGuard(ctx, tag);
+            auto discGuard = ctx.guard(tag);
             ctx.addError("Unknown discriminator value for variant.");
         }
     }
@@ -1981,7 +1984,7 @@ public:
             const auto& key = field.name;
             if (!src.isMember(key)) {
                 if (!getSchemaStrictOptional<Schema>() && field.isOptional) {
-                    Context::PathGuard guard(ctx, key);
+                    auto guard = ctx.guard(key);
                     field.decode(Json::nullValue, dst, ctx, field.accessor.get());
                     continue;
                 }
@@ -1989,7 +1992,7 @@ public:
                 continue;
             }
             const Json::Value& node = src[key];
-            Context::PathGuard guard(ctx, key);
+            auto guard = ctx.guard(key);
             field.decode(node, dst, ctx, field.accessor.get());
         }
     }
