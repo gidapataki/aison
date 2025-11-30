@@ -427,7 +427,8 @@ constexpr void validateCustomSpec();
 template<typename Schema, typename Variant>
 constexpr void validateVariantSpec();
 
-struct SchemaValidator;
+template<typename Schema, typename T>
+std::string schemaTypeName();
 
 template<typename Owner, typename T>
 FieldAccessorId getFieldAccessorId();
@@ -522,6 +523,29 @@ template<typename Schema>
 constexpr bool getEnableAssert()
 {
     return SchemaEnableAssert<Schema>::get();
+}
+
+template<typename Schema, typename T>
+std::string schemaTypeName()
+{
+    if constexpr (HasObjectTag<Schema, T>::value) {
+        if (auto& def = getObjectDef<Schema, T>(); def.getImpl().hasName()) {
+            return def.getImpl().name();
+        }
+    } else if constexpr (HasEnumTag<Schema, T>::value) {
+        if (auto& def = getEnumDef<Schema, T>(); def.getImpl().hasName()) {
+            return def.getImpl().name();
+        }
+    } else if constexpr (HasVariantTag<Schema, T>::value) {
+        if (auto& def = getVariantDef<Schema, T>(); def.getImpl().hasName()) {
+            return def.getImpl().name();
+        }
+    } else if constexpr (HasCustomTag<Schema, T>::value) {
+        if (auto& def = getCustomDef<Schema, T>(); def.hasName()) {
+            return def.name();
+        }
+    }
+    return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(getTypeId<T>()));
 }
 
 // Optional strictness
