@@ -18,7 +18,7 @@
 
 namespace aison {
 
-// Declarations ////////////////////////////////////////////////////////////////////////////////////
+// Declarations //////////////////////////////////////////////////////////////////////////////////
 
 struct Result;
 struct IntrospectResult;
@@ -52,7 +52,7 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
 template<typename Schema, typename... Ts>
 IntrospectResult introspect();
 
-// Definitions /////////////////////////////////////////////////////////////////////////////////////
+// Definitions ///////////////////////////////////////////////////////////////////////////////////
 
 struct Error {
     std::string path;
@@ -69,9 +69,9 @@ struct EmptyConfig {};
 struct SchemaDefaults {
     static constexpr auto strictOptional = true;
     static constexpr auto enableAssert = true;
-    static constexpr auto enableIntrospect = false;
     static constexpr auto enableEncode = true;
     static constexpr auto enableDecode = true;
+    static constexpr auto enableIntrospect = false;
 };
 
 struct UnknownInfo {};
@@ -150,7 +150,7 @@ struct IntrospectResult {
 
 namespace aison::detail {
 
-// Declarations (detail) ///////////////////////////////////////////////////////////////////////////
+// Declarations (detail) /////////////////////////////////////////////////////////////////////////
 
 using FieldAccessorDeleter = void (*)(void*);
 using FieldAccessorStorage = std::unique_ptr<void, FieldAccessorDeleter>;
@@ -326,7 +326,7 @@ struct SchemaErrorKeyTag;
 template<typename Key, typename Ctx>
 void addSchemaErrorOnce(Ctx& ctx, const std::string& message);
 
-// Definitions (detail) ////////////////////////////////////////////////////////////////////////////
+// Definitions (detail) //////////////////////////////////////////////////////////////////////////
 
 // == Schema ==
 
@@ -484,16 +484,11 @@ constexpr void validateSchemaDefinition()
     static_assert(
         HasSchemaTag<Schema>::value,
         "Schema must define SchemaTag. Did you inherit from aison::Schema<...>?");
+
     using Base = aison::Schema<Schema, typename Schema::ConfigType>;
     static_assert(
         std::is_base_of_v<Base, Schema>,
         "Schema must inherit from aison::Schema<Derived, Config>.");
-}
-
-template<typename Schema>
-constexpr void validateSchemaBase()
-{
-    validateSchemaDefinition<Schema>();
 }
 
 // == Object ==
@@ -549,7 +544,7 @@ public:
             isSupportedFieldType<Schema, T>(),
             "Unsupported field type in Schema::Object<T>::add(...). Provide a Schema::Object / "
             "Enum / Custom / Variant mapping or use supported scalar/collection types.");
-        // Check if member or name is already mapped
+
         auto accessorId = getFieldAccessorId<Owner, T>();
         for (const auto& field : fields_) {
             using Ctx = FieldAccessor<Owner, T>;
@@ -1262,7 +1257,7 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         dst = Json::arrayValue;
         std::size_t index = 0;
         for (const auto& elem : src) {
-            Context::PathGuard guard(ctx, index++);
+            auto guard = ctx.guard(index++);
             Json::Value v;
             encodeValue<Schema, U>(elem, v, ctx);
             dst.append(v);
@@ -1742,6 +1737,11 @@ void introspectType(IntrospectContext<Schema>& ctx)
         introspectType<Schema, Inner>(ctx);
 
     } else if constexpr (HasCustomTag<Schema, U>::value) {
+        auto& def = getCustomDef<Schema, U>().getImpl();
+        if (!def.hasName()) {
+            // fallbackName(id);
+            ctx.addError(const std::string& msg)
+        }
         ctx.add(id, CustomInfo{schemaTypeName<Schema, U>()});
 
     } else if constexpr (HasObjectTag<Schema, U>::value) {
@@ -1804,8 +1804,8 @@ void introspectType(IntrospectContext<Schema>& ctx)
 }  // namespace aison::detail
 
 namespace aison {
-// Definitions (CRTP base types)
-// ///////////////////////////////////////////////////////////////////
+
+// Definitions (CRTP base types) /////////////////////////////////////////////////////////////////
 
 template<typename Derived, typename Config = EmptyConfig>
 struct Schema {
@@ -1888,8 +1888,7 @@ private:
     Impl impl_;
 };
 
-// Definitions (API functions)
-// /////////////////////////////////////////////////////////////////////
+// Definitions (API functions) ///////////////////////////////////////////////////////////////////
 
 template<typename T>
 TypeId getTypeId()
@@ -1899,20 +1898,20 @@ TypeId getTypeId()
 }
 
 template<typename Schema, typename T>
-Result encode(const T& value, Json::Value& dst, const typename Schema::ConfigType& config)
+Result encode(const T& src, Json::Value& dst, const typename Schema::ConfigType& config)
 {
     detail::validateSchemaDefinition<Schema>();
     detail::EncodeContext<Schema> ctx(config);
-    ctx.encode(value, dst);
+    ctx.encode(src, dst);
     return Result{ctx.takeErrors()};
 }
 
 template<typename Schema, typename T>
-Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config)
+Result decode(const Json::Value& src, T& dst, const typename Schema::ConfigType& config)
 {
     detail::validateSchemaDefinition<Schema>();
     detail::DecodeContext<Schema> ctx(config);
-    ctx.decode(src, value);
+    ctx.decode(src, dst);
     return Result{ctx.takeErrors()};
 }
 
