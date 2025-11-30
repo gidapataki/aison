@@ -9,8 +9,10 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <typeinfo>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -27,9 +29,6 @@ struct Result;
 struct IntrospectResult;
 
 using TypeId = const void*;
-using ObjectInfoMap = std::unordered_map<TypeId, ObjectInfo>;
-using VariantInfoMap = std::unordered_map<TypeId, VariantInfo>;
-using EnumInfoMap = std::unordered_map<TypeId, EnumInfo>;
 
 template<typename Schema, typename T>
 struct Object;
@@ -45,9 +44,6 @@ struct Custom;
 
 template<typename Derived, typename Config>
 struct Schema;
-
-template<typename Schema>
-class Introspection;
 
 template<typename T>
 TypeId getTypeId();
@@ -85,158 +81,39 @@ struct SchemaDefaults {
 
 enum class TypeClass {
     Unknown,
-    Integral,  //< Size & signedness available via typeInfo.data.numeric
-    Floating,  //< Size available via typeInfo.data.numeric
+    Integral,
+    Floating,
     Bool,
     String,
     Enum,
     Object,
-    Custom,    //< Custom encoder/decoder mapping
-    Optional,  //< Inner type available via typeInfo.data.element
-    Vector,    //< Inner type available via typeInfo.data.element
-    Variant,   //< Inner type available via typeInfo.data.variant
+    Custom,
+    Optional,
+    Vector,
+    Variant,
 };
 
-struct TypeInfo {
-    TypeClass cls = TypeClass::Unknown;
-    TypeId typeId = nullptr;
-    union Data {
-        struct {
-            const std::string* name;
-        } object;
-
-        struct {
-            const std::string* name;
-        } enumeration;
-
-        struct {
-            const std::string* name;
-            const TypeInfo* const* types;  //< Variant alternative types
-            std::size_t count;             //< Variant alternative count
-        } variant;
-
-        struct {
-            const std::string* name;
-        } custom;
-
-        struct {
-            const TypeInfo* type;  //< Inner typeInfo for optional
-        } optional;
-
-        struct {
-            const TypeInfo* type;  //< Inner typeInfo for vector
-        } vector;
-
-        struct {
-            int size;       //< Size in bytes
-            bool isSigned;  //< Signedness
-        } integral;
-
-        struct {
-            int size;  //< Size in bytes
-        } floating;
-    } data = {};
-
-    constexpr TypeInfo() = default;
+struct OptionalInfo {
+    TypeId value = nullptr;
 };
 
-// TODO: Move these in detail
+struct VectorInfo {
+    TypeId value = nullptr;
+};
 
-template<typename T>
-constexpr TypeInfo basicTypeInfo(TypeClass cls)
-{
-    TypeInfo t;
-    t.cls = cls;
-    t.typeId = getTypeId<T>();
-    return t;
-}
+struct IntegralInfo {
+    int size = 0;
+    bool isSigned = false;
+};
 
-template<typename T>
-constexpr TypeInfo integralTypeInfo()
-{
-    TypeInfo t;
-    t.cls = TypeClass::Integral;
-    t.typeId = getTypeId<T>();
-    t.data.integral = {sizeof(T), std::is_signed_v<T>};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo floatingTypeInfo()
-{
-    TypeInfo t;
-    t.cls = TypeClass::Floating;
-    t.typeId = getTypeId<T>();
-    t.data.floating = {sizeof(T)};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo optionalTypeInfo(const TypeInfo* type)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Optional;
-    t.typeId = getTypeId<T>();
-    t.data.optional = {type};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo vectorTypeInfo(const TypeInfo* type)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Vector;
-    t.typeId = getTypeId<T>();
-    t.data.vector = {type};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo objectTypeInfo(const std::string* name)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Object;
-    t.typeId = getTypeId<T>();
-    t.data.object = {name};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo enumTypeInfo(const std::string* name)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Enum;
-    t.typeId = getTypeId<T>();
-    t.data.enumeration = {name};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo variantTypeInfo(
-    const std::string* name, const TypeInfo* const* vars, std::size_t count)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Variant;
-    t.typeId = getTypeId<T>();
-    t.data.variant = {name, vars, count};
-    return t;
-}
-
-template<typename T>
-constexpr TypeInfo customTypeInfo(const std::string* name)
-{
-    TypeInfo t;
-    t.cls = TypeClass::Custom;
-    t.typeId = getTypeId<T>();
-    t.data.custom = {name};
-    return t;
-}
-
-//
+struct FloatingInfo {
+    int size = 0;
+};
 
 struct FieldInfo {
     std::string name;
-    const TypeInfo* type = nullptr;
+    TypeId type = nullptr;
+    bool isOptional = false;
 };
 
 struct ObjectInfo {
@@ -251,7 +128,7 @@ struct EnumInfo {
 
 struct AlternativeInfo {
     std::string name;
-    const TypeInfo* type = nullptr;
+    TypeId type = nullptr;
 };
 
 struct VariantInfo {
@@ -260,15 +137,35 @@ struct VariantInfo {
     std::vector<AlternativeInfo> alternatives;
 };
 
+struct CustomInfo {
+    std::string name;
+};
+
+using TypeInfoData = std::variant<
+    std::monostate,
+    IntegralInfo,
+    FloatingInfo,
+    OptionalInfo,
+    VectorInfo,
+    ObjectInfo,
+    EnumInfo,
+    VariantInfo,
+    CustomInfo>;
+
+struct TypeInfo {
+    TypeClass cls = TypeClass::Unknown;
+    TypeId typeId = nullptr;
+    std::string name;  // Display name (schema name if set, otherwise empty)
+    TypeInfoData data{};
+};
+
 struct IntrospectError {
     std::string type;
     std::string message;
 };
 
 struct IntrospectResult {
-    ObjectInfoMap objects;
-    VariantInfoMap variants;
-    EnumInfoMap enums;
+    std::unordered_map<TypeId, TypeInfo> types;
     std::vector<IntrospectError> errors;
 
     explicit operator bool() const { return errors.empty(); }
@@ -326,12 +223,6 @@ struct VariantDecoder;
 template<typename Owner, typename T>
 struct FieldAccessor;
 
-template<typename Schema>
-class IntrospectionRegistry;
-
-template<typename Schema>
-class IntrospectionImpl;
-
 template<typename T>
 struct IsOptional;
 
@@ -377,6 +268,9 @@ struct SchemaStrictOptional;
 template<typename Schema, typename = void>
 struct SchemaEnableIntrospect;
 
+template<typename...>
+struct DependentFalse;
+
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
 
@@ -398,7 +292,7 @@ void decodeFieldThunk(
     const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr);
 
 template<typename Schema, typename Owner, typename T>
-void introspectFieldThunk(Owner& owner, IntrospectContext<Schema>& ctx, FieldAccessorPtr ptr);
+void introspectFieldThunk(IntrospectContext<Schema>& ctx, IntrospectResult& out);
 
 template<typename Schema>
 constexpr bool getEncodeEnabled();
@@ -451,32 +345,8 @@ auto& getCustomDef();
 template<typename Schema, typename T>
 constexpr bool isSupportedFieldType();
 
-template<typename Schema>
-IntrospectionRegistry<Schema>& getIntrospectionRegistry();
-
-template<typename Schema, typename Owner, typename T>
-void ensureTypeRegistration();
-
 template<typename Schema, typename T>
-void registerObjectMapping();
-
-template<typename Schema, typename Variant>
-void registerVariantMapping();
-
-template<typename Schema, typename E>
-void registerEnumMapping();
-
-template<typename Schema, typename T>
-void registerCustomMapping();
-
-template<typename Schema, typename Owner, typename Variant, std::size_t... Is>
-void ensureVariantAlternatives(std::index_sequence<Is...>);
-
-template<typename Schema, typename T>
-TypeInfo& makeTypeInfo();
-
-template<typename Schema, typename Variant, std::size_t... Is>
-const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>);
+void introspectType(IntrospectContext<Schema>& ctx, IntrospectResult& out);
 
 template<typename Key>
 bool shouldReportSchemaError();
@@ -484,11 +354,8 @@ bool shouldReportSchemaError();
 template<typename...>
 struct SchemaErrorKeyTag;
 
-template<typename Key>
-void addSchemaErrorOnce(Context& ctx, const std::string& message);
-
-template<typename...>
-struct DependentFalse;
+template<typename Key, typename Ctx>
+void addSchemaErrorOnce(Ctx& ctx, const std::string& message);
 
 // Definitions (detail) ////////////////////////////////////////////////////////////////////////////
 
@@ -541,8 +408,8 @@ std::string schemaTypeName()
             return def.getImpl().name();
         }
     } else if constexpr (HasCustomTag<Schema, T>::value) {
-        if (auto& def = getCustomDef<Schema, T>(); def.hasName()) {
-            return def.name();
+        if (auto& def = getCustomDef<Schema, T>(); def.getImpl().hasName()) {
+            return def.getImpl().name();
         }
     }
     return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(getTypeId<T>()));
@@ -699,6 +566,7 @@ public:
             void (*)(const Owner&, Json::Value&, EncodeContext<Schema>&, FieldAccessorPtr ptr);
         using DecodeFn =
             void (*)(const Json::Value&, Owner&, DecodeContext<Schema>&, FieldAccessorPtr ptr);
+        using IntrospectFn = void (*)(IntrospectContext<Schema>&, IntrospectResult&);
 
         FieldDef(FieldAccessorStorage&& accessor)
             : accessor(std::move(accessor))
@@ -708,9 +576,11 @@ public:
         FieldAccessorId accessorId = nullptr;  // Note: this is needed to avoid UB casts
         EncodeFn encode = nullptr;
         DecodeFn decode = nullptr;
+        IntrospectFn introspect = nullptr;
 
         std::string name;
         bool isOptional = false;
+        TypeId typeId = nullptr;
     };
 
     void name(std::string_view value)
@@ -773,13 +643,8 @@ public:
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
 
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            // FieldInfo fi;
-            // fi.name = std::string(name);
-            // fi.type = &makeTypeInfo<Schema, T>();
-            // getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
-            // ensureTypeRegistration<Schema, Owner, T>();
-        }
+        field.introspect = &introspectFieldThunk<Schema, Owner, T>;
+        field.typeId = getTypeId<T>();
     }
 
     template<typename S = Schema, typename = std::enable_if_t<getEncodeEnabled<S>()>>
@@ -882,10 +747,6 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            // setTypeName<Schema, E>(name_);
-            // getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
-        }
     }
 
     void add(E value, std::string_view name)
@@ -900,9 +761,6 @@ public:
             }
         }
         entries_.emplace_back(value, std::string(name));
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            // getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
-        }
     }
 
     const std::string* find(E value) const
@@ -927,6 +785,7 @@ public:
 
     const std::string& name() const { return name_; }
     bool hasName() const { return hasName_; }
+    const EntryVec& entries() const { return entries_; }
 
 private:
     std::vector<Entry> entries_;
@@ -980,9 +839,6 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            // setTypeName<Schema, VariantType>(name_);
-        }
     }
 
     void discriminator(std::string_view key)
@@ -1007,7 +863,7 @@ public:
     bool hasNamesInAlternatives() const
     {
         bool hasNames = true;
-
+        ((hasNames = hasNames && getObjectDef<Schema, Ts>().getImpl().hasName()), ...);
         return hasNames;
     }
 
@@ -1184,9 +1040,6 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (detail::getIntrospectEnabled<Schema>()) {
-            // detail::setTypeName<Schema, T>(name_);
-        }
     }
 
     const std::string& name() const { return name_; }
@@ -1388,11 +1241,49 @@ public:
             "IntrospectContext<Schema> cannot be used when Schema::enableIntrospect is false.");
     }
 
-    template<typename T>
-    void introspect(const T& src)
+    struct TypeGuard {
+        explicit TypeGuard(IntrospectContext& ctx, std::string type)
+            : ctx_(&ctx)
+        {
+            ctx_->typeStack_.push_back(std::move(type));
+        }
+        ~TypeGuard()
+        {
+            if (ctx_) ctx_->typeStack_.pop_back();
+        }
+        TypeGuard(const TypeGuard&) = delete;
+        TypeGuard& operator=(const TypeGuard&) = delete;
+        TypeGuard(TypeGuard&& other) noexcept
+            : ctx_(other.ctx_)
+        {
+            other.ctx_ = nullptr;
+        }
+        TypeGuard& operator=(TypeGuard&&) = delete;
+
+    private:
+        IntrospectContext* ctx_;
+    };
+
+    TypeGuard guardType(std::string typeName) { return TypeGuard(*this, std::move(typeName)); }
+
+    void addError(const std::string& message)
     {
-        // introspectValue<Schema, T>(src, *this);
+        std::string type = typeStack_.empty() ? std::string{} : typeStack_.back();
+        errors_.push_back(IntrospectError{std::move(type), message});
     }
+
+    bool markSchemaError(std::size_t key) { return reported_.insert(key).second; }
+
+    bool markVisited(TypeId id) { return visited_.insert(id).second; }
+
+    std::vector<IntrospectError> takeErrors() { return std::move(errors_); }
+    const std::unordered_set<TypeId>& visited() const { return visited_; }
+
+private:
+    std::vector<std::string> typeStack_;
+    std::vector<IntrospectError> errors_;
+    std::unordered_set<std::size_t> reported_;
+    std::unordered_set<TypeId> visited_;
 };
 
 // == Encode / Decode ==
@@ -1720,13 +1611,9 @@ void decodeFieldThunk(
 }
 
 template<typename Schema, typename Owner, typename T>
-void introspectFieldThunk(Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr)
+void introspectFieldThunk(IntrospectContext<Schema>& ctx, IntrospectResult& out)
 {
-    using Accessor = FieldAccessor<Owner, T>;
-    auto* accessor = static_cast<const Accessor*>(ptr);
-    auto& member = accessor->member;
-    const T& ref = owner.*member;
-    // introspectValue<Schema, T>(ref, ctx);
+    introspectType<Schema, T>(ctx, out);
 }
 
 template<typename Owner, typename T>
@@ -1864,7 +1751,7 @@ constexpr bool isSupportedFieldType()
 template<typename Key>
 bool shouldReportSchemaError()
 {
-    // FIXME: reports error once globally
+    // fallback when context does not provide per-context dedup
     static bool reported = false;
     if (reported) {
         return false;
@@ -1873,440 +1760,217 @@ bool shouldReportSchemaError()
     return true;
 }
 
-template<typename Key>
-void addSchemaErrorOnce(Context& ctx, const std::string& message)
+template<typename Ctx, typename = void>
+struct HasSchemaErrorMark : std::false_type {};
+
+template<typename Ctx>
+struct HasSchemaErrorMark<
+    Ctx,
+    std::void_t<decltype(std::declval<Ctx&>().markSchemaError(std::declval<std::size_t>()))>>
+    : std::true_type {};
+
+template<typename Key, typename Ctx>
+void addSchemaErrorOnce(Ctx& ctx, const std::string& message)
 {
-    // FIXME: reports error once globally
-    if (shouldReportSchemaError<Key>()) {
-        ctx.addError(message);
+    if constexpr (HasSchemaErrorMark<Ctx>::value) {
+        const std::size_t key = typeid(Key).hash_code();
+        if (ctx.markSchemaError(key)) {
+            ctx.addError(message);
+        }
+    } else {
+        if (shouldReportSchemaError<Key>()) {
+            ctx.addError(message);
+        }
     }
 }
 
 // == Introspection ==
 
 template<typename Schema>
-class IntrospectionImpl
+TypeInfo& ensureTypeSlot(TypeId id, IntrospectResult& out)
 {
-public:
-    explicit IntrospectionImpl(std::vector<IntrospectError>& errors)
-        : errors_(&errors)
-    {
-        validateSchemaDefinition<Schema>();
-        static_assert(
-            detail::getIntrospectEnabled<Schema>(),
-            "Introspection is disabled for this schema. Set `static constexpr bool "
-            "enableIntrospect = true;` in your Schema to use Introspection.");
+    auto [it, inserted] = out.types.emplace(id, TypeInfo{});
+    TypeInfo& info = it->second;
+    info.typeId = id;
+    if (inserted && info.cls == TypeClass::Unknown) {
+        info.data = std::monostate{};
     }
-
-    template<typename T>
-    void add()
-    {
-        using U = std::decay_t<T>;
-        if constexpr (std::is_enum_v<U>) {
-            validateEnumSpec<Schema, U>();
-            registerEnumMapping<Schema, U>();
-            collectEnum(getTypeId<U>());
-        } else if constexpr (IsOptional<U>::value) {
-            add<typename U::value_type>();
-        } else if constexpr (IsVector<U>::value) {
-            add<typename U::value_type>();
-        } else if constexpr (IsVariant<U>::value) {
-            registerVariantMapping<Schema, U>();
-            ensureVariantAlternatives<Schema, U, U>(
-                std::make_index_sequence<std::variant_size_v<U>>{});
-            addVariantAlternatives<U>(std::make_index_sequence<std::variant_size_v<U>>{});
-            collectVariant(getTypeId<U>());
-        } else if constexpr (std::is_class_v<U>) {
-            static_assert(
-                HasObjectTag<Schema, U>::value || HasCustomTag<Schema, U>::value,
-                "Type is not part of the schema. Define Schema::Object<T> or Schema::Custom<T>.");
-
-            if constexpr (HasObjectTag<Schema, U>::value) {
-                registerObjectMapping<Schema, U>();
-                collectObject(getTypeId<U>());
-            } else {
-                registerCustomMapping<Schema, U>();
-            }
-        } else {
-            static_assert(!std::is_class_v<U>, "Unsupported type.");
-        }
-    }
-
-    void collectEnum(TypeId typeId)
-    {
-        if (enums_.count(typeId)) {
-            return;
-        }
-        const auto& reg = getIntrospectionRegistry<Schema>();
-        auto it = reg.enums().find(typeId);
-        if (it == reg.enums().end()) {
-            return;
-        }
-        if (it->second.name.empty()) {
-            reportMissingName(typeId, "Enum must have name() when introspection is enabled.");
-            return;
-        }
-        enums_.emplace(it->first, it->second);
-    }
-
-    void collectObject(TypeId typeId)
-    {
-        if (objects_.count(typeId)) {
-            return;
-        }
-        const auto& reg = getIntrospectionRegistry<Schema>();
-        auto it = reg.objects().find(typeId);
-        if (it == reg.objects().end()) {
-            return;
-        }
-
-        if (it->second.name.empty()) {
-            reportMissingName(typeId, "Object must have name() when introspection is enabled.");
-            return;
-        }
-
-        objects_.emplace(it->first, it->second);
-        const auto& objInfo = objects_.find(typeId)->second;
-
-        for (const auto& field : objInfo.fields) {
-            traverseType(field.type);
-        }
-    }
-
-    void collectVariant(TypeId typeId)
-    {
-        if (variants_.count(typeId)) {
-            return;
-        }
-        const auto& reg = getIntrospectionRegistry<Schema>();
-        auto it = reg.variants().find(typeId);
-        if (it == reg.variants().end()) {
-            return;
-        }
-        if (it->second.name.empty()) {
-            reportMissingName(typeId, "Variant must have name() when introspection is enabled.");
-            return;
-        }
-        variants_.emplace(it->first, it->second);
-        const auto& varInfo = variants_.find(typeId)->second;
-        for (const auto& alt : varInfo.alternatives) {
-            traverseType(alt.type);
-        }
-    }
-
-    void traverseType(const TypeInfo* info)
-    {
-        if (!info) return;
-        switch (info->cls) {
-            case TypeClass::Object:
-                collectObject(info->typeId);
-                break;
-            case TypeClass::Enum:
-                collectEnum(info->typeId);
-                break;
-            case TypeClass::Optional:
-                traverseType(info->data.optional.type);
-                break;
-            case TypeClass::Vector:
-                traverseType(info->data.vector.type);
-                break;
-            case TypeClass::Variant:
-                collectVariant(info->typeId);
-                for (std::size_t i = 0; i < info->data.variant.count; ++i) {
-                    traverseType(info->data.variant.types ? info->data.variant.types[i] : nullptr);
-                }
-                break;
-            default:
-                break;
-        }
-    }
-
-    template<typename Variant, std::size_t... Is>
-    void addVariantAlternatives(std::index_sequence<Is...>)
-    {
-        (add<std::variant_alternative_t<Is, Variant>>(), ...);
-    }
-
-    const ObjectInfoMap& objects() const { return objects_; }
-    const VariantInfoMap& variants() const { return variants_; }
-    const EnumInfoMap& enums() const { return enums_; }
-
-private:
-    void reportMissingName(TypeId typeId, const std::string& message)
-    {
-        if (!errors_) return;
-        std::string typeName;
-        auto& reg = getIntrospectionRegistry<Schema>();
-        auto objIt = reg.objects().find(typeId);
-        if (objIt != reg.objects().end() && !objIt->second.name.empty()) {
-            typeName = objIt->second.name;
-        } else {
-            typeName = "#" + std::to_string(reinterpret_cast<std::uintptr_t>(typeId));
-        }
-        errors_->push_back(IntrospectError{std::move(typeName), message});
-    }
-
-    ObjectInfoMap objects_;
-    VariantInfoMap variants_;
-    EnumInfoMap enums_;
-    std::vector<IntrospectError>* errors_ = nullptr;
-};
-
-template<typename Schema>
-class IntrospectionRegistry
-{
-public:
-    void addObjectField(TypeId typeId, FieldInfo field)
-    {
-        auto& entry = objects_[typeId];
-        entry.fields.push_back(std::move(field));
-    }
-
-    void setObjectName(TypeId typeId, std::string name)
-    {
-        auto& entry = objects_[typeId];
-        entry.name = std::move(name);
-    }
-
-    void addEnumName(TypeId typeId, std::string_view name)
-    {
-        auto& entry = enums_[typeId];
-        entry.values.push_back(std::string(name));
-    }
-
-    void setEnumName(TypeId typeId, std::string name)
-    {
-        auto& entry = enums_[typeId];
-        entry.name = std::move(name);
-    }
-
-    void setVariantName(TypeId typeId, std::string name)
-    {
-        variants_[typeId].name = std::move(name);
-    }
-
-    void setVariantDiscriminator(TypeId typeId, std::string key)
-    {
-        variants_[typeId].discriminator = std::move(key);
-    }
-
-    void addVariantAlternative(TypeId typeId, AlternativeInfo alt)
-    {
-        auto& entry = variants_[typeId];
-        for (const auto& existing : entry.alternatives) {
-            if (existing.type == alt.type) {
-                return;
-            }
-        }
-        entry.alternatives.push_back(std::move(alt));
-    }
-
-    const std::unordered_map<TypeId, ObjectInfo>& objects() const { return objects_; }
-    const std::unordered_map<TypeId, EnumInfo>& enums() const { return enums_; }
-    const std::unordered_map<TypeId, VariantInfo>& variants() const { return variants_; }
-
-private:
-    std::unordered_map<TypeId, ObjectInfo> objects_;
-    std::unordered_map<TypeId, EnumInfo> enums_;
-    std::unordered_map<TypeId, VariantInfo> variants_;
-};
-
-template<typename Schema>
-IntrospectionRegistry<Schema>& getIntrospectionRegistry()
-{
-    static IntrospectionRegistry<Schema> reg;
-    return reg;
+    return info;
 }
 
-template<typename Schema, typename Variant, std::size_t... Is>
-const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>)
+inline std::string typeIdToString(TypeId id)
 {
-    static const TypeInfo* const arr[] = {
-        &makeTypeInfo<Schema, std::variant_alternative_t<Is, Variant>>()...};
-    return arr;
+    return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(id));
 }
 
 template<typename Schema, typename T>
-void registerObjectMapping()
+void storeScalarTypeInfo(IntrospectResult& out)
 {
-    if constexpr (HasObjectTag<Schema, T>::value) {
-        auto& obj = getObjectDef<Schema, T>();
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(
-                    obj.getImpl().hasName() &&
-                    "Schema::Object<T>::name(...) is required when introspection is enabled.");
-            }
-            if (obj.getImpl().hasName()) {
-                // setTypeName<Schema, T>(obj.getImpl().name());
-                getIntrospectionRegistry<Schema>().setObjectName(
-                    getTypeId<T>(), obj.getImpl().name());
-            }
-        }
+    const TypeId id = getTypeId<T>();
+    TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+    if (info.cls != TypeClass::Unknown) {
+        return;
+    }
+    if constexpr (std::is_same_v<T, bool>) {
+        info.cls = TypeClass::Bool;
+    } else if constexpr (std::is_same_v<T, std::string>) {
+        info.cls = TypeClass::String;
+    } else if constexpr (std::is_integral_v<T>) {
+        info.cls = TypeClass::Integral;
+        info.data = IntegralInfo{static_cast<int>(sizeof(T)), std::is_signed_v<T>};
+    } else if constexpr (std::is_floating_point_v<T>) {
+        info.cls = TypeClass::Floating;
+        info.data = FloatingInfo{static_cast<int>(sizeof(T))};
     }
 }
 
 template<typename Schema, typename Variant, std::size_t Index>
-void registerVariantAlternative()
+void fillVariantAlternative(
+    AlternativeInfo& alt, IntrospectContext<Schema>& ctx, IntrospectResult& out)
 {
-    if constexpr (getIntrospectEnabled<Schema>()) {
-        using Alt = std::variant_alternative_t<Index, Variant>;
-        auto& obj = getObjectDef<Schema, Alt>();
-        AlternativeInfo info;
-        info.type = &makeTypeInfo<Schema, Alt>();
-        if (obj.getImpl().hasName()) {
-            info.name = obj.getImpl().name();
-        }
-        getIntrospectionRegistry<Schema>().addVariantAlternative(
-            getTypeId<Variant>(), std::move(info));
+    using Alt = std::variant_alternative_t<Index, Variant>;
+    const auto& obj = getObjectDef<Schema, Alt>().getImpl();
+    if (obj.hasName()) {
+        alt.name = obj.name();
     }
+    alt.type = getTypeId<Alt>();
+    introspectType<Schema, Alt>(ctx, out);
 }
 
 template<typename Schema, typename Variant, std::size_t... Is>
-void registerVariantAlternatives(std::index_sequence<Is...>)
+void buildVariantAlternatives(
+    std::vector<AlternativeInfo>& alts,
+    IntrospectContext<Schema>& ctx,
+    IntrospectResult& out,
+    std::index_sequence<Is...>)
 {
-    (registerVariantAlternative<Schema, Variant, Is>(), ...);
+    alts.resize(sizeof...(Is));
+    int dummy[] = {0, (fillVariantAlternative<Schema, Variant, Is>(alts[Is], ctx, out), 0)...};
+    (void)dummy;
 }
 
-template<typename Schema, typename T>
-void registerVariantMapping()
+template<typename Schema, typename Variant>
+VariantInfo buildVariantInfo(VariantImpl<Schema, Variant>& def)
 {
-    if constexpr (HasVariantTag<Schema, T>::value) {
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            auto& reg = getIntrospectionRegistry<Schema>();
-            auto& var = getVariantDef<Schema, T>();
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(
-                    var.getImpl().hasName() &&
-                    "Schema::Variant<V>::name(...) is required when introspection is enabled.");
-            }
-            if (var.getImpl().hasName()) {
-                reg.setVariantName(getTypeId<T>(), var.getImpl().name());
-                // setTypeName<Schema, T>(var.getImpl().name());
-            }
-            reg.setVariantDiscriminator(getTypeId<T>(), var.getImpl().discriminator());
-            registerVariantAlternatives<Schema, T>(
-                std::make_index_sequence<std::variant_size_v<T>>{});
-        }
+    VariantInfo info;
+    if (def.hasName()) {
+        info.name = def.name();
     }
+    info.discriminator = def.discriminator();
+    return info;
 }
 
-template<typename Schema, typename E>
-void registerEnumMapping()
+template<typename Schema, typename Type>
+void introspectType(IntrospectContext<Schema>& ctx, IntrospectResult& out)
 {
-    if constexpr (HasEnumTag<Schema, E>::value) {
-        auto& def = getEnumDef<Schema, E>();
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(
-                    def.getImpl().hasName() &&
-                    "Schema::Enum<E>::name(...) is required when introspection is enabled.");
-            }
-            if (def.getImpl().hasName()) {
-                getIntrospectionRegistry<Schema>().setEnumName(
-                    getTypeId<E>(), def.getImpl().name());
-                // setTypeName<Schema, E>(def.getImpl().name());
-            }
-        }
-    }
-}
-
-template<typename Schema, typename T>
-void registerCustomMapping()
-{
-    if constexpr (HasCustomTag<Schema, T>::value) {
-        auto& custom = getCustomDef<Schema, T>();
-        if constexpr (getIntrospectEnabled<Schema>()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(
-                    custom.hasName() &&
-                    "Schema::Custom<T>::name(...) is required when introspection is enabled.");
-            }
-            if (custom.hasName()) {
-                // setTypeName<Schema, T>(custom.name());
-            }
-        }
-    }
-}
-
-template<typename Schema, typename Owner, typename Variant, std::size_t... Is>
-void ensureVariantAlternatives(std::index_sequence<Is...>)
-{
-    (ensureTypeRegistration<Schema, Owner, std::variant_alternative_t<Is, Variant>>(), ...);
-}
-
-template<typename Schema, typename Owner, typename T>
-void ensureTypeRegistration()
-{
-    if constexpr (!getIntrospectEnabled<Schema>()) {
+    using U = std::decay_t<Type>;
+    const TypeId id = getTypeId<U>();
+    if (!ctx.markVisited(id)) {
         return;
-    } else if constexpr (IsOptional<T>::value) {
-        using U = typename T::value_type;
-        ensureTypeRegistration<Schema, Owner, U>();
-    } else if constexpr (IsVector<T>::value) {
-        using U = typename T::value_type;
-        ensureTypeRegistration<Schema, Owner, U>();
-    } else if constexpr (IsVariant<T>::value) {
-        using VT = std::decay_t<T>;
-        registerVariantMapping<Schema, VT>();
-        ensureVariantAlternatives<Schema, Owner, VT>(
-            std::make_index_sequence<std::variant_size_v<VT>>{});
-    } else if constexpr (std::is_enum_v<T>) {
-        registerEnumMapping<Schema, T>();
-    } else if constexpr (HasObjectTag<Schema, T>::value && !std::is_same_v<Owner, T>) {
-        registerObjectMapping<Schema, T>();
-    } else if constexpr (HasCustomTag<Schema, T>::value) {
-        registerCustomMapping<Schema, T>();
     }
-}
 
-template<typename Schema, typename T>
-TypeInfo& makeTypeInfo()
-{
-    if constexpr (HasCustomTag<Schema, T>::value) {
-        CustomImpl<Schema, T>& impl = getCustomDef<Schema, T>().getImpl();
-        static TypeInfo info = customTypeInfo<T>(&impl.name());
-        return info;
-    } else if constexpr (HasObjectTag<Schema, T>::value) {
-        ObjectImpl<Schema, T>& impl = getObjectDef<Schema, T>().getImpl();
-        static TypeInfo info = objectTypeInfo<T>(&impl.name());
-        return info;
-    } else if constexpr (HasEnumTag<Schema, T>::value) {
-        EnumImpl<Schema, T>& impl = getEnumDef<Schema, T>().getImpl();
-        static TypeInfo info = enumTypeInfo<T>(&impl.name());
-        return info;
-    } else if constexpr (HasVariantTag<Schema, T>::value) {
-        VariantImpl<Schema, T>& impl = getVariantDef<Schema, T>().getImpl();
-        constexpr auto count = std::variant_size_v<T>;
-        static const TypeInfo* const* altArray =
-            makeVariantAlternatives<Schema, T>(std::make_index_sequence<count>{});
-        static TypeInfo info = variantTypeInfo<T>(&impl.name(), altArray, count);
-        return info;
-    } else if constexpr (IsOptional<T>::value) {
-        static TypeInfo info = optionalTypeInfo<T>(&makeTypeInfo<Schema, typename T::value_type>());
-        return info;
-    } else if constexpr (IsVector<T>::value) {
-        static TypeInfo info = vectorTypeInfo<T>(&makeTypeInfo<Schema, typename T::value_type>());
-        return info;
-    } else if constexpr (std::is_same_v<T, bool>) {
-        static TypeInfo info = basicTypeInfo<T>(TypeClass::Bool);
-        return info;
-    } else if constexpr (std::is_integral_v<T> && !std::is_same_v<T, bool>) {
-        static TypeInfo info = integralTypeInfo<T>();
-        return info;
-    } else if constexpr (std::is_floating_point_v<T>) {
-        static TypeInfo info = floatingTypeInfo<T>();
-        return info;
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        static TypeInfo info = basicTypeInfo<T>(TypeClass::String);
-        return info;
+    if constexpr (IsOptional<U>::value) {
+        using Inner = typename U::value_type;
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Optional;
+        info.data = OptionalInfo{getTypeId<Inner>()};
+        introspectType<Schema, Inner>(ctx, out);
+    } else if constexpr (IsVector<U>::value) {
+        using Inner = typename U::value_type;
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Vector;
+        info.data = VectorInfo{getTypeId<Inner>()};
+        introspectType<Schema, Inner>(ctx, out);
+    } else if constexpr (HasCustomTag<Schema, U>::value) {
+        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
+        auto& custom = getCustomDef<Schema, U>();
+        validateCustom<Schema, U>(ctx, custom);
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Custom;
+        if (custom.getImpl().hasName()) {
+            info.name = custom.getImpl().name();
+        } else {
+            info.name = typeIdToString(id);
+        }
+        CustomInfo ci;
+        ci.name = info.name;
+        info.data = std::move(ci);
+    } else if constexpr (HasObjectTag<Schema, U>::value) {
+        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
+        auto& def = getObjectDef<Schema, U>();
+        if (!validateObject<Schema, U>(ctx, def)) {
+            return;
+        }
+
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Object;
+        if (def.getImpl().hasName()) {
+            info.name = def.getImpl().name();
+        } else {
+            info.name = typeIdToString(id);
+        }
+
+        ObjectInfo objInfo;
+        objInfo.name = info.name;
+        for (const auto& field : def.getImpl().fields()) {
+            FieldInfo fi;
+            fi.name = field.name;
+            fi.type = field.typeId;
+            fi.isOptional = field.isOptional;
+            objInfo.fields.push_back(std::move(fi));
+            if (field.introspect) {
+                field.introspect(ctx, out);
+            }
+        }
+        info.data = std::move(objInfo);
+    } else if constexpr (HasEnumTag<Schema, U>::value) {
+        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
+        auto& def = getEnumDef<Schema, U>();
+        validateEnum<Schema, U>(ctx, def);
+
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Enum;
+        if (def.getImpl().hasName()) {
+            info.name = def.getImpl().name();
+        } else {
+            info.name = typeIdToString(id);
+        }
+
+        EnumInfo en;
+        en.name = info.name;
+        for (const auto& entry : def.getImpl().entries()) {
+            en.values.push_back(entry.second);
+        }
+        info.data = std::move(en);
+    } else if constexpr (HasVariantTag<Schema, U>::value) {
+        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
+        auto& def = getVariantDef<Schema, U>();
+        if (!validateVariant<Schema, U>(ctx, def)) {
+            return;
+        }
+
+        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
+        info.cls = TypeClass::Variant;
+        if (def.getImpl().hasName()) {
+            info.name = def.getImpl().name();
+        } else {
+            info.name = typeIdToString(id);
+        }
+
+        VariantInfo vi = buildVariantInfo<Schema, U>(def.getImpl());
+        vi.alternatives.reserve(std::variant_size_v<U>);
+        buildVariantAlternatives<Schema, U>(
+            vi.alternatives, ctx, out, std::make_index_sequence<std::variant_size_v<U>>{});
+        info.data = std::move(vi);
+    } else if constexpr (
+        std::is_same_v<U, bool> || std::is_integral_v<U> || std::is_floating_point_v<U> ||
+        std::is_same_v<U, std::string>)
+    {
+        storeScalarTypeInfo<Schema, U>(out);
     } else {
         static_assert(
-            DependentFalse<T>::value,
-            "Unsupported type for introspection. "
-            "Provide a Schema::Object / Schema::Enum mapping / Schema::Custom.");
-        static TypeInfo info = basicTypeInfo<T>(TypeClass::Unknown);
-        return info;
+            DependentFalse<U>::value,
+            "Unsupported type. Define Schema::Object / Enum / Variant / Custom for this type.");
     }
 }
 
@@ -2429,11 +2093,9 @@ IntrospectResult introspect()
 {
     detail::validateSchemaDefinition<Schema>();
     IntrospectResult result;
-    // detail::IntrospectionImpl<Schema> impl(result.errors);
-    // (impl.template add<Ts>(), ...);
-    // result.objects = impl.objects();
-    // result.enums = impl.enums();
-    // result.variants = impl.variants();
+    detail::IntrospectContext<Schema> ctx;
+    (detail::introspectType<Schema, Ts>(ctx, result), ...);
+    result.errors = ctx.takeErrors();
     return result;
 }
 

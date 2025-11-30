@@ -82,53 +82,62 @@ struct DemoSchema::Object<Order> : aison::Object<DemoSchema, Order> {
 
 //
 
-std::string renderType(const aison::TypeInfo* info)
+std::string typeIdToString(aison::TypeId id)
 {
+    return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(id));
+}
+
+const aison::TypeInfo* lookup(const aison::IntrospectResult& isp, aison::TypeId id)
+{
+    auto it = isp.types.find(id);
+    return it == isp.types.end() ? nullptr : &it->second;
+}
+
+std::string renderType(const aison::IntrospectResult& isp, aison::TypeId id)
+{
+    const auto* info = lookup(isp, id);
+    const auto fallback = typeIdToString(id);
     if (!info) {
-        return "unknown";
+        return fallback;
     }
 
-    auto typeId = reinterpret_cast<std::uintptr_t>(info->typeId);
-    auto nameOrId = [&](const std::string* name) {
-        if (!name || name->empty()) {
-            return "#" + std::to_string(typeId);
-        } else {
-            return *name;
-        }
-    };
+    auto nameOrId = [&]() -> std::string { return info->name.empty() ? fallback : info->name; };
 
     switch (info->cls) {
         case aison::TypeClass::Bool:
             return "bool";
         case aison::TypeClass::Integral: {
-            auto size = info->data.integral.size;
-            return (info->data.integral.isSigned ? "int" : "uint") + std::to_string(size * 8);
+            const auto& data = std::get<aison::IntegralInfo>(info->data);
+            return (data.isSigned ? "int" : "uint") + std::to_string(data.size * 8);
         }
         case aison::TypeClass::Floating: {
-            auto size = info->data.floating.size;
-            if (size == 4) return "float";
-            if (size == 8) return "double";
-            return "float" + std::to_string(size);
+            const auto& data = std::get<aison::FloatingInfo>(info->data);
+            if (data.size == 4) return "float";
+            if (data.size == 8) return "double";
+            return "float" + std::to_string(data.size);
         }
         case aison::TypeClass::String:
             return "string";
         case aison::TypeClass::Enum:
-            return "enum(" + nameOrId(info->data.enumeration.name) + ")";
+            return "enum(" + nameOrId() + ")";
         case aison::TypeClass::Object:
-            return "object(" + nameOrId(info->data.object.name) + ")";
+            return "object(" + nameOrId() + ")";
         case aison::TypeClass::Custom:
-            return "custom(" + nameOrId(info->data.object.name) + ")";
-        case aison::TypeClass::Optional:
-            return "optional<" + renderType(info->data.optional.type) + ">";
-        case aison::TypeClass::Vector:
-            return "vector<" + renderType(info->data.vector.type) + ">";
+            return "custom(" + nameOrId() + ")";
+        case aison::TypeClass::Optional: {
+            const auto& data = std::get<aison::OptionalInfo>(info->data);
+            return "optional<" + renderType(isp, data.value) + ">";
+        }
+        case aison::TypeClass::Vector: {
+            const auto& data = std::get<aison::VectorInfo>(info->data);
+            return "vector<" + renderType(isp, data.value) + ">";
+        }
         case aison::TypeClass::Variant: {
-            std::string out = "variant(" + nameOrId(info->data.variant.name) + ")<";
-            for (std::size_t i = 0; i < info->data.variant.count; ++i) {
+            const auto& data = std::get<aison::VariantInfo>(info->data);
+            std::string out = "variant(" + nameOrId() + ")<";
+            for (std::size_t i = 0; i < data.alternatives.size(); ++i) {
                 if (i) out += " | ";
-                out += info->data.variant.types && info->data.variant.types[i]
-                           ? renderType(info->data.variant.types[i])
-                           : "unknown";
+                out += renderType(isp, data.alternatives[i].type);
             }
             out += ">";
             return out;
@@ -140,41 +149,42 @@ std::string renderType(const aison::TypeInfo* info)
 
 void dump(const aison::IntrospectResult& isp)
 {
-    for (auto& entry : isp.objects) {
-        const auto& obj = entry.second;
-        std::cout << "object: " << obj.name << "\n";
-        for (const auto& f : obj.fields) {
-            std::cout << " - " << f.name << ": " << renderType(f.type) << "\n";
+    for (const auto& entry : isp.types) {
+        const auto& info = entry.second;
+        const auto displayName = info.name.empty() ? typeIdToString(info.typeId) : info.name;
+        switch (info.cls) {
+            case aison::TypeClass::Object: {
+                const auto& obj = std::get<aison::ObjectInfo>(info.data);
+                std::cout << "object: " << displayName << "\n";
+                for (const auto& f : obj.fields) {
+                    std::cout << " - " << f.name << ": " << renderType(isp, f.type) << "\n";
+                }
+                std::cout << "\n";
+                break;
+            }
+            case aison::TypeClass::Variant: {
+                const auto& var = std::get<aison::VariantInfo>(info.data);
+                std::cout << "variant: " << displayName << "\n";
+                for (const auto& alt : var.alternatives) {
+                    std::cout << " - tag=\"" << alt.name << "\" type="
+                              << renderType(isp, alt.type) << "\n";
+                }
+                std::cout << "\n";
+                break;
+            }
+            case aison::TypeClass::Enum: {
+                const auto& en = std::get<aison::EnumInfo>(info.data);
+                std::cout << "enum: " << displayName << " [";
+                for (std::size_t i = 0; i < en.values.size(); ++i) {
+                    if (i) std::cout << ", ";
+                    std::cout << en.values[i];
+                }
+                std::cout << "]\n";
+                break;
+            }
+            default:
+                break;
         }
-        std::cout << "\n";
-    }
-
-    for (auto& entry : isp.variants) {
-        auto& var = entry.second;
-
-        std::cout << "variant: " << var.name << "\n";
-
-        for (const auto& alt : var.alternatives) {
-            std::cout << " - tag=\"" << alt.name << "\" type=" << renderType(alt.type) << "\n";
-        }
-        std::cout << "\n";
-    }
-
-    for (const auto& entry : isp.enums) {
-        const auto& en = entry.second;
-        std::cout << "enum: ";
-        if (!en.name.empty()) {
-            std::cout << en.name << " (typeId=" << reinterpret_cast<std::uintptr_t>(entry.first)
-                      << ")";
-        } else {
-            std::cout << reinterpret_cast<std::uintptr_t>(entry.first);
-        }
-        std::cout << " [";
-        for (std::size_t i = 0; i < en.values.size(); ++i) {
-            if (i) std::cout << ", ";
-            std::cout << en.values[i];
-        }
-        std::cout << "]\n";
     }
 }
 
