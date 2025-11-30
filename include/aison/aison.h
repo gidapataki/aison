@@ -74,13 +74,16 @@ class DecodeContext;
 template<typename Schema, typename T>
 class EnumImpl;
 
-template<typename Schema, typename Owner>
+template<typename Schema, typename T>
 class ObjectImpl;
 
-template<typename Schema, typename Variant>
+template<typename Schema, typename T>
 class VariantImpl;
 
-template<typename Schema, typename Variant>
+template<typename Schema, typename T>
+class CustomImpl;
+
+template<typename Schema, typename T>
 struct VariantDecoder;
 
 template<typename Owner, typename T>
@@ -242,17 +245,6 @@ struct SchemaDefaults {
     static constexpr auto enableIntrospection = false;
     static constexpr auto enableEncode = true;
     static constexpr auto enableDecode = true;
-};
-
-template<typename Derived, typename Config = EmptyConfig>
-struct Schema {
-    using SchemaTag = void;
-    using ConfigType = Config;
-
-    // template<typename T> struct Object;
-    // template<typename Variant> struct Variant;
-    // template<typename T> struct Enum;
-    // template<typename T> struct Custom;
 };
 
 enum class TypeClass {
@@ -1003,7 +995,6 @@ public:
         return nullptr;
     }
 
-    const EntryVec& entries() const { return entries_; }
     const std::string& name() const { return name_; }
     bool hasName() const { return hasName_; }
 
@@ -1076,6 +1067,44 @@ private:
     std::string discriminator_;
     bool hasName_ = false;
     bool hasDiscriminator_ = false;
+};
+
+template<typename Schema, typename T>
+class CustomImpl
+{
+public:
+    using ConfigType = typename Schema::ConfigType;
+    using EncodeContext = detail::EncodeContext<Schema>;
+    using DecodeContext = detail::DecodeContext<Schema>;
+
+    void name(std::string_view value)
+    {
+        if (value.empty()) {
+            if constexpr (detail::getEnableAssert<Schema>()) {
+                assert(false && "Custom name cannot be empty.");
+            }
+            return;
+        }
+        if (hasName_) {
+            if constexpr (detail::getEnableAssert<Schema>()) {
+                assert(false && "Custom name already set.");
+            }
+            return;
+        }
+        hasName_ = true;
+        name_ = std::string(value);
+        if constexpr (detail::getEnableIntrospection<Schema>()) {
+            detail::setTypeName<Schema, T>(name_);
+        }
+    }
+
+    const std::string& name() const { return name_; }
+
+    bool hasName() const { return hasName_; }
+
+private:
+    std::string name_;
+    bool hasName_ = false;
 };
 
 template<typename Schema, typename T>
@@ -2194,7 +2223,18 @@ private:
 
 namespace aison {
 
-// Object / Enum / Variant / Custom  ///////////////////////////////////////////////////////////
+// API types //////////////////////////////////////////////////////////////
+
+template<typename Derived, typename Config = EmptyConfig>
+struct Schema {
+    using SchemaTag = void;
+    using ConfigType = Config;
+
+    // template<typename T> struct Custom;
+    // template<typename T> struct Object;
+    // template<typename T> struct Variant;
+    // template<typename T> struct Enum;
+};
 
 template<typename Schema, typename T>
 struct Object : detail::ObjectImpl<Schema, T> {
@@ -2211,7 +2251,6 @@ template<typename Schema, typename T>
 struct Enum : detail::EnumImpl<Schema, T> {
     using EnumTag = void;
     using Impl = detail::EnumImpl<Schema, T>;
-    using Base = Enum;
 
     using Impl::add;
     using Impl::name;
@@ -2231,44 +2270,13 @@ struct Variant : detail::VariantImpl<Schema, T> {
 };
 
 template<typename Schema, typename T>
-class Custom
-{
-public:
+struct Custom : detail::CustomImpl<Schema, T> {
     using CustomTag = void;
-    using ConfigType = typename Schema::ConfigType;
-    using EncodeContext = detail::EncodeContext<Schema>;
-    using DecodeContext = detail::DecodeContext<Schema>;
+    using Impl = detail::CustomImpl<Schema, T>;
 
     Custom() { detail::validateCustomSpec<Schema, T>(); }
 
-    void name(std::string_view value)
-    {
-        if (value.empty()) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name cannot be empty.");
-            }
-            return;
-        }
-        if (hasName_) {
-            if constexpr (detail::getEnableAssert<Schema>()) {
-                assert(false && "Custom name already set.");
-            }
-            return;
-        }
-        hasName_ = true;
-        name_ = std::string(value);
-        if constexpr (detail::getEnableIntrospection<Schema>()) {
-            detail::setTypeName<Schema, T>(name_);
-        }
-    }
-
-    const std::string& name() const { return name_; }
-
-    bool hasName() const { return hasName_; }
-
-private:
-    std::string name_;
-    bool hasName_ = false;
+    using Impl::name;
 };
 
 // API functions //////////////////////////////////////////////////////////////////////
