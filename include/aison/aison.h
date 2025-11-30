@@ -293,6 +293,9 @@ class EncodeContext;
 template<typename Schema>
 class DecodeContext;
 
+template<typename Schema>
+class IntrospectContext;
+
 template<typename Schema, typename T>
 class EnumImpl;
 
@@ -351,7 +354,7 @@ template<typename Schema, typename = void>
 struct HasSchemaStrictOptional;
 
 template<typename Schema, typename = void>
-struct HasSchemaEnableIntrospection;
+struct HasSchemaEnableIntrospect;
 
 template<typename Schema, typename = void>
 struct SchemaEnableAssert;
@@ -360,7 +363,7 @@ template<typename Schema, typename = void>
 struct SchemaStrictOptional;
 
 template<typename Schema, typename = void>
-struct SchemaEnableIntrospection;
+struct SchemaEnableIntrospect;
 
 template<typename Schema, typename T>
 void encodeValue(const T& value, Json::Value& dst, EncodeContext<Schema>& ctx);
@@ -382,6 +385,9 @@ template<typename Schema, typename Owner, typename T>
 void decodeFieldThunk(
     const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr);
 
+template<typename Schema, typename Owner, typename T>
+void introspectFieldThunk(Owner& owner, IntrospectContext<Schema>& ctx, FieldAccessorPtr ptr);
+
 template<typename Schema>
 constexpr bool getEncodeEnabled();
 
@@ -395,7 +401,7 @@ template<typename Schema>
 constexpr bool getStrictOptional();
 
 template<typename Schema>
-constexpr bool getEnableIntrospection();
+constexpr bool getIntrospectEnabled();
 
 template<typename Schema, typename T>
 constexpr void validateEnumSpec();
@@ -459,9 +465,6 @@ TypeInfo& makeTypeInfo();
 
 template<typename Schema, typename Variant, std::size_t... Is>
 const TypeInfo* const* makeVariantAlternatives(std::index_sequence<Is...>);
-
-template<typename Schema, typename T>
-void setTypeName(const std::string& name);
 
 template<typename Key>
 bool shouldReportSchemaError();
@@ -543,21 +546,19 @@ constexpr bool getStrictOptional()
 // Introspection flag
 
 template<typename Schema, typename>
-struct HasSchemaEnableIntrospection : std::false_type {};
+struct HasSchemaEnableIntrospect : std::false_type {};
 
 template<typename Schema>
-struct HasSchemaEnableIntrospection<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
+struct HasSchemaEnableIntrospect<Schema, std::void_t<decltype(Schema::enableIntrospect)>>
     : std::true_type {};
 
 template<typename Schema, typename>
-struct SchemaEnableIntrospection {
+struct SchemaEnableIntrospect {
     constexpr static bool get() { return SchemaDefaults::enableIntrospect; }
 };
 
 template<typename Schema>
-struct SchemaEnableIntrospection<
-    Schema,
-    std::enable_if_t<HasSchemaEnableIntrospection<Schema>::value>> {
+struct SchemaEnableIntrospect<Schema, std::enable_if_t<HasSchemaEnableIntrospect<Schema>::value>> {
     constexpr static bool get()
     {
         using Type = std::decay_t<decltype(Schema::enableIntrospect)>;
@@ -567,9 +568,9 @@ struct SchemaEnableIntrospection<
 };
 
 template<typename Schema>
-constexpr bool getEnableIntrospection()
+constexpr bool getIntrospectEnabled()
 {
-    return SchemaEnableIntrospection<Schema>::get();
+    return SchemaEnableIntrospect<Schema>::get();
 }
 
 template<typename Schema, typename = void>
@@ -694,10 +695,6 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, Owner>(name_);
-            getIntrospectionRegistry<Schema>().setObjectName(getTypeId<Owner>(), name_);
-        }
     }
 
     template<typename T>
@@ -742,12 +739,12 @@ public:
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
 
-        if constexpr (getEnableIntrospection<Schema>()) {
-            FieldInfo fi;
-            fi.name = std::string(name);
-            fi.type = &makeTypeInfo<Schema, T>();
-            getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
-            ensureTypeRegistration<Schema, Owner, T>();
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            // FieldInfo fi;
+            // fi.name = std::string(name);
+            // fi.type = &makeTypeInfo<Schema, T>();
+            // getIntrospectionRegistry<Schema>().addObjectField(getTypeId<Owner>(), std::move(fi));
+            // ensureTypeRegistration<Schema, Owner, T>();
         }
     }
 
@@ -852,9 +849,9 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, E>(name_);
-            getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            // setTypeName<Schema, E>(name_);
+            // getIntrospectionRegistry<Schema>().setEnumName(getTypeId<E>(), name_);
         }
     }
 
@@ -870,8 +867,8 @@ public:
             }
         }
         entries_.emplace_back(value, std::string(name));
-        if constexpr (getEnableIntrospection<Schema>()) {
-            getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            // getIntrospectionRegistry<Schema>().addEnumName(getTypeId<E>(), name);
         }
     }
 
@@ -951,8 +948,8 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (getEnableIntrospection<Schema>()) {
-            setTypeName<Schema, VariantType>(name_);
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            // setTypeName<Schema, VariantType>(name_);
         }
     }
 
@@ -1061,7 +1058,7 @@ struct SchemaValidator {
     static bool validateObject(Context& ctx, const ObjectDef& objectDef)
     {
         validateObjectSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if (!objectDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct ObjectNameMissing>;
                 addSchemaErrorOnce<Key>(
@@ -1078,7 +1075,7 @@ struct SchemaValidator {
     static bool validateEnum(Context& ctx, const EnumDef& enumDef)
     {
         validateEnumSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if (!enumDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct EnumNameMissing>;
                 addSchemaErrorOnce<Key>(
@@ -1095,7 +1092,7 @@ struct SchemaValidator {
     static bool validateCustom(Context& ctx, const CustomDef& customDef)
     {
         validateCustomSpec<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if (!customDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, std::decay_t<T>, struct CustomNameMissing>;
                 addSchemaErrorOnce<Key>(
@@ -1114,7 +1111,7 @@ struct SchemaValidator {
         using Type = std::decay_t<Variant>;
         validateVariantSpec<Schema, Type>();
         bool ok = true;
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if (!variantDef.getImpl().hasName()) {
                 using Key = SchemaErrorKeyTag<Schema, Type, struct VariantNameMissing>;
                 addSchemaErrorOnce<Key>(
@@ -1160,8 +1157,8 @@ public:
         }
         hasName_ = true;
         name_ = std::string(value);
-        if constexpr (detail::getEnableIntrospection<Schema>()) {
-            detail::setTypeName<Schema, T>(name_);
+        if constexpr (detail::getIntrospectEnabled<Schema>()) {
+            // detail::setTypeName<Schema, T>(name_);
         }
     }
 
@@ -1197,7 +1194,7 @@ constexpr void validateCustomSpec()
         "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
 }
 
-// == Encoder / Decoder ==
+// == Context ==
 
 class Context
 {
@@ -1313,7 +1310,6 @@ public:
     EncodeContext(const Config& cfg)
         : config_(cfg)
     {
-        validateSchemaDefinition<Schema>();
         static_assert(
             getEncodeEnabled<Schema>(),
             "EncodeContext<Schema> cannot be used when Schema::enableEncode is false.");
@@ -1340,7 +1336,6 @@ public:
     DecodeContext(const Config& cfg)
         : config_(cfg)
     {
-        validateSchemaBase<Schema>();
         static_assert(
             getDecodeEnabled<Schema>(),
             "DecodeContext<Schema> cannot be used when Schema::enableDecode is false.");
@@ -1358,7 +1353,25 @@ private:
     const Config& config_;
 };
 
-// Encode
+template<typename Schema>
+class IntrospectContext : public Context
+{
+public:
+    IntrospectContext()
+    {
+        static_assert(
+            getIntrospectEnabled<Schema>(),
+            "IntrospectContext<Schema> cannot be used when Schema::enableIntrospect is false.");
+    }
+
+    template<typename T>
+    void introspect(const T& src)
+    {
+        // introspectValue<Schema, T>(src, *this);
+    }
+};
+
+// == Encode / Decode ==
 
 template<typename Schema, typename T>
 void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
@@ -1682,6 +1695,16 @@ void decodeFieldThunk(
     decodeValue<Schema, T>(src, ref, ctx);
 }
 
+template<typename Schema, typename Owner, typename T>
+void introspectFieldThunk(Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr)
+{
+    using Accessor = FieldAccessor<Owner, T>;
+    auto* accessor = static_cast<const Accessor*>(ptr);
+    auto& member = accessor->member;
+    const T& ref = owner.*member;
+    // introspectValue<Schema, T>(ref, ctx);
+}
+
 template<typename Owner, typename T>
 FieldAccessorStorage makeFieldAccessor(T Owner::* member)
 {
@@ -1846,7 +1869,7 @@ public:
     {
         validateSchemaDefinition<Schema>();
         static_assert(
-            detail::getEnableIntrospection<Schema>(),
+            detail::getIntrospectEnabled<Schema>(),
             "Introspection is disabled for this schema. Set `static constexpr bool "
             "enableIntrospect = true;` in your Schema to use Introspection.");
     }
@@ -2011,61 +2034,40 @@ class IntrospectionRegistry
 public:
     void addObjectField(TypeId typeId, FieldInfo field)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         auto& entry = objects_[typeId];
         entry.fields.push_back(std::move(field));
     }
 
     void setObjectName(TypeId typeId, std::string name)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         auto& entry = objects_[typeId];
         entry.name = std::move(name);
     }
 
     void addEnumName(TypeId typeId, std::string_view name)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         auto& entry = enums_[typeId];
         entry.values.push_back(std::string(name));
     }
 
     void setEnumName(TypeId typeId, std::string name)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         auto& entry = enums_[typeId];
         entry.name = std::move(name);
     }
 
     void setVariantName(TypeId typeId, std::string name)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         variants_[typeId].name = std::move(name);
     }
 
     void setVariantDiscriminator(TypeId typeId, std::string key)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         variants_[typeId].discriminator = std::move(key);
     }
 
     void addVariantAlternative(TypeId typeId, AlternativeInfo alt)
     {
-        if (!getEnableIntrospection<Schema>()) {
-            return;
-        }
         auto& entry = variants_[typeId];
         for (const auto& existing : entry.alternatives) {
             if (existing.type == alt.type) {
@@ -2105,14 +2107,14 @@ void registerObjectMapping()
 {
     if constexpr (HasObjectTag<Schema, T>::value) {
         auto& obj = getObjectDef<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
                     obj.getImpl().hasName() &&
                     "Schema::Object<T>::name(...) is required when introspection is enabled.");
             }
             if (obj.getImpl().hasName()) {
-                setTypeName<Schema, T>(obj.getImpl().name());
+                // setTypeName<Schema, T>(obj.getImpl().name());
                 getIntrospectionRegistry<Schema>().setObjectName(
                     getTypeId<T>(), obj.getImpl().name());
             }
@@ -2123,7 +2125,7 @@ void registerObjectMapping()
 template<typename Schema, typename Variant, std::size_t Index>
 void registerVariantAlternative()
 {
-    if constexpr (getEnableIntrospection<Schema>()) {
+    if constexpr (getIntrospectEnabled<Schema>()) {
         using Alt = std::variant_alternative_t<Index, Variant>;
         auto& obj = getObjectDef<Schema, Alt>();
         AlternativeInfo info;
@@ -2146,7 +2148,7 @@ template<typename Schema, typename T>
 void registerVariantMapping()
 {
     if constexpr (HasVariantTag<Schema, T>::value) {
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             auto& reg = getIntrospectionRegistry<Schema>();
             auto& var = getVariantDef<Schema, T>();
             if constexpr (getEnableAssert<Schema>()) {
@@ -2156,7 +2158,7 @@ void registerVariantMapping()
             }
             if (var.getImpl().hasName()) {
                 reg.setVariantName(getTypeId<T>(), var.getImpl().name());
-                setTypeName<Schema, T>(var.getImpl().name());
+                // setTypeName<Schema, T>(var.getImpl().name());
             }
             reg.setVariantDiscriminator(getTypeId<T>(), var.getImpl().discriminator());
             registerVariantAlternatives<Schema, T>(
@@ -2170,7 +2172,7 @@ void registerEnumMapping()
 {
     if constexpr (HasEnumTag<Schema, E>::value) {
         auto& def = getEnumDef<Schema, E>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
                     def.getImpl().hasName() &&
@@ -2179,7 +2181,7 @@ void registerEnumMapping()
             if (def.getImpl().hasName()) {
                 getIntrospectionRegistry<Schema>().setEnumName(
                     getTypeId<E>(), def.getImpl().name());
-                setTypeName<Schema, E>(def.getImpl().name());
+                // setTypeName<Schema, E>(def.getImpl().name());
             }
         }
     }
@@ -2190,14 +2192,14 @@ void registerCustomMapping()
 {
     if constexpr (HasCustomTag<Schema, T>::value) {
         auto& custom = getCustomDef<Schema, T>();
-        if constexpr (getEnableIntrospection<Schema>()) {
+        if constexpr (getIntrospectEnabled<Schema>()) {
             if constexpr (getEnableAssert<Schema>()) {
                 assert(
                     custom.hasName() &&
                     "Schema::Custom<T>::name(...) is required when introspection is enabled.");
             }
             if (custom.hasName()) {
-                setTypeName<Schema, T>(custom.name());
+                // setTypeName<Schema, T>(custom.name());
             }
         }
     }
@@ -2212,7 +2214,7 @@ void ensureVariantAlternatives(std::index_sequence<Is...>)
 template<typename Schema, typename Owner, typename T>
 void ensureTypeRegistration()
 {
-    if constexpr (!getEnableIntrospection<Schema>()) {
+    if constexpr (!getIntrospectEnabled<Schema>()) {
         return;
     } else if constexpr (IsOptional<T>::value) {
         using U = typename T::value_type;
@@ -2282,16 +2284,6 @@ TypeInfo& makeTypeInfo()
         static TypeInfo info = basicTypeInfo<T>(TypeClass::Unknown);
         return info;
     }
-}
-
-template<typename Schema, typename T>
-void setTypeName(const std::string& name)
-{
-    // todo revise
-    static std::string storedName;
-    storedName = name;
-    // auto& info = makeTypeInfo<Schema, T>();
-    // info.name = storedName.empty() ? nullptr : storedName.c_str();
 }
 
 }  // namespace aison::detail
@@ -2413,11 +2405,11 @@ IntrospectResult introspect()
 {
     detail::validateSchemaDefinition<Schema>();
     IntrospectResult result;
-    detail::IntrospectionImpl<Schema> impl(result.errors);
-    (impl.template add<Ts>(), ...);
-    result.objects = impl.objects();
-    result.enums = impl.enums();
-    result.variants = impl.variants();
+    // detail::IntrospectionImpl<Schema> impl(result.errors);
+    // (impl.template add<Ts>(), ...);
+    // result.objects = impl.objects();
+    // result.enums = impl.enums();
+    // result.variants = impl.variants();
     return result;
 }
 
