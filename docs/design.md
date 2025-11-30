@@ -9,8 +9,7 @@
 - Schemas must derive from `aison::Schema<Derived, Facet, Config>` and expose `SchemaTag`, `FacetType`, and `ConfigType`.
 - Objects/Enums/Variants/Custom mappings must inherit their corresponding `aison::Object/Enum/Variant/Custom` bases.
 - Variant mappings must target `std::variant` types; every alternative must have an Object mapping.
-- Introspection enabled (`enableIntrospection = true`) requires names on objects, enums, variants, and custom types
-- Variants require a discriminator, and all alternatives must be named.
+- Variants always require a discriminator and named alternatives (used for tagging); introspection-enabled (`enableIntrospection = true`) additionally requires names on objects, enums, variants, and custom types.
 - `Object::add` field types must be supported: mapped Object/Enum/Custom/Variant types, `std::optional`, `std::vector`, and primitive scalar/string types.
 
 ## Validation & Error Surfacing

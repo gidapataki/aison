@@ -835,8 +835,10 @@ TypeInfo& makeVariantTypeInfo()
 template<typename Schema, typename T>
 void setTypeName(const std::string& name)
 {
-    auto& info = makeTypeInfo<Schema, T>();  // todo fixme
-    info.name = name.empty() ? nullptr : name.c_str();
+    static std::string storedName;
+    storedName = name;
+    auto& info = makeTypeInfo<Schema, T>();
+    info.name = storedName.empty() ? nullptr : storedName.c_str();
 }
 
 template<typename Schema>
