@@ -8,7 +8,6 @@
 #include <limits>
 #include <memory>
 #include <optional>
-#include <string>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
@@ -385,6 +384,20 @@ struct VariantInfo {
 using ObjectInfoMap = std::unordered_map<TypeId, ObjectInfo>;
 using VariantInfoMap = std::unordered_map<TypeId, VariantInfo>;
 using EnumInfoMap = std::unordered_map<TypeId, EnumInfo>;
+
+struct IntrospectError {
+    std::string type;
+    std::string message;
+};
+
+struct IntrospectResult {
+    ObjectInfoMap objects;
+    VariantInfoMap variants;
+    EnumInfoMap enums;
+    std::vector<IntrospectError> errors;
+
+    explicit operator bool() const { return errors.empty(); }
+};
 
 }  // namespace aison
 
@@ -2013,7 +2026,8 @@ template<typename Schema>
 class IntrospectionImpl
 {
 public:
-    IntrospectionImpl()
+    explicit IntrospectionImpl(std::vector<IntrospectError>& errors)
+        : errors_(&errors)
     {
         validateSchemaDefinition<Schema>();
         static_assert(
@@ -2067,9 +2081,7 @@ public:
             return;
         }
         if (it->second.name.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Enum must have name() when introspection is enabled.");
-            }
+            reportMissingName(typeId, "Enum must have name() when introspection is enabled.");
             return;
         }
         enums_.emplace(it->first, it->second);
@@ -2087,9 +2099,7 @@ public:
         }
 
         if (it->second.name.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Object must have name() when introspection is enabled.");
-            }
+            reportMissingName(typeId, "Object must have name() when introspection is enabled.");
             return;
         }
 
@@ -2112,9 +2122,7 @@ public:
             return;
         }
         if (it->second.name.empty()) {
-            if constexpr (getEnableAssert<Schema>()) {
-                assert(false && "Variant must have name() when introspection is enabled.");
-            }
+            reportMissingName(typeId, "Variant must have name() when introspection is enabled.");
             return;
         }
         variants_.emplace(it->first, it->second);
@@ -2162,9 +2170,24 @@ public:
     const EnumInfoMap& enums() const { return enums_; }
 
 private:
+    void reportMissingName(TypeId typeId, const std::string& message)
+    {
+        if (!errors_) return;
+        std::string typeName;
+        auto& reg = getIntrospectionRegistry<Schema>();
+        auto objIt = reg.objects().find(typeId);
+        if (objIt != reg.objects().end() && !objIt->second.name.empty()) {
+            typeName = objIt->second.name;
+        } else {
+            typeName = "#" + std::to_string(reinterpret_cast<std::uintptr_t>(typeId));
+        }
+        errors_->push_back(IntrospectError{std::move(typeName), message});
+    }
+
     ObjectInfoMap objects_;
     VariantInfoMap variants_;
     EnumInfoMap enums_;
+    std::vector<IntrospectError>* errors_ = nullptr;
 };
 
 }  // namespace aison::detail
@@ -2248,26 +2271,6 @@ private:
     bool hasName_ = false;
 };
 
-// Introspection ///////////////////////////////////////////////////////////////////////////
-
-template<typename Schema>
-class Introspection
-{
-public:
-    template<typename T>
-    void add()
-    {
-        impl_.template add<T>();
-    }
-
-    const ObjectInfoMap& objects() const { return impl_.objects(); }
-    const EnumInfoMap& enums() const { return impl_.enums(); }
-    const VariantInfoMap& variants() const { return impl_.variants(); }
-
-private:
-    detail::IntrospectionImpl<Schema> impl_;
-};
-
 // API functions //////////////////////////////////////////////////////////////////////
 
 template<typename Schema, typename T>
@@ -2288,11 +2291,17 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
     return Result{ctx.takeErrors()};
 }
 
-template<typename Schema>
-Introspection<Schema> introspect()
+template<typename Schema, typename... Ts>
+IntrospectResult introspect()
 {
     detail::validateSchemaDefinition<Schema>();
-    return Introspection<Schema>{};
+    IntrospectResult result;
+    detail::IntrospectionImpl<Schema> impl(result.errors);
+    (impl.template add<Ts>(), ...);
+    result.objects = impl.objects();
+    result.enums = impl.enums();
+    result.variants = impl.variants();
+    return result;
 }
 
 }  // namespace aison

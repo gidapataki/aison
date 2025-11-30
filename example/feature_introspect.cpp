@@ -135,10 +135,9 @@ std::string renderType(const aison::TypeInfo* info)
     }
 }
 
-template<typename Schema>
-void dump(const aison::Introspection<Schema>& isp)
+void dump(const aison::IntrospectResult& isp)
 {
-    for (auto& entry : isp.objects()) {
+    for (auto& entry : isp.objects) {
         const auto& obj = entry.second;
         std::cout << "object: " << obj.name << "\n";
         for (const auto& f : obj.fields) {
@@ -147,7 +146,7 @@ void dump(const aison::Introspection<Schema>& isp)
         std::cout << "\n";
     }
 
-    for (auto& entry : isp.variants()) {
+    for (auto& entry : isp.variants) {
         auto& var = entry.second;
 
         std::cout << "variant: " << var.name << "\n";
@@ -158,7 +157,7 @@ void dump(const aison::Introspection<Schema>& isp)
         std::cout << "\n";
     }
 
-    for (const auto& entry : isp.enums()) {
+    for (const auto& entry : isp.enums) {
         const auto& en = entry.second;
         std::cout << "enum: ";
         if (!en.name.empty()) {
@@ -186,14 +185,12 @@ void introspectExample1()
 
     std::cout << root.toStyledString() << "\n";
 
-    auto isp = aison::introspect<DemoSchema>();
-    isp.add<Flavor>();
+    auto isp = aison::introspect<DemoSchema, Flavor>();
 
     // aison::introspection<DemoSchema>().collect<Flavor, ...>
 
 #if 1
-    auto isp2 = isp;
-    isp2.add<Order>();
+    auto isp2 = aison::introspect<DemoSchema, Flavor, Order>();
     dump(isp2);
     std::cout << "--\n";
 #endif
