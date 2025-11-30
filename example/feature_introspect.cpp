@@ -93,6 +93,7 @@ const aison::TypeInfo* lookup(const aison::IntrospectResult& isp, aison::TypeId 
     return it == isp.types.end() ? nullptr : &it->second;
 }
 
+#if 0
 std::string renderType(const aison::IntrospectResult& isp, aison::TypeId id)
 {
     const auto* info = lookup(isp, id);
@@ -189,6 +190,7 @@ void dump(const aison::IntrospectResult& isp)
         }
     }
 }
+#endif
 
 }  // namespace
 
@@ -206,11 +208,11 @@ void introspectExample1()
 
 #if 1
     auto isp2 = aison::introspect<DemoSchema, Flavor, Order>();
-    dump(isp2);
+    // dump(isp2);
     std::cout << "--\n";
 #endif
 
-    dump(isp);
+    // dump(isp);
 }
 
 }  // namespace example

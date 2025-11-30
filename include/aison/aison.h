@@ -12,7 +12,6 @@
 #include <type_traits>
 #include <typeinfo>
 #include <unordered_map>
-#include <unordered_set>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -21,12 +20,7 @@ namespace aison {
 
 // Declarations ////////////////////////////////////////////////////////////////////////////////////
 
-struct ObjectInfo;
-struct VariantInfo;
-struct EnumInfo;
-
 struct Result;
-struct IntrospectResult;
 
 using TypeId = const void*;
 
@@ -55,7 +49,7 @@ template<typename Schema, typename T>
 Result decode(const Json::Value& src, T& value, const typename Schema::ConfigType& config = {});
 
 template<typename Schema, typename... Ts>
-IntrospectResult introspect();
+Result introspect();
 
 // Definitions /////////////////////////////////////////////////////////////////////////////////////
 
@@ -79,19 +73,9 @@ struct SchemaDefaults {
     static constexpr auto enableDecode = true;
 };
 
-enum class TypeClass {
-    Unknown,
-    Integral,
-    Floating,
-    Bool,
-    String,
-    Enum,
-    Object,
-    Custom,
-    Optional,
-    Vector,
-    Variant,
-};
+struct UnknownInfo {};
+struct BoolInfo {};
+struct StringInfo {};
 
 struct OptionalInfo {
     TypeId value = nullptr;
@@ -141,8 +125,10 @@ struct CustomInfo {
     std::string name;
 };
 
-using TypeInfoData = std::variant<
-    std::monostate,
+using TypeInfo = std::variant<
+    UnknownInfo,
+    BoolInfo,
+    StringInfo,
     IntegralInfo,
     FloatingInfo,
     OptionalInfo,
@@ -151,13 +137,6 @@ using TypeInfoData = std::variant<
     EnumInfo,
     VariantInfo,
     CustomInfo>;
-
-struct TypeInfo {
-    TypeClass cls = TypeClass::Unknown;
-    TypeId typeId = nullptr;
-    std::string name;  // Display name (schema name if set, otherwise empty)
-    TypeInfoData data{};
-};
 
 struct IntrospectError {
     std::string type;
@@ -285,8 +264,8 @@ template<typename Schema, typename Owner, typename T>
 void decodeFieldThunk(
     const Json::Value& src, Owner& owner, DecodeContext<Schema>& ctx, FieldAccessorPtr ptr);
 
-template<typename Schema, typename Owner, typename T>
-void introspectFieldThunk(IntrospectContext<Schema>& ctx, IntrospectResult& out);
+template<typename Schema, typename T>
+void introspectFieldThunk(IntrospectContext<Schema>& ctx);
 
 template<typename Schema>
 constexpr bool getEncodeEnabled();
@@ -340,7 +319,7 @@ template<typename Schema, typename T>
 constexpr bool isSupportedFieldType();
 
 template<typename Schema, typename T>
-void introspectType(IntrospectContext<Schema>& ctx, IntrospectResult& out);
+void introspectType(IntrospectContext<Schema>& ctx);
 
 template<typename Key>
 bool shouldReportSchemaError();
@@ -532,7 +511,7 @@ public:
             void (*)(const Owner&, Json::Value&, EncodeContext<Schema>&, FieldAccessorPtr ptr);
         using DecodeFn =
             void (*)(const Json::Value&, Owner&, DecodeContext<Schema>&, FieldAccessorPtr ptr);
-        using IntrospectFn = void (*)(IntrospectContext<Schema>&, IntrospectResult&);
+        using IntrospectFn = void (*)(IntrospectContext<Schema>&);
 
         FieldDef(FieldAccessorStorage&& accessor)
             : accessor(std::move(accessor))
@@ -545,7 +524,6 @@ public:
         DecodeFn decode = nullptr;
 
         std::string name;
-        TypeId typeId = nullptr;
         bool isRequired = true;
     };
 
@@ -609,8 +587,9 @@ public:
             field.decode = &decodeFieldThunk<Schema, Owner, T>;
         }
 
-        field.introspect = &introspectFieldThunk<Schema, Owner, T>;
-        field.typeId = getTypeId<T>();
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            field.introspect = &introspectFieldThunk<Schema, T>;
+        }
     }
 
     template<typename S = Schema, typename = std::enable_if_t<getEncodeEnabled<S>()>>
@@ -1207,49 +1186,12 @@ public:
             "IntrospectContext<Schema> cannot be used when Schema::enableIntrospect is false.");
     }
 
-    struct TypeGuard {
-        explicit TypeGuard(IntrospectContext& ctx, std::string type)
-            : ctx_(&ctx)
-        {
-            ctx_->typeStack_.push_back(std::move(type));
-        }
-        ~TypeGuard()
-        {
-            if (ctx_) ctx_->typeStack_.pop_back();
-        }
-        TypeGuard(const TypeGuard&) = delete;
-        TypeGuard& operator=(const TypeGuard&) = delete;
-        TypeGuard(TypeGuard&& other) noexcept
-            : ctx_(other.ctx_)
-        {
-            other.ctx_ = nullptr;
-        }
-        TypeGuard& operator=(TypeGuard&&) = delete;
-
-    private:
-        IntrospectContext* ctx_;
-    };
-
-    TypeGuard guardType(std::string typeName) { return TypeGuard(*this, std::move(typeName)); }
-
-    void addError(const std::string& message)
-    {
-        std::string type = typeStack_.empty() ? std::string{} : typeStack_.back();
-        errors_.push_back(IntrospectError{std::move(type), message});
-    }
-
-    bool markSchemaError(std::size_t key) { return reported_.insert(key).second; }
-
-    bool markVisited(TypeId id) { return visited_.insert(id).second; }
-
-    std::vector<IntrospectError> takeErrors() { return std::move(errors_); }
-    const std::unordered_set<TypeId>& visited() const { return visited_; }
+    bool isVisited(TypeId id) const { return types_.count(id) > 0; }
+    void markVisited(TypeId id) { types_[id] = UnknownInfo{}; }
+    void add(TypeId id, TypeInfo info) { types_[id] = std::move(info); }
 
 private:
-    std::vector<std::string> typeStack_;
-    std::vector<IntrospectError> errors_;
-    std::unordered_set<std::size_t> reported_;
-    std::unordered_set<TypeId> visited_;
+    std::unordered_map<TypeId, TypeInfo> types_;
 };
 
 // == Encode / Decode ==
@@ -1576,10 +1518,10 @@ void decodeFieldThunk(
     decodeValue<Schema, T>(src, ref, ctx);
 }
 
-template<typename Schema, typename Owner, typename T>
-void introspectFieldThunk(IntrospectContext<Schema>& ctx, IntrospectResult& out)
+template<typename Schema, typename T>
+void introspectFieldThunk(IntrospectContext<Schema>& ctx)
 {
-    introspectType<Schema, T>(ctx, out);
+    introspectType<Schema, T>(ctx);
 }
 
 template<typename Owner, typename T>
@@ -1752,187 +1694,100 @@ void addSchemaErrorOnce(Ctx& ctx, const std::string& message)
 
 // == Introspection ==
 
-template<typename Schema>
-TypeInfo& ensureTypeSlot(TypeId id, IntrospectResult& out)
-{
-    auto [it, inserted] = out.types.emplace(id, TypeInfo{});
-    TypeInfo& info = it->second;
-    info.typeId = id;
-    if (inserted && info.cls == TypeClass::Unknown) {
-        info.data = std::monostate{};
-    }
-    return info;
-}
+template<typename Schema, typename V>
+struct VariantInfoBuilder;
 
-inline std::string typeIdToString(TypeId id)
-{
-    return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(id));
-}
-
-template<typename Schema, typename T>
-void storeScalarTypeInfo(IntrospectResult& out)
-{
-    const TypeId id = getTypeId<T>();
-    TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-    if (info.cls != TypeClass::Unknown) {
-        return;
+template<typename Schema, typename... Ts>
+struct VariantInfoBuilder<Schema, std::variant<Ts...>> {
+    static void build(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& alts)
+    {
+        (buildAlternative<Ts>(ctx, alts), ...);
     }
-    if constexpr (std::is_same_v<T, bool>) {
-        info.cls = TypeClass::Bool;
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        info.cls = TypeClass::String;
-    } else if constexpr (std::is_integral_v<T>) {
-        info.cls = TypeClass::Integral;
-        info.data = IntegralInfo{static_cast<int>(sizeof(T)), std::is_signed_v<T>};
-    } else if constexpr (std::is_floating_point_v<T>) {
-        info.cls = TypeClass::Floating;
-        info.data = FloatingInfo{static_cast<int>(sizeof(T))};
-    }
-}
 
-template<typename Schema, typename Variant, std::size_t Index>
-void fillVariantAlternative(
-    AlternativeInfo& alt, IntrospectContext<Schema>& ctx, IntrospectResult& out)
-{
-    using Alt = std::variant_alternative_t<Index, Variant>;
-    const auto& obj = getObjectDef<Schema, Alt>().getImpl();
-    if (obj.hasName()) {
-        alt.name = obj.name();
+    template<typename Alt>
+    static void buildAlternative(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& alts)
+    {
+        const auto& obj = getObjectDef<Schema, Alt>().getImpl();
+        alts.push_back({schemaTypeName<Schema, Alt>(), getTypeId<Alt>()});
+        introspectType<Schema, Alt>(ctx);
     }
-    alt.type = getTypeId<Alt>();
-    introspectType<Schema, Alt>(ctx, out);
-}
-
-template<typename Schema, typename Variant, std::size_t... Is>
-void buildVariantAlternatives(
-    std::vector<AlternativeInfo>& alts,
-    IntrospectContext<Schema>& ctx,
-    IntrospectResult& out,
-    std::index_sequence<Is...>)
-{
-    alts.resize(sizeof...(Is));
-    int dummy[] = {0, (fillVariantAlternative<Schema, Variant, Is>(alts[Is], ctx, out), 0)...};
-    (void)dummy;
-}
-
-template<typename Schema, typename Variant>
-VariantInfo buildVariantInfo(VariantImpl<Schema, Variant>& def)
-{
-    VariantInfo info;
-    if (def.hasName()) {
-        info.name = def.name();
-    }
-    info.discriminator = def.discriminator();
-    return info;
-}
+};
 
 template<typename Schema, typename Type>
-void introspectType(IntrospectContext<Schema>& ctx, IntrospectResult& out)
+void introspectType(IntrospectContext<Schema>& ctx)
 {
     using U = std::decay_t<Type>;
     const TypeId id = getTypeId<U>();
-    if (!ctx.markVisited(id)) {
+
+    if (ctx.isVisited(id)) {
         return;
     }
 
+    ctx.markVisited(id);
+
     if constexpr (IsOptional<U>::value) {
         using Inner = typename U::value_type;
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Optional;
-        info.data = OptionalInfo{getTypeId<Inner>()};
-        introspectType<Schema, Inner>(ctx, out);
+        ctx.add(id, OptionalInfo{getTypeId<Inner>()});
+        introspectType<Schema, Inner>(ctx);
+
     } else if constexpr (IsVector<U>::value) {
         using Inner = typename U::value_type;
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Vector;
-        info.data = VectorInfo{getTypeId<Inner>()};
-        introspectType<Schema, Inner>(ctx, out);
+        ctx.add(id, VectorInfo{getTypeId<Inner>()});
+        introspectType<Schema, Inner>(ctx);
+
     } else if constexpr (HasCustomTag<Schema, U>::value) {
-        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
-        auto& custom = getCustomDef<Schema, U>();
-        validateCustom<Schema, U>(ctx, custom);
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Custom;
-        if (custom.getImpl().hasName()) {
-            info.name = custom.getImpl().name();
-        } else {
-            info.name = typeIdToString(id);
-        }
-        CustomInfo ci;
-        ci.name = info.name;
-        info.data = std::move(ci);
+        ctx.add(id, CustomInfo{schemaTypeName<Schema, U>()});
+
     } else if constexpr (HasObjectTag<Schema, U>::value) {
-        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
         auto& def = getObjectDef<Schema, U>();
-        if (!validateObject<Schema, U>(ctx, def)) {
-            return;
-        }
 
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Object;
-        if (def.getImpl().hasName()) {
-            info.name = def.getImpl().name();
-        } else {
-            info.name = typeIdToString(id);
-        }
+        ObjectInfo info;
+        info.name = schemaTypeName<Schema, U>();
 
-        ObjectInfo objInfo;
-        objInfo.name = info.name;
         for (const auto& field : def.getImpl().fields()) {
             FieldInfo fi;
             fi.name = field.name;
-            fi.type = field.typeId;
+            fi.type = getTypeId<U>();
             fi.isRequired = field.isRequired;
-            objInfo.fields.push_back(std::move(fi));
-            if (field.introspect) {
-                field.introspect(ctx, out);
-            }
+            info.fields.push_back(std::move(fi));
+            field.introspect(ctx);
         }
-        info.data = std::move(objInfo);
+        ctx.add(id, std::move(info));
+
     } else if constexpr (HasEnumTag<Schema, U>::value) {
-        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
         auto& def = getEnumDef<Schema, U>();
-        validateEnum<Schema, U>(ctx, def);
 
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Enum;
-        if (def.getImpl().hasName()) {
-            info.name = def.getImpl().name();
-        } else {
-            info.name = typeIdToString(id);
-        }
+        EnumInfo info;
+        info.name = schemaTypeName<Schema, U>();
 
-        EnumInfo en;
-        en.name = info.name;
         for (const auto& entry : def.getImpl().entries()) {
-            en.values.push_back(entry.second);
+            info.values.push_back(entry.second);
         }
-        info.data = std::move(en);
+
+        ctx.add(id, std::move(info));
+
     } else if constexpr (HasVariantTag<Schema, U>::value) {
-        auto guard = ctx.guardType(schemaTypeName<Schema, U>());
         auto& def = getVariantDef<Schema, U>();
-        if (!validateVariant<Schema, U>(ctx, def)) {
-            return;
-        }
 
-        TypeInfo& info = ensureTypeSlot<Schema>(id, out);
-        info.cls = TypeClass::Variant;
-        if (def.getImpl().hasName()) {
-            info.name = def.getImpl().name();
-        } else {
-            info.name = typeIdToString(id);
-        }
+        VariantInfo info;
+        info.name = schemaTypeName<Schema, U>();
+        info.discriminator = def.getImpl().discriminator();
 
-        VariantInfo vi = buildVariantInfo<Schema, U>(def.getImpl());
-        vi.alternatives.reserve(std::variant_size_v<U>);
-        buildVariantAlternatives<Schema, U>(
-            vi.alternatives, ctx, out, std::make_index_sequence<std::variant_size_v<U>>{});
-        info.data = std::move(vi);
-    } else if constexpr (
-        std::is_same_v<U, bool> || std::is_integral_v<U> || std::is_floating_point_v<U> ||
-        std::is_same_v<U, std::string>)
-    {
-        storeScalarTypeInfo<Schema, U>(out);
+        VariantInfoBuilder<Schema, U>::build(ctx, info.alternatives);
+        ctx.add(id, std::move(info));
+
+    } else if constexpr (std::is_same_v<U, bool>) {
+        ctx.add(id, BoolInfo{});
+
+    } else if constexpr (std::is_same_v<U, std::string>) {
+        ctx.add(id, StringInfo{});
+
+    } else if constexpr (std::is_integral_v<U>) {
+        ctx.add(id, IntegralInfo{int(sizeof(U)), std::is_signed_v<U>});
+
+    } else if constexpr (std::is_floating_point_v<U>) {
+        ctx.add(id, FloatingInfo{int(sizeof(U))});
+
     } else {
         static_assert(
             DependentFalse<U>::value,
@@ -2055,14 +1910,12 @@ Result decode(const Json::Value& src, T& value, const typename Schema::ConfigTyp
 }
 
 template<typename Schema, typename... Ts>
-IntrospectResult introspect()
+Result introspect()
 {
     detail::validateSchemaDefinition<Schema>();
-    IntrospectResult result;
     detail::IntrospectContext<Schema> ctx;
-    (detail::introspectType<Schema, Ts>(ctx, result), ...);
-    result.errors = ctx.takeErrors();
-    return result;
+    (detail::introspectType<Schema, Ts>(ctx), ...);
+    return Result{ctx.takeErrors()};
 }
 
 }  // namespace aison
