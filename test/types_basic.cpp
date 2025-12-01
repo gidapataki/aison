@@ -59,6 +59,8 @@ struct LooseSchema : aison::Schema<LooseSchema> {
 
 template<>
 struct BasicSchema::Enum<Category> : aison::Enum<BasicSchema, Category> {
+    static constexpr auto name = "Category";
+
     Enum()
     {
         add(Category::Utility, "utility");
@@ -69,6 +71,8 @@ struct BasicSchema::Enum<Category> : aison::Enum<BasicSchema, Category> {
 
 template<>
 struct BasicSchema::Enum<Importance> : aison::Enum<BasicSchema, Importance> {
+    static constexpr auto name = "Importance";
+
     Enum()
     {
         add(Importance::Low, "low");
@@ -79,6 +83,8 @@ struct BasicSchema::Enum<Importance> : aison::Enum<BasicSchema, Importance> {
 
 template<>
 struct BasicSchema::Object<Stats> : aison::Object<BasicSchema, Stats> {
+    static constexpr auto name = "Stats";
+
     Object()
     {
         add(&Stats::count, "count");
@@ -90,6 +96,8 @@ struct BasicSchema::Object<Stats> : aison::Object<BasicSchema, Stats> {
 
 template<>
 struct BasicSchema::Object<Item> : aison::Object<BasicSchema, Item> {
+    static constexpr auto name = "Item";
+
     Object()
     {
         add(&Item::name, "name");
@@ -103,6 +111,8 @@ struct BasicSchema::Object<Item> : aison::Object<BasicSchema, Item> {
 
 template<>
 struct BasicSchema::Object<Document> : aison::Object<BasicSchema, Document> {
+    static constexpr auto name = "Document";
+
     Object()
     {
         add(&Document::version, "version");
@@ -114,6 +124,8 @@ struct BasicSchema::Object<Document> : aison::Object<BasicSchema, Document> {
 
 template<>
 struct LooseSchema::Object<LooseOptionals> : aison::Object<LooseSchema, LooseOptionals> {
+    static constexpr auto name = "LooseOptionals";
+
     Object()
     {
         add(&LooseOptionals::id, "id");

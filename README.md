@@ -1,5 +1,5 @@
 # Aison
-pronounced /'eye-son/
+pronounced /ˈeɪson/
 
 Aison is a small C++17 library for mapping objects to JSON and back.  
 Mappings are defined explicitly in a C++ schema, without macros, code
@@ -36,8 +36,8 @@ This example shows a realistic usecase where we want to encode text styling info
 - enum mapping
 - struct mapping
 - nested data via structs and `std::vector`
-- custom encoder / decoder
-- config object (used in custom encoder)
+- custom mapping
+- config object (used in custom mapping)
 - error handling
 
 #### Data
@@ -72,11 +72,10 @@ struct Config {
     bool upperCaseHex = false;
 };
 
-struct TextSchema : aison::Schema<TextSchema, aison::EncodeDecode, Config> {
+struct TextSchema : aison::Schema<TextSchema, Config> {
     template<typename T> struct Object;
     template<typename T> struct Enum;
-    template<typename T> struct Encoder;
-    template<typename T> struct Decoder;
+    template<typename T> struct Custom;
 };
 
 template<>
@@ -89,24 +88,23 @@ struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
 };
 
 template<>
-struct TextSchema::Decoder<RGBColor> : aison::Decoder<TextSchema, RGBColor> {
-    void operator()(const Json::Value& src, RGBColor& dst) {
+struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
+    Custom() { name("Color"); }
+
+    void encode(const RGBColor& src, Json::Value& dst, EncodeContext& ctx) const {
+        dst = toHexColor(src, ctx.config().upperCaseHex);
+    }
+
+    void decode(const Json::Value& src, RGBColor& dst, DecodeContext& ctx) const {
         if (!src.isString()) {
-            addError("String field required");
+            ctx.addError("String field required");
             return;
         }
         if (auto value = toRGBColor(src.asString()); value) {
             dst = *value;
         } else {
-            addError("Could not parse value for RGBColor");
+            ctx.addError("Could not parse value for RGBColor");
         }
-    }
-};
-
-template<>
-struct TextSchema::Encoder<RGBColor> : aison::Encoder<TextSchema, RGBColor> {
-    void operator()(const RGBColor& src, Json::Value& dst) {
-        dst = toHexColor(src, config().upperCaseHex);
     }
 };
 
@@ -156,8 +154,6 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 ### Polymorphism (`std::variant`)
 
 ```C++
-enum class ShapeKind { kCircle, kRectangle };
-
 struct Circle {
     float radius;
 };
@@ -170,20 +166,29 @@ struct Rectangle {
 using Shape = std::variant<Circle, Rectangle>;
 
 struct ShapeSchema : aison::Schema<ShapeSchema> {
-    static const auto discriminatorKey = "kind"; // (optional) sets default key for all types
     template<typename T> struct Object;
+    template<typename Variant> struct Variant;
+};
+
+template<>
+struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    Variant()
+    {
+        name("Shape");                // optional variant label for introspection
+        discriminator("kind");        // required discriminator key for this variant
+    }
 };
 
 template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
-        discriminator("circle");
+        name("circle");               // used as discriminator tag
         add(&Circle::radius, "radius");
     }
 };
 
 template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
-        discriminator("rect", "kind"); // (optional) override default key for this type
+        name("rect");                 // used as discriminator tag
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }
@@ -197,7 +202,7 @@ template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Re
 - Strong compile-time and runtime guards against misuse
 - All errors collected during encode/decode
 - Support for encode-only and decode-only use cases
-- Extensible via config objects and custom encoders / decoders
+- Extensible via config objects and custom mappings
 
 ---
 

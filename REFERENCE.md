@@ -15,7 +15,7 @@ This document describes the complete public API.
   - [Optional Strictness (`strictOptional`)](#14-optional-strictness-strictoptional)
 - [Object Mapping (`Schema::Object<T>`)](#2-object-mapping-schemaobjectt)
 - [Enum Mapping (`Schema::Enum<T>`)](#3-enum-mapping-schemaenumt)
-- [Custom Encoders / Decoders](#4-custom-encoders--decoders)
+- [Custom Mappings](#4-custom-mappings)
 - [Encoding / Decoding](#5-encoding--decoding)
   - [Without Config](#51-without-config-emptyconfig-only)
   - [With Config](#52-with-config)
@@ -35,26 +35,15 @@ A schema defines how C++ types map to JSON.
 
 ```cpp
 struct MySchema
-    : aison::Schema<MySchema, aison::EncodeDecode /* optional facet */, MyConfig /* optional */>
+    : aison::Schema<MySchema, MyConfig /* optional */>
 {
     template<typename T> struct Object;   // struct mappings
     template<typename E> struct Enum;     // enum mappings
-    template<typename T> struct Encoder;  // custom encode (optional)
-    template<typename T> struct Decoder;  // custom decode (optional)
+    template<typename T> struct Custom;   // custom mapping (optional)
 };
 ```
 
-### 1.1 Facets
-
-The facet defines which operations the schema supports:
-
-| Facet | Meaning |
-|-------|---------|
-| `EncodeOnly`     | Only encoding is allowed; decoding triggers compile‑errors. |
-| `DecodeOnly`     | Only decoding is allowed; encoding triggers compile‑errors. |
-| `EncodeDecode`   | Both encoding and decoding (default). |
-
-### 1.2 Config
+### 1.1 Config
 
 A schema may optionally define a config type:
 
@@ -66,8 +55,21 @@ struct MyConfig {
 
 The config object is passed to:
 
-- custom encoders (`Schema::Encoder<T>`)
-- custom decoders (`Schema::Decoder<T>`)
+- custom mappings (`Schema::Custom<T>`)
+- encode/decode contexts (`ctx.config()`)
+
+### 1.2 Encode/Decode flags
+
+Schemas control capabilities via flags instead of facets:
+
+```cpp
+struct MySchema : aison::Schema<MySchema> {
+    static constexpr bool enableEncode = true;  // default
+    static constexpr bool enableDecode = true;  // default
+};
+```
+
+Set a flag to `false` to disable encoding or decoding (compile-time errors if invoked).
 
 Usage:
 
@@ -190,7 +192,7 @@ Encoding uses the name given via `add`, and decoding accepts those names.
 
 ---
 
-## 4. Custom Encoders / Decoders
+## 4. Custom Mappings
 
 Used for non‑standard mappings (e.g., hex‑encoded colors).
 
@@ -198,55 +200,51 @@ Used for non‑standard mappings (e.g., hex‑encoded colors).
 struct RgbColor { uint8_t r, g, b; };
 ```
 
-### Custom Encoder Example
+Define a `Schema::Custom<T>` specialization that inherits `aison::Custom<Schema, T>` and sets the
+hooks with an explicit context parameter:
 
 ```cpp
 template<>
-struct MySchema::Encoder<RgbColor>
-    : aison::Encoder<MySchema, RgbColor>
-{
-    void operator()(const RgbColor& c, Json::Value& dst) {
+struct MySchema::Custom<RgbColor> : aison::Custom<MySchema, RgbColor> {
+    Custom()
+    {
+        name("Color");  // required when introspection is enabled
+    }
+
+    void encode(const RgbColor& c, Json::Value& dst, EncodeContext& ctx) const
+    {
         std::ostringstream ss;
-        if (config().upperCaseHex)
-            ss << std::uppercase;
-
-        ss << "#" << std::hex << std::setfill('0')
-           << std::setw(2) << int(c.r)
-           << std::setw(2) << int(c.g)
-           << std::setw(2) << int(c.b);
-
+        if (ctx.config().upperCaseHex) ss << std::uppercase;
+        ss << "#" << std::hex << std::setfill('0') << std::setw(2) << int(c.r) << std::setw(2)
+           << int(c.g) << std::setw(2) << int(c.b);
         dst = ss.str();
     }
-};
-```
 
-### Custom Decoder Example
-
-```cpp
-template<>
-struct MySchema::Decoder<RgbColor>
-    : aison::Decoder<MySchema, RgbColor>
-{
-    void operator()(const Json::Value& src, RgbColor& dst) {
+    void decode(const Json::Value& src, RgbColor& dst, DecodeContext& ctx) const
+    {
         if (!src.isString()) {
-            addError("Expected hex color string.");
+            ctx.addError("Expected hex color string.");
             return;
         }
 
         const std::string& s = src.asString();
         if (s.size() != 7 || s[0] != '#') {
-            addError("Invalid color format. Expected '#RRGGBB'.");
+            ctx.addError("Invalid color format. Expected '#RRGGBB'.");
             return;
         }
 
-        auto hex = [&](int i) {
-            return std::stoi(s.substr(i, 2), nullptr, 16);
-        };
-
-        dst = RgbColor{ uint8_t(hex(1)), uint8_t(hex(3)), uint8_t(hex(5)) };
+        auto hex = [&](int i) { return std::stoi(s.substr(i, 2), nullptr, 16); };
+        dst = RgbColor{uint8_t(hex(1)), uint8_t(hex(3)), uint8_t(hex(5))};
     }
 };
 ```
+
+- Use the `EncodeContext` / `DecodeContext` aliases from `aison::Custom` for the third argument.
+- `encode(...)` is mandatory for encode-capable schemas; `decode(...)` is mandatory for
+  decode-capable schemas.
+- Context arguments expose `config()`, `addError(...)`, and nested `encode(...)` / `decode(...)`
+  helpers. Encode contexts only offer encode helpers; decode contexts only offer decode helpers.
+- Use `ctx.context()` with `aison::PathScope` if you need to manage custom path segments.
 
 ---
 
@@ -277,22 +275,11 @@ Aison supports discriminated variants.
 
 ### 6.1 Discriminator key
 
-You must define a discriminator key before mapping a variant:
+Define a `Schema::Variant` mapping for every `std::variant` you want to encode/decode. The
+`Variant` mapping sets the discriminator key (and optional name for introspection). Call
+`Variant::discriminator(key)` with a **non-empty** key for every mapped variant.
 
-- **Schema-level default (optional):**
-
-  ```cpp
-  struct ShapeSchema : aison::Schema<ShapeSchema> {
-      static constexpr auto discriminatorKey = "__type__";
-      template<typename T> struct Object;
-  };
-  ```
-
-- **Per-object override:** `discriminator(tag, key)` sets both the tag value and the key for that alternative.
-
-If the schema declares `discriminatorKey`, you can omit the key and call `discriminator(tag)` to use the schema default.
-
-Keys must be **non-empty** and **identical across all alternatives**.
+Keys must be **non-empty**.
 
 ### 6.2 Mapping variants
 
@@ -300,11 +287,18 @@ Keys must be **non-empty** and **identical across all alternatives**.
 using Shape = std::variant<Circle, Rectangle>;
 
 template<>
+struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    Variant() {
+        name("Shape");           // optional display name
+        discriminator("__type__");
+    }
+};
+
+template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
         add(&Circle::radius, "radius");
-        discriminator("circle");               // uses schema key
-        // discriminator("circle", "__kind__"); // override key per type
+        name("circle");                        // discriminator tag
     }
 };
 
@@ -313,16 +307,18 @@ struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
-        discriminator("rect");
+        name("rect");
     }
 };
 ```
 
 ### 6.3 Rules
 
-- Every alternative must call `discriminator(...)`.
-- All alternatives must share the same discriminator key (schema default or per-object override).
-- Missing keys/tags or mismatched keys produce errors; with `EnableAssert == true`, debug builds also assert.
+- Every variant type must provide `Schema::Variant<Variant>`.
+- Every alternative must have an `Object` mapping and a non-empty `name()` (used as discriminator
+  tag; legacy `discriminator(tag, key)` is also accepted for tags).
+- Missing discriminator keys or missing alternative names produce errors; with `EnableAssert == true`
+  debug builds also assert.
 
 ---
 
@@ -356,10 +352,10 @@ Errors accumulate; decoding never stops early.
 | `std::string` | ✔ | |
 | `std::optional<T>` | ✔ | `strictOptional` controls whether null is required (`true`) or omission is allowed (`false`) |
 | `std::vector<T>` | ✔ | recursive support |
-| `std::variant<Ts...>` | ✔ | requires discriminator per alternative |
+| `std::variant<Ts...>` | ✔ | requires `Schema::Variant` and named object alternatives |
 | enums | ✔ | requires `Enum<T>` |
 | structs | ✔ | requires `Object<T>` |
-| custom types | ✔ | via `Encoder<T>` / `Decoder<T>` |
+| custom types | ✔ | via `Custom<T>` |
 | raw pointers | ⚠ allowed only via custom mapping | not automatic |
 
 ---
@@ -371,7 +367,7 @@ Compile‑time errors include:
 - Missing Object mapping  
 - Missing Enum mapping  
 - Facet mismatch  
-- Missing custom encoder/decoder
+- Missing custom encoder/decoder hook
 
 Runtime schema errors include:
 
@@ -379,8 +375,8 @@ Runtime schema errors include:
 - Duplicate enum values  
 - Duplicate enum names  
 - Alias for undefined enum value  
-- Missing discriminator key or tag on a variant alternative  
-- Mismatched discriminator keys across variant alternatives  
+- Missing discriminator key on a variant mapping  
+- Missing discriminator tag (object `name()`) for a variant alternative  
 
 These trigger:
 

@@ -16,15 +16,20 @@ struct EncodeOnlyText {
     std::string value;
 };
 
-struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema, aison::EncodeOnly> {
+struct EncodeOnlySchema : aison::Schema<EncodeOnlySchema> {
+    static constexpr bool enableDecode = false;
     template<typename T>
-    struct Encoder;
+    struct Custom;
 };
 
 template<>
-struct EncodeOnlySchema::Encoder<EncodeOnlyText>
-    : aison::Encoder<EncodeOnlySchema, EncodeOnlyText> {
-    void operator()(const EncodeOnlyText& src, Json::Value& dst) { dst = src.value + "!"; }
+struct EncodeOnlySchema::Custom<EncodeOnlyText> : aison::Custom<EncodeOnlySchema, EncodeOnlyText> {
+    static constexpr auto name = "EncodeOnlyText";
+
+    void encode(const EncodeOnlyText& src, Json::Value& dst, EncodeContext&) const
+    {
+        dst = src.value + "!";
+    }
 };
 
 // --- Decode-only schema ------------------------------------------------------
@@ -33,32 +38,35 @@ struct DecodeOnlyNumber {
     int value = 0;
 };
 
-struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema, aison::DecodeOnly> {
+struct DecodeOnlySchema : aison::Schema<DecodeOnlySchema> {
+    static constexpr bool enableEncode = false;
     template<typename T>
-    struct Decoder;
+    struct Custom;
 };
 
 template<>
-struct DecodeOnlySchema::Decoder<DecodeOnlyNumber>
-    : aison::Decoder<DecodeOnlySchema, DecodeOnlyNumber> {
-    void operator()(const Json::Value& src, DecodeOnlyNumber& dst)
+struct DecodeOnlySchema::Custom<DecodeOnlyNumber>
+    : aison::Custom<DecodeOnlySchema, DecodeOnlyNumber> {
+    static constexpr auto name = "DecodeOnlyNumber";
+
+    void decode(const Json::Value& src, DecodeOnlyNumber& dst, DecodeContext& ctx) const
     {
         // Accept strings in the form "num:<int>"
         if (!src.isString()) {
-            addError("Expected tagged string");
+            ctx.addError("Expected tagged string");
             return;
         }
         std::string s = src.asString();
         const std::string prefix = "num:";
         auto pos = s.find(prefix);
         if (pos != 0) {
-            addError("Missing num: prefix");
+            ctx.addError("Missing num: prefix");
             return;
         }
         try {
             dst.value = std::stoi(s.substr(prefix.size()));
         } catch (...) {
-            addError("Invalid integer payload");
+            ctx.addError("Invalid integer payload");
         }
     }
 };
@@ -108,37 +116,39 @@ static bool parseHex(const std::string& s, Color& out)
     return true;
 }
 
-struct ColorSchema : aison::Schema<ColorSchema, aison::EncodeDecode, ColorConfig> {
+struct ColorSchema : aison::Schema<ColorSchema, ColorConfig> {
     template<typename T>
     struct Object;
     template<typename T>
-    struct Encoder;
-    template<typename T>
-    struct Decoder;
+    struct Custom;
 };
 
 template<>
-struct ColorSchema::Encoder<Color> : aison::Encoder<ColorSchema, Color> {
-    void operator()(const Color& src, Json::Value& dst) { dst = toHex(src, config().upperHex); }
-};
+struct ColorSchema::Custom<Color> : aison::Custom<ColorSchema, Color> {
+    static constexpr auto name = "Color";
 
-template<>
-struct ColorSchema::Decoder<Color> : aison::Decoder<ColorSchema, Color> {
-    void operator()(const Json::Value& src, Color& dst)
+    void encode(const Color& src, Json::Value& dst, EncodeContext& ctx) const
+    {
+        dst = toHex(src, ctx.config().upperHex);
+    }
+
+    void decode(const Json::Value& src, Color& dst, DecodeContext& ctx) const
     {
         if (!src.isString()) {
-            addError("Expected hex string");
+            ctx.addError("Expected hex string");
             return;
         }
         std::string s = src.asString();
         if (!parseHex(s, dst)) {
-            addError("Invalid hex color");
+            ctx.addError("Invalid hex color");
         }
     }
 };
 
 template<>
 struct ColorSchema::Object<PaletteDoc> : aison::Object<ColorSchema, PaletteDoc> {
+    static constexpr auto name = "paletteDoc";
+
     Object()
     {
         add(&PaletteDoc::primary, "primary");
