@@ -172,23 +172,23 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
 
 template<>
 struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    static constexpr auto discriminator = "kind";  // required discriminator key
+
     Variant()
     {
-        name("Shape");                // optional variant label for introspection
-        discriminator("kind");        // required discriminator key for this variant
+        add<Circle>("circle");        // tag must be unique/non-empty for each alt
+        add<Rectangle>("rect");
     }
 };
 
 template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
-        name("circle");               // used as discriminator tag
         add(&Circle::radius, "radius");
     }
 };
 
 template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
-        name("rect");                 // used as discriminator tag
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
     }
