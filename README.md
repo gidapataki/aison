@@ -181,19 +181,22 @@ struct ShapeSchema : aison::Schema<ShapeSchema> {
 
 template<>
 struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
-    static constexpr auto name = "Shape";
-    static constexpr auto discriminator = "kind";
+    static constexpr auto discriminator = "kind";  // required discriminator key
+
+    Variant()
+    {
+        add<Circle>("circle");        // tag must be unique/non-empty for each alt
+        add<Rectangle>("rect");
+    }
 };
 
 template<> struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
-static constexpr auto name = "circle";
     Object() {
         add(&Circle::radius, "radius");
     }
 };
 
 template<> struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
-    static constexpr auto name = "rect";
     Object() {
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");

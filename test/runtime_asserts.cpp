@@ -3,6 +3,7 @@
 #include <json/json.h>
 
 #include <string>
+#include <variant>
 
 namespace {
 
@@ -45,6 +46,57 @@ struct GuardSchema::Object<DupMember> : aison::Object<GuardSchema, DupMember> {
     }
 };
 
+// Incomplete variant mapping --------------------------------------------------
+
+struct CircleV {
+    double r = 0.0;
+};
+
+struct RectV {
+    double w = 0.0;
+};
+
+using ShapeIncomplete = std::variant<CircleV, RectV>;
+
+struct SceneIncomplete {
+    ShapeIncomplete shape;
+};
+
+struct SchemaIncompleteVariant : aison::Schema<SchemaIncompleteVariant> {
+    static constexpr auto enableAssert = false;
+
+    template<typename T>
+    struct Object;
+    template<typename T>
+    struct Variant;
+};
+
+template<>
+struct SchemaIncompleteVariant::Variant<ShapeIncomplete>
+    : aison::Variant<SchemaIncompleteVariant, ShapeIncomplete> {
+    static constexpr auto discriminator = "kind";
+
+    Variant() { add<CircleV>("circle"); }  // missing RectV on purpose
+};
+
+template<>
+struct SchemaIncompleteVariant::Object<CircleV>
+    : aison::Object<SchemaIncompleteVariant, CircleV> {
+    Object() { add(&CircleV::r, "r"); }
+};
+
+template<>
+struct SchemaIncompleteVariant::Object<RectV>
+    : aison::Object<SchemaIncompleteVariant, RectV> {
+    Object() { add(&RectV::w, "w"); }
+};
+
+template<>
+struct SchemaIncompleteVariant::Object<SceneIncomplete>
+    : aison::Object<SchemaIncompleteVariant, SceneIncomplete> {
+    Object() { add(&SceneIncomplete::shape, "shape"); }
+};
+
 TEST_SUITE("Runtime asserts (asserts disabled)")
 {
     TEST_CASE("Duplicate field name is ignored when asserts disabled")
@@ -71,6 +123,18 @@ TEST_SUITE("Runtime asserts (asserts disabled)")
         CHECK(json.isMember("primary"));
         CHECK_FALSE(json.isMember("alias"));
         CHECK(json["primary"].asInt() == 7);
+    }
+
+    TEST_CASE("Incomplete variant mapping reports schema error")
+    {
+        SceneIncomplete scene;
+        scene.shape = CircleV{3.0};
+
+        Json::Value json;
+        auto enc = aison::encode<SchemaIncompleteVariant>(scene, json);
+        CHECK_FALSE(enc);
+        REQUIRE_FALSE(enc.errors.empty());
+        CHECK(enc.errors[0].message.find("Variant mapping missing alternatives") != std::string::npos);
     }
 }  // TEST_SUITE
 

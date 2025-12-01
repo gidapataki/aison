@@ -276,10 +276,7 @@ Aison supports discriminated variants.
 ### 6.1 Discriminator key
 
 Define a `Schema::Variant` mapping for every `std::variant` you want to encode/decode. The
-`Variant` mapping sets the discriminator key (and optional name for introspection). Call
-`Variant::discriminator(key)` with a **non-empty** key for every mapped variant.
-
-Keys must be **non-empty**.
+`Variant` mapping sets a **non-empty** discriminator key (and optional name for introspection).
 
 ### 6.2 Mapping variants
 
@@ -288,9 +285,11 @@ using Shape = std::variant<Circle, Rectangle>;
 
 template<>
 struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
+    static constexpr auto discriminator = "__type__";
+
     Variant() {
-        name("Shape");           // optional display name
-        discriminator("__type__");
+        add<Circle>("circle");      // explicit tag for each alternative
+        add<Rectangle>("rect");     // missing alts surface schema errors
     }
 };
 
@@ -298,7 +297,6 @@ template<>
 struct ShapeSchema::Object<Circle> : aison::Object<ShapeSchema, Circle> {
     Object() {
         add(&Circle::radius, "radius");
-        name("circle");                        // discriminator tag
     }
 };
 
@@ -307,7 +305,6 @@ struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
     Object() {
         add(&Rectangle::width, "width");
         add(&Rectangle::height, "height");
-        name("rect");
     }
 };
 ```
@@ -315,10 +312,10 @@ struct ShapeSchema::Object<Rectangle> : aison::Object<ShapeSchema, Rectangle> {
 ### 6.3 Rules
 
 - Every variant type must provide `Schema::Variant<Variant>`.
-- Every alternative must have an `Object` mapping and a non-empty `name()` (used as discriminator
-  tag; legacy `discriminator(tag, key)` is also accepted for tags).
-- Missing discriminator keys or missing alternative names produce errors; with `EnableAssert == true`
-  debug builds also assert.
+- Every alternative must have an `Object` mapping and be registered via `add<Alt>("tag")` with a
+  unique/non-empty tag; missing alternatives produce schema errors in encode/decode/introspect (and
+  assert when `EnableAssert` is true).
+- Missing discriminator keys produce errors; discriminators stay required.
 
 ---
 

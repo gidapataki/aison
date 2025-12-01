@@ -69,6 +69,7 @@ if(AISON_BUILD_TESTS)
       test/types_basic.cpp
       test/types_variant.cpp
       test/types_custom.cpp
+      test/types_introspect.cpp
       test/runtime_asserts.cpp
       test/runtime_errors.cpp
   )
