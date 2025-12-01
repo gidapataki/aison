@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+- Added introspection capabilities via `aison::introspect<Schema, T...>()`
+- Variants must be mapped as `Variant<T>`
+- Custom Encoder/Decoder facets are now merged into a `Custom<T>` mapping. This 
+- Object / Enum / Variant / Custom now all require a static constexpr `name`. Variants also require a `discriminator`.
+
+---
 ## aison v0.11.0
 - Optional handling controls: new `strictOptional` schema flag (default true) lets disengaged optionals be omitted on encode/decode
 
