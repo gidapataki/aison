@@ -80,6 +80,8 @@ struct TextSchema : aison::Schema<TextSchema, Config> {
 
 template<>
 struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
+    static constexpr auto name = "Alignment";
+
     Enum() {
         add(Alignment::kLeft, "left");
         add(Alignment::kCenter, "center");
@@ -89,7 +91,7 @@ struct TextSchema::Enum<Alignment> : aison::Enum<TextSchema, Alignment> {
 
 template<>
 struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
-    Custom() { name("Color"); }
+    static constexpr auto name = "Color";
 
     void encode(const RGBColor& src, Json::Value& dst, EncodeContext& ctx) const {
         dst = toHexColor(src, ctx.config().upperCaseHex);
@@ -110,6 +112,8 @@ struct TextSchema::Custom<RGBColor> : aison::Custom<TextSchema, RGBColor> {
 
 template<>
 struct TextSchema::Object<Span> : aison::Object<TextSchema, Span> {
+    static constexpr auto name = "Span";
+
     Object() {
         add(&Span::str, "str");
         add(&Span::color, "color");
@@ -119,6 +123,8 @@ struct TextSchema::Object<Span> : aison::Object<TextSchema, Span> {
 
 template<>
 struct TextSchema::Object<Paragraph> : aison::Object<TextSchema, Paragraph> {
+    static constexpr auto name = "Paragraph";
+
     Object() {
         add(&Paragraph::spans, "spans");
         add(&Paragraph::alignment, "alignment");
@@ -151,7 +157,10 @@ if (auto res = aison::decode<TextSchema, Paragraph>(root, para, cfg) {
 }
 ```
 
-### Polymorphism (`std::variant`)
+### Polymorphism
+
+It is possible to define polymorphic data via `std::variant`:
+
 
 ```C++
 struct Circle {
