@@ -30,6 +30,16 @@ target_include_directories(
                   $<INSTALL_INTERFACE:include>)
 target_link_libraries(aison INTERFACE jsoncpp_static)
 
+if(FALSE)
+  target_compile_options(aison INTERFACE
+    -Wunused-function
+    -Wunused-variable
+    -Wunused-private-field
+    -Wunneeded-internal-declaration
+    -Wunused-template
+  )
+endif()
+
 # example
 
 add_executable(example

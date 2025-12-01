@@ -1629,7 +1629,6 @@ struct VariantInfoBuilder<Schema, std::variant<Ts...>> {
     template<typename Alt>
     static void buildAlternative(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& alts)
     {
-        const auto& obj = getObjectDef<Schema, Alt>().getImpl();
         alts.push_back({schemaTypeName<Schema, Alt>(), getTypeId<Alt>()});
         introspectType<Schema, Alt>(ctx);
     }
