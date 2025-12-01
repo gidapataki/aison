@@ -69,6 +69,12 @@ template<>
 struct ErrorSchema::Variant<Shape> : aison::Variant<ErrorSchema, Shape> {
     static constexpr auto name = "Shape";
     static constexpr auto discriminator = "kind";
+
+    Variant()
+    {
+        add<Circle>("circle");
+        add<Rectangle>("rect");
+    }
 };
 
 template<>

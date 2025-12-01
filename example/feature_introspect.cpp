@@ -47,6 +47,12 @@ template<>
 struct DemoSchema::Variant<Dessert> : aison::Variant<DemoSchema, Dessert> {
     static constexpr auto name = "Dessert";
     static constexpr auto discriminator = "kind";
+
+    Variant()
+    {
+        add<Cone>("cone");
+        add<Cup>("cup");
+    }
 };
 
 template<>

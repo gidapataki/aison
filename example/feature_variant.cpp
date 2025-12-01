@@ -19,6 +19,12 @@ template<>
 struct ShapeSchema::Variant<Shape> : aison::Variant<ShapeSchema, Shape> {
     static constexpr auto name = "Shape";
     static constexpr auto discriminator = "__type__";
+
+    Variant()
+    {
+        add<Circle>("Circle");
+        add<Rectangle>("Rectangle");
+    }
 };
 
 template<>

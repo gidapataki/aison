@@ -36,6 +36,12 @@ template<>
 struct SchemaKindKey::Variant<ShapeVariantA> : aison::Variant<SchemaKindKey, ShapeVariantA> {
     static constexpr auto name = "ShapeVariantA";
     static constexpr auto discriminator = "kind";
+
+    Variant()
+    {
+        add<ShapeA>("shapeA");
+        add<ShapeB>("shapeB");
+    }
 };
 
 template<>
@@ -98,6 +104,12 @@ struct SchemaExplicitKey::Variant<ShapeVariantB>
     : aison::Variant<SchemaExplicitKey, ShapeVariantB> {
     static constexpr auto name = "ShapeVariantB";
     static constexpr auto discriminator = "type";
+
+    Variant()
+    {
+        add<Rect>("rect");
+        add<Ellipse>("ellipse");
+    }
 };
 
 template<>

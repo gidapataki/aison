@@ -25,8 +25,9 @@
 - Run the full suite before PRs; for tight loops or pointer-heavy code, run with ASan/UBSan flags during debug builds.
 
 ## Schema Metadata Requirements
-- Schema specializations must expose compile-time metadata: every `Schema::Object<T>`, `Schema::Enum<T>`, and `Schema::Custom<T>` declares `static constexpr auto name = "..."`; every `Schema::Variant<V>` declares both `static constexpr auto name = "..."` and `static constexpr auto discriminator = "..."` (non-empty).
-- Variant alternatives must be mapped as objects and each object mapping must declare its own static `name`; introspection relies on these names and variant encode/decode writes/reads discriminator strings from them.
+- Schema specializations expose compile-time metadata: `Schema::Object<T>`, `Schema::Enum<T>`, and `Schema::Custom<T>` may declare `static constexpr auto name` (required when `enableIntrospect` is true); every `Schema::Variant<V>` declares a non-empty `static constexpr auto discriminator` (and `name` when introspection is enabled).
+- Variant alternatives are registered explicitly in the variant constructor via `add<Alt>(\"tag\")`; tags must be unique/non-empty and cover every `std::variant` alternative, otherwise encode/decode/introspect report a schema error. Alternative tags are no longer inferred from object names.
+- Runtime `name(...)` / `discriminator(...)` setters are removed—set names via the static members only.
 
 ## Commit & Pull Request Guidelines
 - Commit messages mirror current history: concise, title case or imperative without trailing punctuation (e.g., `Improve error paths`).

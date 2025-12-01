@@ -358,6 +358,45 @@ std::string schemaTypeName()
     return "#" + std::to_string(reinterpret_cast<std::uintptr_t>(getTypeId<T>()));
 }
 
+template<typename...>
+struct SchemaErrorKeyTag {};
+
+template<typename Key>
+bool shouldReportSchemaError()
+{
+    // fallback when context does not provide per-context dedup
+    static bool reported = false;
+    if (reported) {
+        return false;
+    }
+    reported = true;
+    return true;
+}
+
+template<typename Ctx, typename = void>
+struct HasSchemaErrorMark : std::false_type {};
+
+template<typename Ctx>
+struct HasSchemaErrorMark<
+    Ctx,
+    std::void_t<decltype(std::declval<Ctx&>().markSchemaError(std::declval<std::size_t>()))>>
+    : std::true_type {};
+
+template<typename Key, typename Ctx>
+void addSchemaErrorOnce(Ctx& ctx, const std::string& message)
+{
+    if constexpr (HasSchemaErrorMark<Ctx>::value) {
+        const std::size_t key = typeid(Key).hash_code();
+        if (ctx.markSchemaError(key)) {
+            ctx.addError(message);
+        }
+    } else {
+        if (shouldReportSchemaError<Key>()) {
+            ctx.addError(message);
+        }
+    }
+}
+
 // StrictOptional
 
 template<typename Schema, typename>
@@ -539,11 +578,14 @@ template<typename Schema, typename T>
 constexpr std::string_view getObjectName()
 {
     using Spec = SchemaObject<Schema, std::decay_t<T>>;
-    static_assert(
-        HasStaticNameMember<Spec>::value,
-        "Schema::Object<T> must declare `static constexpr auto name = \"...\";`.");
     constexpr auto name = getStaticName<Spec>();
-    static_assert(name.size() > 0, "Schema::Object<T>::name must be non-empty.");
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        static_assert(
+            HasStaticNameMember<Spec>::value,
+            "Schema::Object<T> must declare `static constexpr auto name = \"...\";` "
+            "when introspection is enabled.");
+        static_assert(name.size() > 0, "Schema::Object<T>::name must be non-empty.");
+    }
     return name;
 }
 
@@ -551,11 +593,14 @@ template<typename Schema, typename T>
 constexpr std::string_view getEnumName()
 {
     using Spec = SchemaEnum<Schema, std::decay_t<T>>;
-    static_assert(
-        HasStaticNameMember<Spec>::value,
-        "Schema::Enum<T> must declare `static constexpr auto name = \"...\";`.");
     constexpr auto name = getStaticName<Spec>();
-    static_assert(name.size() > 0, "Schema::Enum<T>::name must be non-empty.");
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        static_assert(
+            HasStaticNameMember<Spec>::value,
+            "Schema::Enum<T> must declare `static constexpr auto name = \"...\";` "
+            "when introspection is enabled.");
+        static_assert(name.size() > 0, "Schema::Enum<T>::name must be non-empty.");
+    }
     return name;
 }
 
@@ -563,11 +608,14 @@ template<typename Schema, typename T>
 constexpr std::string_view getVariantName()
 {
     using Spec = SchemaVariant<Schema, std::decay_t<T>>;
-    static_assert(
-        HasStaticNameMember<Spec>::value,
-        "Schema::Variant<V> must declare `static constexpr auto name = \"...\";`.");
     constexpr auto name = getStaticName<Spec>();
-    static_assert(name.size() > 0, "Schema::Variant<V>::name must be non-empty.");
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        static_assert(
+            HasStaticNameMember<Spec>::value,
+            "Schema::Variant<V> must declare `static constexpr auto name = \"...\";` "
+            "when introspection is enabled.");
+        static_assert(name.size() > 0, "Schema::Variant<V>::name must be non-empty.");
+    }
     return name;
 }
 
@@ -587,11 +635,14 @@ template<typename Schema, typename T>
 constexpr std::string_view getCustomName()
 {
     using Spec = SchemaCustom<Schema, std::decay_t<T>>;
-    static_assert(
-        HasStaticNameMember<Spec>::value,
-        "Schema::Custom<T> must declare `static constexpr auto name = \"...\";`.");
     constexpr auto name = getStaticName<Spec>();
-    static_assert(name.size() > 0, "Schema::Custom<T>::name must be non-empty.");
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        static_assert(
+            HasStaticNameMember<Spec>::value,
+            "Schema::Custom<T> must declare `static constexpr auto name = \"...\";` "
+            "when introspection is enabled.");
+        static_assert(name.size() > 0, "Schema::Custom<T>::name must be non-empty.");
+    }
     return name;
 }
 
@@ -707,8 +758,12 @@ public:
     }
 
     static constexpr std::string_view name() { return getObjectName<Schema, Owner>(); }
-    static constexpr bool hasName() { return true; }
-    static constexpr bool hasVariantTag() { return true; }
+    static constexpr bool hasName()
+    {
+        return HasStaticNameMember<SchemaObject<Schema, Owner>>::value &&
+               !getObjectName<Schema, Owner>().empty();
+    }
+    static constexpr bool hasVariantTag() { return hasName(); }
     static constexpr std::string_view variantTag() { return name(); }
     const std::vector<FieldDef>& fields() const { return fields_; }
 
@@ -734,7 +789,9 @@ constexpr void validateObjectSpec()
     static_assert(
         std::is_base_of_v<aison::Object<Schema, Type>, ObjectSpec>,
         "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
-    (void)getObjectName<Schema, Type>();
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        (void)getObjectName<Schema, Type>();
+    }
 }
 
 template<typename Schema, typename T>
@@ -789,7 +846,11 @@ public:
     }
 
     static constexpr std::string_view name() { return getEnumName<Schema, E>(); }
-    static constexpr bool hasName() { return true; }
+    static constexpr bool hasName()
+    {
+        return HasStaticNameMember<SchemaEnum<Schema, E>>::value &&
+               !getEnumName<Schema, E>().empty();
+    }
     const EntryVec& entries() const { return entries_; }
 
 private:
@@ -816,7 +877,9 @@ constexpr void validateEnumSpec()
     static_assert(
         std::is_base_of_v<aison::Enum<Schema, Type>, EnumSpec>,
         "Schema::Enum<T> must inherit from aison::Enum<Schema, T>.");
-    (void)getEnumName<Schema, Type>();
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        (void)getEnumName<Schema, Type>();
+    }
 }
 
 // == Variant ==
@@ -826,15 +889,125 @@ class VariantImpl<Schema, std::variant<Ts...>>
 {
 public:
     using VariantType = std::variant<Ts...>;
+    using DecodeFn =
+        void (*)(const Json::Value&, VariantType&, DecodeContext<Schema>&);
+    using IntrospectFn = void (*)(IntrospectContext<Schema>&);
+
+    struct Alternative {
+        std::string tag;
+        DecodeFn decode = nullptr;
+        IntrospectFn introspect = nullptr;
+        TypeId typeId = nullptr;
+    };
+
+    template<typename Alt>
+    void add(std::string_view tag)
+    {
+        static_assert(
+            (std::is_same_v<Alt, Ts> || ...),
+            "Variant::add<T>(...) must add an alternative that is present in the std::variant.");
+        if (tag.empty()) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Variant alternative tag cannot be empty.");
+            }
+            return;
+        }
+        const auto tagStr = std::string(tag);
+        if (tagToIndex_.count(tagStr) > 0 || typeToIndex_.count(getTypeId<Alt>()) > 0) {
+            if constexpr (getEnableAssert<Schema>()) {
+                assert(false && "Duplicate variant alternative tag or type.");
+            }
+            return;
+        }
+
+        auto idx = alts_.size();
+        alts_.push_back(
+            Alternative{tagStr, &decodeAlt<Alt>, &introspectAlt<Alt>, getTypeId<Alt>()});
+        tagToIndex_[tagStr] = idx;
+        typeToIndex_[getTypeId<Alt>()] = idx;
+    }
+
+    bool validateCompleteness(Context& ctx) const
+    {
+        if (alts_.size() == sizeof...(Ts)) {
+            return true;
+        }
+        using Key = SchemaErrorKeyTag<Schema, VariantType, struct VariantIncompleteMapping>;
+        addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant mapping missing alternatives.");
+        return false;
+    }
+
+    template<typename Alt>
+    bool ensureTagPresent(Context& ctx) const
+    {
+        if (!tagFor<Alt>().empty()) {
+            return true;
+        }
+        using Key = SchemaErrorKeyTag<Schema, VariantType, Alt, struct VariantAltMissing>;
+        addSchemaErrorOnce<Key>(ctx, "(Schema error) Variant alternative missing tag mapping.");
+        return false;
+    }
+
+    template<typename Alt>
+    std::string_view tagFor() const
+    {
+        auto it = typeToIndex_.find(getTypeId<Alt>());
+        if (it == typeToIndex_.end()) {
+            return {};
+        }
+        return alts_[it->second].tag;
+    }
+
+    const Alternative* findByTag(const std::string& tag) const
+    {
+        auto it = tagToIndex_.find(tag);
+        if (it == tagToIndex_.end()) {
+            return nullptr;
+        }
+        return &alts_[it->second];
+    }
+
+    void introspectAlternatives(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& out)
+        const
+    {
+        for (const auto& alt : alts_) {
+            out.push_back({alt.tag, alt.typeId});
+            alt.introspect(ctx);
+        }
+    }
 
     static constexpr std::string_view name() { return getVariantName<Schema, VariantType>(); }
     static constexpr std::string_view discriminator()
     {
         return getVariantDiscriminator<Schema, VariantType>();
     }
-    static constexpr bool hasName() { return true; }
+    static constexpr bool hasName()
+    {
+        return HasStaticNameMember<SchemaVariant<Schema, VariantType>>::value &&
+               !getVariantName<Schema, VariantType>().empty();
+    }
     static constexpr bool hasDiscriminator() { return true; }
-    static constexpr bool hasNamesInAlternatives() { return true; }
+
+private:
+    template<typename Alt>
+    static void decodeAlt(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
+    {
+        using ObjectSpec = SchemaObject<Schema, Alt>;
+        const auto& objectDef = getObjectDef<Schema, Alt>();
+        Alt alt{};
+        objectDef.getImpl().decodeFields(src, alt, ctx);
+        dst = std::move(alt);
+    }
+
+    template<typename Alt>
+    static void introspectAlt(IntrospectContext<Schema>& ctx)
+    {
+        introspectType<Schema, Alt>(ctx);
+    }
+
+    std::vector<Alternative> alts_;
+    std::unordered_map<std::string, std::size_t> tagToIndex_;
+    std::unordered_map<TypeId, std::size_t> typeToIndex_;
 };
 
 template<typename Schema, typename T>
@@ -864,7 +1037,9 @@ struct VariantAltCheck {
             static_assert(
                 std::is_base_of_v<Object<Schema, T>, ObjectSpec>,
                 "Schema::Object<T> must inherit from aison::Object<Schema, T>.");
-            (void)getObjectName<Schema, T>();
+            if constexpr (getIntrospectEnabled<Schema>()) {
+                (void)getObjectName<Schema, T>();
+            }
         }
     }
 };
@@ -882,7 +1057,9 @@ struct VariantValidator<Schema, std::variant<Ts...>, void> {
             std::is_base_of_v<Variant<Schema, std::variant<Ts...>>, VariantSpec>,
             "Schema::Variant<V> must inherit from aison::Variant<Schema, V>.");
         static_assert(sizeof...(Ts) > 0, "std::variant must have at least one alternative.");
-        (void)getVariantName<Schema, std::variant<Ts...>>();
+        if constexpr (getIntrospectEnabled<Schema>()) {
+            (void)getVariantName<Schema, std::variant<Ts...>>();
+        }
         (void)getVariantDiscriminator<Schema, std::variant<Ts...>>();
         // Each alternative must have an object mapping.
         (VariantAltCheck<Schema, Ts>::check(), ...);
@@ -943,7 +1120,11 @@ class CustomImpl
 {
 public:
     static constexpr std::string_view name() { return detail::getCustomName<Schema, T>(); }
-    static constexpr bool hasName() { return true; }
+    static constexpr bool hasName()
+    {
+        return HasStaticNameMember<SchemaCustom<Schema, T>>::value &&
+               !detail::getCustomName<Schema, T>().empty();
+    }
 };
 
 template<typename Schema, typename T>
@@ -964,7 +1145,9 @@ constexpr void validateCustomSpec()
     static_assert(
         std::is_base_of_v<aison::Custom<Schema, Type>, SchemaCustom<Schema, Type>>,
         "Schema::Custom<T> must inherit from aison::Custom<Schema, T>.");
-    (void)getCustomName<Schema, Type>();
+    if constexpr (getIntrospectEnabled<Schema>()) {
+        (void)getCustomName<Schema, Type>();
+    }
 }
 
 // == Context ==
@@ -1188,7 +1371,8 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
 
     } else if constexpr (HasVariantTag<Schema, T>::value) {
         auto& var = getVariantDef<Schema, T>();
-        if (!validateVariant<Schema, T>(ctx, var)) {
+        auto& impl = var.getImpl();
+        if (!validateVariant<Schema, T>(ctx, var) || !impl.validateCompleteness(ctx)) {
             return;
         }
 
@@ -1196,9 +1380,13 @@ void encodeValue(const T& src, Json::Value& dst, EncodeContext<Schema>& ctx)
         std::visit(
             [&](const auto& alt) {
                 using Alt = std::decay_t<decltype(alt)>;
+                if (!impl.template ensureTagPresent<Alt>(ctx)) {
+                    return;
+                }
+                const auto tag = impl.template tagFor<Alt>();
                 auto& obj = getObjectDef<Schema, Alt>();
                 obj.getImpl().encodeFields(alt, dst, ctx);
-                dst[std::string(var.getImpl().discriminator())] = std::string(obj.getImpl().name());
+                dst[std::string(impl.discriminator())] = std::string(tag);
             },
             src);
 
@@ -1391,7 +1579,8 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
     static void decode(const Json::Value& src, VariantType& dst, DecodeContext<Schema>& ctx)
     {
         auto& var = getVariantDef<Schema, VariantType>();
-        if (!validateVariant<Schema, VariantType>(ctx, var)) {
+        auto& def = var.getImpl();
+        if (!validateVariant<Schema, VariantType>(ctx, var) || !def.validateCompleteness(ctx)) {
             return;
         }
 
@@ -1400,7 +1589,6 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             return;
         }
 
-        auto& def = var.getImpl();
         const auto tag = std::string(def.discriminator());
         std::string tagValue;
 
@@ -1419,33 +1607,12 @@ struct VariantDecoder<Schema, std::variant<Ts...>> {
             tagValue = tagNode.asString();
         }
 
-        bool matched = false;
-        (tryAlternative<Ts>(tagValue, src, dst, ctx, matched), ...);
-        if (!matched) {
+        if (const auto* alt = def.findByTag(tagValue)) {
+            alt->decode(src, dst, ctx);
+        } else {
             auto discGuard = ctx.guard(tag);
             ctx.addError("Unknown discriminator value for variant.");
         }
-    }
-
-    template<typename Alt>
-    static void tryAlternative(
-        const std::string& tagValue,
-        const Json::Value& src,
-        VariantType& dst,
-        DecodeContext<Schema>& ctx,
-        bool& matched)
-    {
-        using ObjectSpec = SchemaObject<Schema, Alt>;
-        const auto& objectDef = getObjectDef<Schema, Alt>();
-        if (matched || tagValue != objectDef.getImpl().variantTag()) {
-            return;
-        }
-
-        matched = true;
-
-        Alt alt{};
-        objectDef.getImpl().decodeFields(src, alt, ctx);
-        dst = std::move(alt);
     }
 };
 
@@ -1623,14 +1790,8 @@ template<typename Schema, typename... Ts>
 struct VariantInfoBuilder<Schema, std::variant<Ts...>> {
     static void build(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& alts)
     {
-        (buildAlternative<Ts>(ctx, alts), ...);
-    }
-
-    template<typename Alt>
-    static void buildAlternative(IntrospectContext<Schema>& ctx, std::vector<AlternativeInfo>& alts)
-    {
-        alts.push_back({schemaTypeName<Schema, Alt>(), getTypeId<Alt>()});
-        introspectType<Schema, Alt>(ctx);
+        auto& var = getVariantDef<Schema, std::variant<Ts...>>();
+        var.getImpl().introspectAlternatives(ctx, alts);
     }
 };
 
@@ -1689,6 +1850,9 @@ void introspectType(IntrospectContext<Schema>& ctx)
 
     } else if constexpr (HasVariantTag<Schema, U>::value) {
         auto& def = getVariantDef<Schema, U>();
+        if (!validateVariant<Schema, U>(ctx, def) || !def.getImpl().validateCompleteness(ctx)) {
+            return;
+        }
 
         VariantInfo info;
         info.name = schemaTypeName<Schema, U>();
@@ -1770,6 +1934,12 @@ struct Variant {
     using Impl = detail::VariantImpl<Schema, T>;
 
     Variant() { detail::validateVariantSpec<Schema, T>(); }
+
+    template<typename Alt>
+    void add(std::string_view tag)
+    {
+        impl_.template add<Alt>(tag);
+    }
 
     Impl& getImpl() { return impl_; }
     const Impl& getImpl() const { return impl_; }

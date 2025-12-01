@@ -1,10 +1,9 @@
 # Changelog
 
 ## Unreleased
-- Added introspection capabilities via `aison::introspect<Schema, T...>()`
-- Variants must be mapped as `Variant<T>`
-- Custom Encoder/Decoder facets are now merged into a `Custom<T>` mapping. This 
-- Object / Enum / Variant / Custom now all require a static constexpr `name`. Variants also require a `discriminator`.
+- Variants now register alternatives explicitly via `add<Alt>("tag")`, requiring unique/non-empty tags for every `std::variant` alternative; alternative tags are no longer inferred from object names. Missing mappings surface schema errors on encode/decode/introspect.
+- Schema names relaxed: `name` is only required when introspection is enabled; discriminator remains a required `static constexpr` for variants. Runtime setters are removed in favor of static members.
+- Repository guidelines updated to reflect the new variant tagging flow, relaxed naming rules, and sandbox/ccache build note.
 
 ---
 ## aison v0.11.0
