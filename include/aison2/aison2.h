@@ -245,7 +245,9 @@ constexpr auto Declare()
 }
 
 template<class... Defs>
-struct SchemaDef {
+struct Schema {
+    constexpr Schema(Defs... inDefs) : defs(std::move(inDefs)...) {}
+
     using DefinedTypes = typename detail::MakeUnique<
         typename detail::Concat<detail::TypeList<>, detail::TypeFromDef<Defs>...>::type>::type;
 
@@ -275,14 +277,7 @@ struct SchemaDef {
 };
 
 template<class... Defs>
-SchemaDef(Defs...) -> SchemaDef<Defs...>;
-
-template<class... Defs>
-constexpr auto Schema(Defs&&... defs)
-{
-    return SchemaDef<std::decay_t<Defs>...>{
-        std::tuple<std::decay_t<Defs>...>{std::forward<Defs>(defs)...}};
-}
+Schema(Defs...) -> Schema<Defs...>;
 
 using detail::EnumValue;
 using detail::EnumValues;

@@ -52,10 +52,9 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         };
     });
 
-    auto schema = aison2::Schema(
-        aison2::Declare<External>(),              //
-        barDef, fooDef, modeDef, usesExternalDef  //
-    );
+    auto schema = aison2::Schema{
+        aison2::Declare<External>(), barDef, fooDef, modeDef, usesExternalDef,
+    };
 
     static_assert(decltype(schema)::template defines<Bar>(), "Bar should be defined");
     static_assert(decltype(schema)::template defines<Foo>(), "Foo should be defined");
