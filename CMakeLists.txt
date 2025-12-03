@@ -54,48 +54,71 @@ target_link_libraries(example PRIVATE aison)
 # test
 
 option(AISON_BUILD_TESTS "Build Aison tests" ON)
+option(AISON_ENABLE_LEGACY_TESTS "Build legacy Aison tests" OFF)
+option(AISON_BUILD_AISON2_TESTS "Build experimental Aison2 tests" ON)
 option(AISON_ENABLE_ASAN "Build with AddressSanitizer" OFF)
 option(AISON_ENABLE_UBSAN "Build with UndefinedBehaviorSanitizer" OFF)
 option(AISON_ENABLE_LSAN "Build with LeakSanitizer (Linux only)" OFF)
 
+function(aison_enable_sanitizers target)
+  if(AISON_ENABLE_ASAN)
+    target_compile_options(${target} PRIVATE -fsanitize=address)
+    target_link_options(${target} PRIVATE -fsanitize=address)
+  endif()
+
+  if(AISON_ENABLE_UBSAN)
+    target_compile_options(${target} PRIVATE -fsanitize=undefined)
+    target_link_options(${target} PRIVATE -fsanitize=undefined)
+  endif()
+
+  if(AISON_ENABLE_LSAN AND NOT APPLE)
+    target_compile_options(${target} PRIVATE -fsanitize=leak)
+    target_link_options(${target} PRIVATE -fsanitize=leak)
+  endif()
+endfunction()
 
 if(AISON_BUILD_TESTS)
   include(CTest)
   enable_testing()
 
-  add_executable(aison-test
-      test/main.cpp
-      test/utils.cpp
-      test/types_basic.cpp
-      test/types_variant.cpp
-      test/types_custom.cpp
-      test/types_introspect.cpp
-      test/runtime_asserts.cpp
-      test/runtime_errors.cpp
-  )
-
-  target_include_directories(aison-test PRIVATE
+  set(AISON_TEST_INCLUDES
       ${CMAKE_CURRENT_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}/third_party/doctest
   )
 
-  target_link_libraries(aison-test PRIVATE aison)
+  if(AISON_ENABLE_LEGACY_TESTS)
+    add_executable(aison-test
+        test/main.cpp
+        test/utils.cpp
+        test/types_basic.cpp
+        test/types_variant.cpp
+        test/types_custom.cpp
+        test/types_introspect.cpp
+        test/runtime_asserts.cpp
+        test/runtime_errors.cpp
+    )
 
-  if(AISON_ENABLE_ASAN)
-    target_compile_options(aison-test PRIVATE -fsanitize=address)
-    target_link_options(aison-test PRIVATE -fsanitize=address)
+    target_include_directories(aison-test PRIVATE ${AISON_TEST_INCLUDES})
+
+    target_link_libraries(aison-test PRIVATE aison)
+
+    aison_enable_sanitizers(aison-test)
+
+    add_test(NAME aison-test COMMAND aison-test)
   endif()
 
-  if(AISON_ENABLE_UBSAN)
-    target_compile_options(aison-test PRIVATE -fsanitize=undefined)
-    target_link_options(aison-test PRIVATE -fsanitize=undefined)
+  if(AISON_BUILD_AISON2_TESTS)
+    add_executable(aison2-test
+        test/aison2_experiments.cpp
+    )
+
+    target_include_directories(aison2-test PRIVATE ${AISON_TEST_INCLUDES})
+
+    target_link_libraries(aison2-test PRIVATE aison)
+
+    aison_enable_sanitizers(aison2-test)
+
+    add_test(NAME aison2-test COMMAND aison2-test)
   endif()
 
-  if(AISON_ENABLE_LSAN AND NOT APPLE)
-    target_compile_options(aison-test PRIVATE -fsanitize=leak)
-    target_link_options(aison-test PRIVATE -fsanitize=leak)
-  endif()
-
-
-  add_test(NAME aison-test COMMAND aison-test)
 endif()
