@@ -18,7 +18,7 @@ struct Foo {
     Bar bar;
 };
 
-enum class Mode { Dark, Light, Automatic };
+enum class Mode { kDark, kLight, kAutomatic };
 
 struct External {
     int z;
@@ -51,9 +51,9 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
 
     auto modeDef = aison2::Enum<Mode>([](auto& ctx) {
         return aison2::EnumValues{
-            ctx.value("dark", Mode::Dark),
-            ctx.value("light", Mode::Light),
-            ctx.value("auto", Mode::Automatic),
+            ctx.value("dark", Mode::kDark),
+            ctx.value("light", Mode::kLight),
+            ctx.value("auto", Mode::kAutomatic),
         };
     });
 
@@ -84,8 +84,6 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         withOptionalDef,
         withVectorDef,
     };
-
-    using type = int;
 
     static_assert(decltype(schema)::template defines<Bar>(), "Bar should be defined");
     static_assert(decltype(schema)::template defines<Foo>(), "Foo should be defined");

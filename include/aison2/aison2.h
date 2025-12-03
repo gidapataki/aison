@@ -24,7 +24,7 @@ struct ConcatTwo;
 
 template<class... As, class... Bs>
 struct ConcatTwo<TypeList<As...>, TypeList<Bs...>> {
-    using type = TypeList<As..., Bs...>;
+    using Type = TypeList<As..., Bs...>;
 };
 
 template<class... Lists>
@@ -32,12 +32,12 @@ struct Concat;
 
 template<class List>
 struct Concat<List> {
-    using type = List;
+    using Type = List;
 };
 
 template<class ListA, class ListB, class... Rest>
 struct Concat<ListA, ListB, Rest...> {
-    using type = typename Concat<typename ConcatTwo<ListA, ListB>::type, Rest...>::type;
+    using Type = typename Concat<typename ConcatTwo<ListA, ListB>::Type, Rest...>::Type;
 };
 
 template<class List>
@@ -45,19 +45,18 @@ struct MakeUnique;
 
 template<>
 struct MakeUnique<TypeList<>> {
-    using type = TypeList<>;
+    using Type = TypeList<>;
 };
 
 template<class Head, class... Tail>
 struct MakeUnique<TypeList<Head, Tail...>> {
 private:
-    using TailUnique = typename MakeUnique<TypeList<Tail...>>::type;
+    using TailUnique = typename MakeUnique<TypeList<Tail...>>::Type;
 
 public:
-    using type = std::conditional_t<
-        Contains<Head, TailUnique>::value,
-        TailUnique,
-        typename ConcatTwo<TypeList<Head>, TailUnique>::type>;
+    using Type = std::conditional_t<
+        Contains<Head, TailUnique>::value, TailUnique,
+        typename ConcatTwo<TypeList<Head>, TailUnique>::Type>;
 };
 
 template<class Needed, class Declared>
@@ -77,18 +76,18 @@ struct AllContained<TypeList<Head, Tail...>, Declared>
 // built-ins that do not require schema declarations.
 template<class T>
 struct DependencyFor {
-    using type =
+    using Type =
         std::conditional_t<std::is_class_v<T> || std::is_enum_v<T>, TypeList<T>, TypeList<>>;
 };
 
 template<class T>
 struct DependencyFor<std::optional<T>> {
-    using type = typename DependencyFor<T>::type;
+    using Type = typename DependencyFor<T>::Type;
 };
 
 template<class T, class Alloc>
 struct DependencyFor<std::vector<T, Alloc>> {
-    using type = typename DependencyFor<T>::type;
+    using Type = typename DependencyFor<T>::Type;
 };
 
 // Field plumbing -------------------------------------------------------------
@@ -136,11 +135,11 @@ template<class... FieldDefs>
 struct FieldDependencies<FieldList<FieldDefs...>> {
 private:
     template<class FieldDefT>
-    using Dependency = typename DependencyFor<typename FieldDefT::FieldType>::type;
+    using Dependency = typename DependencyFor<typename FieldDefT::FieldType>::Type;
 
 public:
-    using type =
-        typename MakeUnique<typename Concat<TypeList<>, Dependency<FieldDefs>...>::type>::type;
+    using Type =
+        typename MakeUnique<typename Concat<TypeList<>, Dependency<FieldDefs>...>::Type>::Type;
 };
 
 template<class... FieldDefs>
@@ -175,7 +174,7 @@ template<class T, class Fields>
 struct ObjectDef {
     using Type = T;
     using FieldsType = Fields;
-    using Deps = typename FieldDependencies<FieldsType>::type;
+    using Deps = typename FieldDependencies<FieldsType>::Type;
 
     FieldsType fields;
 };
@@ -233,7 +232,7 @@ using DepsFromDef = typename DefTraits<Def>::Deps;
 
 // Public API -----------------------------------------------------------------
 template<class T, class F>
-constexpr auto Object(F&& fn)
+constexpr auto Object(F&& fn)  // NOLINT(readability-identifier-naming)
 {
     detail::ObjectContext<T> ctx;
     auto fields = fn(ctx);
@@ -242,7 +241,7 @@ constexpr auto Object(F&& fn)
 }
 
 template<class T, class F>
-constexpr auto Enum(F&& fn)
+constexpr auto Enum(F&& fn)  // NOLINT(readability-identifier-naming)
 {
     detail::EnumContext<T> ctx;
     auto values = fn(ctx);
@@ -251,7 +250,7 @@ constexpr auto Enum(F&& fn)
 }
 
 template<class T>
-constexpr auto Declare()
+constexpr auto Declare()  // NOLINT(readability-identifier-naming)
 {
     return detail::DeclareDef<T>{};
 }
@@ -261,13 +260,13 @@ struct Schema {
     constexpr Schema(Defs... inDefs) : defs(std::move(inDefs)...) {}
 
     using DefinedTypes = typename detail::MakeUnique<
-        typename detail::Concat<detail::TypeList<>, detail::TypeFromDef<Defs>...>::type>::type;
+        typename detail::Concat<detail::TypeList<>, detail::TypeFromDef<Defs>...>::Type>::Type;
 
     using DeclaredTypes = typename detail::MakeUnique<
-        typename detail::Concat<DefinedTypes, detail::DeclaredFromDef<Defs>...>::type>::type;
+        typename detail::Concat<DefinedTypes, detail::DeclaredFromDef<Defs>...>::Type>::Type;
 
     using DepTypes = typename detail::MakeUnique<
-        typename detail::Concat<detail::TypeList<>, detail::DepsFromDef<Defs>...>::type>::type;
+        typename detail::Concat<detail::TypeList<>, detail::DepsFromDef<Defs>...>::Type>::Type;
 
     static_assert(
         detail::AllContained<DepTypes, DeclaredTypes>::value,
