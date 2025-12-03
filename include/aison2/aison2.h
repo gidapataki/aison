@@ -1,8 +1,10 @@
 #pragma once
 
+#include <optional>
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace aison2 {
 namespace detail {
@@ -77,6 +79,16 @@ template<class T>
 struct DependencyFor {
     using type =
         std::conditional_t<std::is_class_v<T> || std::is_enum_v<T>, TypeList<T>, TypeList<>>;
+};
+
+template<class T>
+struct DependencyFor<std::optional<T>> {
+    using type = typename DependencyFor<T>::type;
+};
+
+template<class T, class Alloc>
+struct DependencyFor<std::vector<T, Alloc>> {
+    using type = typename DependencyFor<T>::type;
 };
 
 // Field plumbing -------------------------------------------------------------
@@ -262,6 +274,16 @@ struct Schema {
         "Schema is missing definitions or declarations for referenced types");
 
     std::tuple<Defs...> defs;
+
+    constexpr const std::tuple<Defs...>& definitions() const
+    {
+        return defs;
+    }
+
+    static constexpr std::size_t size()
+    {
+        return sizeof...(Defs);
+    }
 
     template<class T>
     static constexpr bool defines()
