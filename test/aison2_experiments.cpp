@@ -59,8 +59,11 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         };
     });
 
-    auto fooDef = aison2::object<Foo>(+[](aison2::detail::ObjectContext<Foo>& ctx) {
-        return aison2::Fields{ctx.add(&Foo::y, "y"), ctx.add(&Foo::bar, "bar")};
+    auto fooDef = aison2::object<Foo>([](auto& ctx) {
+        return aison2::Fields{
+            ctx.add(&Foo::y, "y"),
+            ctx.add(&Foo::bar, "bar"),
+        };
     });
 
     auto modeDef = aison2::enumeration<Mode>(+[](aison2::detail::EnumContext<Mode>& ctx) {

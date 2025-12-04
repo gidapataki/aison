@@ -408,11 +408,25 @@ constexpr auto object(FieldsType (*fn)(detail::ObjectContext<T>&))
     return detail::ObjectDef<T, FieldsType>{std::move(fields)};
 }
 
-template<typename T, typename ValuesType>
-constexpr auto enumeration(ValuesType (*fn)(detail::EnumContext<T>&))
+template<typename T, typename Fn>
+constexpr auto object(Fn&& fn)
 {
+    static_assert(std::is_invocable_v<Fn&, detail::ObjectContext<T>&>,
+                  "object builder must accept ObjectContext<T>&");
+    detail::ObjectContext<T> ctx;
+    auto fields = fn(ctx);
+    using FieldsType = std::decay_t<decltype(fields)>;
+    return detail::ObjectDef<T, FieldsType>{std::move(fields)};
+}
+
+template<typename T, typename Fn>
+constexpr auto enumeration(Fn&& fn)
+{
+    static_assert(std::is_invocable_v<Fn&, detail::EnumContext<T>&>,
+                  "enumeration builder must accept EnumContext<T>&");
     detail::EnumContext<T> ctx;
     auto values = fn(ctx);
+    using ValuesType = std::decay_t<decltype(values)>;
     return detail::EnumDef<T, ValuesType>{std::move(values)};
 }
 
@@ -442,6 +456,23 @@ template<typename T>
 constexpr auto variant(void (*fn)(detail::VariantContext<T>&))
 {
     return variant<T>(detail::VariantConfig{}, std::move(fn));
+}
+
+template<typename T, typename Fn>
+constexpr auto variant(detail::VariantConfig config, Fn&& fn)
+{
+    static_assert(std::is_invocable_v<Fn&, detail::VariantContext<T>&>,
+                  "variant builder must accept VariantContext<T>&");
+    detail::VariantContext<T> ctx{};
+    fn(ctx);
+    auto alternatives = ctx.template finalize<T>();
+    return detail::VariantDef<T, decltype(alternatives)>{config, std::move(alternatives)};
+}
+
+template<typename T, typename Fn>
+constexpr auto variant(Fn&& fn)
+{
+    return variant<T>(detail::VariantConfig{}, std::forward<Fn>(fn));
 }
 
 template<typename... Defs>
