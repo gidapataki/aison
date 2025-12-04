@@ -49,6 +49,7 @@ struct Rectangle {
 
 using Shape = std::variant<Circle, Rectangle>;
 
+enum class Boo { kA, kB };
 }  // namespace
 
 TEST_CASE("aison2: schema scaffolding captures definitions and declarations")

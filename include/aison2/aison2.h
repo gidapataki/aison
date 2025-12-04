@@ -157,7 +157,15 @@ FieldList(FieldDefs...) -> FieldList<FieldDefs...>;
 
 template<typename... FieldDefs>
 struct Fields : FieldList<FieldDefs...> {
-    using FieldList<FieldDefs...>::FieldList;
+    constexpr explicit Fields(FieldDefs... defs)
+        : FieldList<FieldDefs...>(std::move(defs)...)
+    {
+        static_assert(sizeof...(FieldDefs) > 0, "Fields must contain at least one entry");
+        using FirstOwner =
+            typename std::tuple_element_t<0, std::tuple<FieldDefs...>>::OwnerType;
+        static_assert((std::is_same_v<typename FieldDefs::OwnerType, FirstOwner> && ...),
+                      "All fields in Fields must share the same owner type");
+    }
 };
 
 template<typename... FieldDefs>
@@ -192,6 +200,7 @@ struct FieldDependencies<Fields<FieldDefs...>> : FieldDependencies<FieldList<Fie
 // Enum plumbing --------------------------------------------------------------
 template<typename T>
 struct NamedValue {
+    using ValueType = T;
     const char* name;
     T value;
 };
@@ -202,7 +211,12 @@ struct Values {
 
     constexpr explicit Values(NamedValues... v)
         : values(std::move(v)...)
-    {}
+    {
+        static_assert(sizeof...(NamedValues) > 0, "Values must contain at least one entry");
+        using FirstValue = typename std::tuple_element_t<0, std::tuple<NamedValues...>>::ValueType;
+        static_assert((std::is_same_v<typename NamedValues::ValueType, FirstValue> && ...),
+                      "All values must share the same enum value type");
+    }
 };
 
 template<typename... NamedValues>
