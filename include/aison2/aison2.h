@@ -157,13 +157,13 @@ FieldList(FieldDefs...) -> FieldList<FieldDefs...>;
 
 template<typename... FieldDefs>
 struct Fields : FieldList<FieldDefs...> {
+    using OwnerType = typename std::tuple_element_t<0, std::tuple<FieldDefs...>>::OwnerType;
+
     constexpr explicit Fields(FieldDefs... defs)
         : FieldList<FieldDefs...>(std::move(defs)...)
     {
         static_assert(sizeof...(FieldDefs) > 0, "Fields must contain at least one entry");
-        using FirstOwner =
-            typename std::tuple_element_t<0, std::tuple<FieldDefs...>>::OwnerType;
-        static_assert((std::is_same_v<typename FieldDefs::OwnerType, FirstOwner> && ...),
+        static_assert((std::is_same_v<typename FieldDefs::OwnerType, OwnerType> && ...),
                       "All fields in Fields must share the same owner type");
     }
 };
@@ -207,14 +207,16 @@ struct NamedValue {
 
 template<typename... NamedValues>
 struct Values {
+    using ValueType =
+        typename std::tuple_element_t<0, std::tuple<NamedValues...>>::ValueType;
+
     std::tuple<NamedValues...> values;
 
     constexpr explicit Values(NamedValues... v)
         : values(std::move(v)...)
     {
         static_assert(sizeof...(NamedValues) > 0, "Values must contain at least one entry");
-        using FirstValue = typename std::tuple_element_t<0, std::tuple<NamedValues...>>::ValueType;
-        static_assert((std::is_same_v<typename NamedValues::ValueType, FirstValue> && ...),
+        static_assert((std::is_same_v<typename NamedValues::ValueType, ValueType> && ...),
                       "All values must share the same enum value type");
     }
 };
@@ -249,6 +251,8 @@ struct NamedType {
 
 template<typename... NamedTypes>
 struct Types {
+    using AlternativesList = TypeList<typename NamedTypes::Type...>;
+
     std::tuple<NamedTypes...> alternatives;
 
     constexpr explicit Types(NamedTypes... alts)
@@ -421,6 +425,8 @@ constexpr auto field(Field Owner::* ptr, const char* name)
 template<typename T, typename FieldsType>
 constexpr auto object(FieldsType fields)
 {
+    static_assert(std::is_same_v<typename FieldsType::OwnerType, T>,
+                  "Fields owner type must match object type");
     return detail::ObjectDef<T, FieldsType>{std::move(fields)};
 }
 
@@ -433,6 +439,8 @@ constexpr auto value(T v, const char* name)
 template<typename T, typename ValuesType>
 constexpr auto enumeration(ValuesType values)
 {
+    static_assert(std::is_same_v<typename ValuesType::ValueType, T>,
+                  "Values entry type must match enumeration type");
     return detail::EnumDef<T, ValuesType>{std::move(values)};
 }
 
@@ -451,6 +459,10 @@ constexpr auto custom(EncoderFn encoder, DecoderFn decoder)
 template<typename T, typename AlternativesType>
 constexpr auto variant(detail::VariantConfig config, AlternativesType alts)
 {
+    using AltList = typename AlternativesType::AlternativesList;
+    using VariantAlternatives = typename detail::VariantTypeInfo<T>::AlternativesList;
+    static_assert(detail::AllContained<AltList, VariantAlternatives>::value,
+                  "Variant alternatives must be part of the std::variant type");
     return detail::VariantDef<T, AlternativesType>{config, std::move(alts)};
 }
 
