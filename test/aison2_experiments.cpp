@@ -89,7 +89,7 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         aison2::field(&Rectangle::height, "height"),
     });
 
-    auto shapeDef = aison2::variant<Shape>(aison2::VariantAlternatives{
+    auto shapeDef = aison2::variant<Shape>(aison2::Types{
         aison2::type<Circle>("circle"),
         aison2::type<Rectangle>("rectangle"),
     });

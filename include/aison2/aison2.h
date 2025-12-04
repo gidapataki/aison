@@ -217,33 +217,33 @@ struct EnumContext {
 template<typename Variant>
 struct VariantTypeInfo;
 
-template<typename... Alternatives>
-struct VariantTypeInfo<std::variant<Alternatives...>> {
-    using AlternativesList = TypeList<Alternatives...>;
-    static constexpr std::size_t kSize = sizeof...(Alternatives);
+template<typename... Ts>
+struct VariantTypeInfo<std::variant<Ts...>> {
+    using AlternativesList = TypeList<Ts...>;
+    static constexpr std::size_t kSize = sizeof...(Ts);
 };
 
 struct VariantConfig {
     const char* tag = "type";
 };
 
-template<typename Alt>
-struct VariantAlternative {
-    using Type = Alt;
+template<typename T>
+struct NamedType {
+    using Type = T;
     const char* tag;
 };
 
-template<typename... Alternatives>
-struct VariantAlternatives {
-    std::tuple<Alternatives...> alternatives;
+template<typename... Ts>
+struct Types {
+    std::tuple<Ts...> alternatives;
 
-    constexpr explicit VariantAlternatives(Alternatives... alts)
+    constexpr explicit Types(Ts... alts)
         : alternatives(std::move(alts)...)
     {}
 };
 
-template<typename... Alternatives>
-VariantAlternatives(Alternatives...) -> VariantAlternatives<Alternatives...>;
+template<typename... Ts>
+Types(Ts...) -> Types<Ts...>;
 
 template<typename VariantType>
 class VariantContext
@@ -272,16 +272,15 @@ public:
     }
 
 private:
-    template<typename... Alternatives>
-    constexpr auto finalizeImpl(TypeList<Alternatives...>) const
+    template<typename... Ts>
+    constexpr auto finalizeImpl(TypeList<Ts...>) const
     {
         for (bool isSeen : seen_) {
             assert(isSeen && "All variant alternatives must be registered");
         }
 
-        return VariantAlternatives<VariantAlternative<Alternatives>...>{
-            VariantAlternative<Alternatives>{
-                tags_[IndexOf<Alternatives, TypeList<Alternatives...>>::value]}...};
+        return Types<NamedType<Ts>...>{
+            NamedType<Ts>{tags_[IndexOf<Ts, TypeList<Ts...>>::value]}...};
     }
 
     std::array<const char*, VariantTypeInfo<VariantType>::kSize> tags_{};
@@ -291,15 +290,14 @@ private:
 template<typename Alternatives>
 struct VariantDependencies;
 
-template<typename... Alternatives>
-struct VariantDependencies<VariantAlternatives<Alternatives...>> {
+template<typename... Ts>
+struct VariantDependencies<Types<Ts...>> {
 private:
     template<typename Alt>
     using Dependency = typename DependencyFor<typename Alt::Type>::Type;
 
 public:
-    using Type =
-        typename MakeUnique<typename Concat<TypeList<>, Dependency<Alternatives>...>::Type>::Type;
+    using Type = typename MakeUnique<typename Concat<TypeList<>, Dependency<Ts>...>::Type>::Type;
 };
 
 // Def traits -----------------------------------------------------------------
@@ -401,7 +399,7 @@ using DepsFromDef = typename DefTraits<Def>::Deps;
 
 // Public API -----------------------------------------------------------------
 template<typename Owner, typename Field>
-constexpr auto field(Field Owner::*ptr, const char* name)
+constexpr auto field(Field Owner::* ptr, const char* name)
 {
     return detail::FieldDef<Owner, Field>{name, ptr};
 }
@@ -448,10 +446,10 @@ constexpr auto variant(AlternativesType alts)
     return detail::VariantDef<T, AlternativesType>{detail::VariantConfig{}, std::move(alts)};
 }
 
-template<typename Alt>
+template<typename T>
 constexpr auto type(const char* tag)
 {
-    return detail::VariantAlternative<Alt>{tag};
+    return detail::NamedType<T>{tag};
 }
 
 template<typename... Defs>
@@ -521,7 +519,7 @@ constexpr auto schema(Tuple&& defs)
 using detail::EnumValue;
 using detail::EnumValues;
 using detail::Fields;
-using detail::VariantAlternatives;
+using detail::Types;
 using detail::VariantConfig;
 using detail::VariantContext;
 

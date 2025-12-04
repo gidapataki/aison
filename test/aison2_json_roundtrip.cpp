@@ -52,8 +52,8 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
     auto pointDef = aison2::object<Point>(
         aison2::Fields{aison2::field(&Point::x, "x"), aison2::field(&Point::y, "y")});
 
-    auto colorDef = aison2::enumeration<Color>(
-        aison2::EnumValues{aison2::value(Color::kRed, "red"), aison2::value(Color::kGreen, "green")});
+    auto colorDef = aison2::enumeration<Color>(aison2::EnumValues{
+        aison2::value(Color::kRed, "red"), aison2::value(Color::kGreen, "green")});
 
     auto circleDef =
         aison2::object<Circle>(aison2::Fields{aison2::field(&Circle::radius, "radius")});
@@ -63,7 +63,7 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
         aison2::field(&Rectangle::height, "height"),
     });
 
-    auto shapeDef = aison2::variant<Shape>(aison2::VariantAlternatives{
+    auto shapeDef = aison2::variant<Shape>(aison2::Types{
         aison2::type<Circle>("circle"),
         aison2::type<Rectangle>("rectangle"),
     });
@@ -71,8 +71,8 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
     auto labelDtoDef =
         aison2::object<LabelDto>(aison2::Fields{aison2::field(&LabelDto::value, "value")});
 
-    auto schema = aison2::schema(std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef,
-                                            labelDtoDef});
+    auto schema = aison2::schema(
+        std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef});
 
     auto labelCustom = aison2::custom<Label>(
         [](const Label& label, const auto& ctx) {
@@ -92,8 +92,9 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
     });
 
     auto fullSchema = aison2::schema(
-        std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef, labelCustom,
-                   sceneDef});
+        std::tuple{
+            pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef, labelCustom,
+            sceneDef});
 
     Scene scene{
         .origin = {.x = 1, .y = 2},
