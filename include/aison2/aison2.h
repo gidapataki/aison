@@ -400,33 +400,27 @@ using DepsFromDef = typename DefTraits<Def>::Deps;
 }  // namespace detail
 
 // Public API -----------------------------------------------------------------
+template<typename Owner, typename Field>
+constexpr auto field(Field Owner::*ptr, const char* name)
+{
+    return detail::FieldDef<Owner, Field>{name, ptr};
+}
+
 template<typename T, typename FieldsType>
-constexpr auto object(FieldsType (*fn)(detail::ObjectContext<T>&))
+constexpr auto object(FieldsType fields)
 {
-    detail::ObjectContext<T> ctx;
-    auto fields = fn(ctx);
     return detail::ObjectDef<T, FieldsType>{std::move(fields)};
 }
 
-template<typename T, typename Fn>
-constexpr auto object(Fn&& fn)
+template<typename T>
+constexpr auto value(T v, const char* name)
 {
-    static_assert(std::is_invocable_v<Fn&, detail::ObjectContext<T>&>,
-                  "object builder must accept ObjectContext<T>&");
-    detail::ObjectContext<T> ctx;
-    auto fields = fn(ctx);
-    using FieldsType = std::decay_t<decltype(fields)>;
-    return detail::ObjectDef<T, FieldsType>{std::move(fields)};
+    return detail::EnumValue<T>{name, v};
 }
 
-template<typename T, typename Fn>
-constexpr auto enumeration(Fn&& fn)
+template<typename T, typename ValuesType>
+constexpr auto enumeration(ValuesType values)
 {
-    static_assert(std::is_invocable_v<Fn&, detail::EnumContext<T>&>,
-                  "enumeration builder must accept EnumContext<T>&");
-    detail::EnumContext<T> ctx;
-    auto values = fn(ctx);
-    using ValuesType = std::decay_t<decltype(values)>;
     return detail::EnumDef<T, ValuesType>{std::move(values)};
 }
 
@@ -442,37 +436,22 @@ constexpr auto custom(EncoderFn encoder, DecoderFn decoder)
     return detail::CustomDef<T, EncoderFn, DecoderFn>{std::move(encoder), std::move(decoder)};
 }
 
-template<typename T>
-constexpr auto variant(detail::VariantConfig config,
-                       void (*fn)(detail::VariantContext<T>&))
+template<typename T, typename AlternativesType>
+constexpr auto variant(detail::VariantConfig config, AlternativesType alts)
 {
-    detail::VariantContext<T> ctx{};
-    fn(ctx);
-    auto alternatives = ctx.template finalize<T>();
-    return detail::VariantDef<T, decltype(alternatives)>{config, std::move(alternatives)};
+    return detail::VariantDef<T, AlternativesType>{config, std::move(alts)};
 }
 
-template<typename T>
-constexpr auto variant(void (*fn)(detail::VariantContext<T>&))
+template<typename T, typename AlternativesType>
+constexpr auto variant(AlternativesType alts)
 {
-    return variant<T>(detail::VariantConfig{}, std::move(fn));
+    return detail::VariantDef<T, AlternativesType>{detail::VariantConfig{}, std::move(alts)};
 }
 
-template<typename T, typename Fn>
-constexpr auto variant(detail::VariantConfig config, Fn&& fn)
+template<typename Alt>
+constexpr auto type(const char* tag)
 {
-    static_assert(std::is_invocable_v<Fn&, detail::VariantContext<T>&>,
-                  "variant builder must accept VariantContext<T>&");
-    detail::VariantContext<T> ctx{};
-    fn(ctx);
-    auto alternatives = ctx.template finalize<T>();
-    return detail::VariantDef<T, decltype(alternatives)>{config, std::move(alternatives)};
-}
-
-template<typename T, typename Fn>
-constexpr auto variant(Fn&& fn)
-{
-    return variant<T>(detail::VariantConfig{}, std::forward<Fn>(fn));
+    return detail::VariantAlternative<Alt>{tag};
 }
 
 template<typename... Defs>

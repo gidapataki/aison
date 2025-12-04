@@ -50,48 +50,26 @@ struct LabelDto {
 TEST_CASE("aison2: JSON roundtrip with custom type and variant")
 {
     auto pointDef = aison2::object<Point>(
-        +[](aison2::detail::ObjectContext<Point>& ctx) {
-        return aison2::Fields{
-            ctx.add(&Point::x, "x"),
-            ctx.add(&Point::y, "y"),
-        };
-    });
+        aison2::Fields{aison2::field(&Point::x, "x"), aison2::field(&Point::y, "y")});
 
     auto colorDef = aison2::enumeration<Color>(
-        +[](aison2::detail::EnumContext<Color>& ctx) {
-        return aison2::EnumValues{
-            ctx.value("red", Color::kRed),
-            ctx.value("green", Color::kGreen),
-        };
+        aison2::EnumValues{aison2::value(Color::kRed, "red"), aison2::value(Color::kGreen, "green")});
+
+    auto circleDef =
+        aison2::object<Circle>(aison2::Fields{aison2::field(&Circle::radius, "radius")});
+
+    auto rectangleDef = aison2::object<Rectangle>(aison2::Fields{
+        aison2::field(&Rectangle::width, "width"),
+        aison2::field(&Rectangle::height, "height"),
     });
 
-    auto circleDef = aison2::object<Circle>(
-        +[](aison2::detail::ObjectContext<Circle>& ctx) {
-        return aison2::Fields{
-            ctx.add(&Circle::radius, "radius"),
-        };
+    auto shapeDef = aison2::variant<Shape>(aison2::VariantAlternatives{
+        aison2::type<Circle>("circle"),
+        aison2::type<Rectangle>("rectangle"),
     });
 
-    auto rectangleDef = aison2::object<Rectangle>(
-        +[](aison2::detail::ObjectContext<Rectangle>& ctx) {
-            return aison2::Fields{
-                ctx.add(&Rectangle::width, "width"),
-                ctx.add(&Rectangle::height, "height"),
-            };
-        });
-
-    auto shapeDef = aison2::variant<Shape>({.tag = "kind"},
-                                           +[](aison2::detail::VariantContext<Shape>& ctx) {
-            ctx.template add<Circle>("circle");
-            ctx.template add<Rectangle>("rectangle");
-        });
-
-    auto labelDtoDef = aison2::object<LabelDto>(
-        +[](aison2::detail::ObjectContext<LabelDto>& ctx) {
-        return aison2::Fields{
-            ctx.add(&LabelDto::value, "value"),
-        };
-    });
+    auto labelDtoDef =
+        aison2::object<LabelDto>(aison2::Fields{aison2::field(&LabelDto::value, "value")});
 
     auto schema = aison2::schema(std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef,
                                             labelDtoDef});
@@ -106,14 +84,11 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
             return Label{dto.value};
         });
 
-    auto sceneDef = aison2::object<Scene>(
-        +[](aison2::detail::ObjectContext<Scene>& ctx) {
-        return aison2::Fields{
-            ctx.add(&Scene::origin, "origin"),
-            ctx.add(&Scene::shapes, "shapes"),
-            ctx.add(&Scene::color, "color"),
-            ctx.add(&Scene::label, "label"),
-        };
+    auto sceneDef = aison2::object<Scene>(aison2::Fields{
+        aison2::field(&Scene::origin, "origin"),
+        aison2::field(&Scene::shapes, "shapes"),
+        aison2::field(&Scene::color, "color"),
+        aison2::field(&Scene::label, "label"),
     });
 
     auto fullSchema = aison2::schema(
@@ -142,6 +117,6 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
 
     // Ensure enum encoded as string and variant tag present
     CHECK(encoded["color"].asString() == "green");
-    CHECK(encoded["shapes"][0u]["kind"].asString() == "circle");
-    CHECK(encoded["shapes"][1u]["kind"].asString() == "rectangle");
+    CHECK(encoded["shapes"][0u]["type"].asString() == "circle");
+    CHECK(encoded["shapes"][1u]["type"].asString() == "rectangle");
 }

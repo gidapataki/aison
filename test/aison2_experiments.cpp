@@ -53,67 +53,46 @@ using Shape = std::variant<Circle, Rectangle>;
 
 TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
 {
-    auto barDef = aison2::object<Bar>(+[](aison2::detail::ObjectContext<Bar>& ctx) {
-        return aison2::Fields{
-            ctx.add(&Bar::x, "x"),
-        };
+    auto barDef = aison2::object<Bar>(aison2::Fields{
+        aison2::field(&Bar::x, "x"),
     });
 
-    auto fooDef = aison2::object<Foo>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&Foo::y, "y"),
-            ctx.add(&Foo::bar, "bar"),
-        };
+    auto fooDef = aison2::object<Foo>(aison2::Fields{
+        aison2::field(&Foo::y, "y"),
+        aison2::field(&Foo::bar, "bar"),
     });
 
-    auto modeDef = aison2::enumeration<Mode>(+[](aison2::detail::EnumContext<Mode>& ctx) {
-        return aison2::EnumValues{
-            ctx.value("dark", Mode::kDark),
-            ctx.value("light", Mode::kLight),
-            ctx.value("auto", Mode::kAutomatic),
-        };
+    auto modeDef = aison2::enumeration<Mode>(aison2::EnumValues{
+        aison2::value(Mode::kDark, "dark"),
+        aison2::value(Mode::kLight, "light"),
+        aison2::value(Mode::kAutomatic, "auto"),
     });
 
-    auto usesExternalDef =
-        aison2::object<UsesExternal>(+[](aison2::detail::ObjectContext<UsesExternal>& ctx) {
-            return aison2::Fields{
-                ctx.add(&UsesExternal::ext, "ext"),
-            };
-        });
-
-    auto withOptionalDef =
-        aison2::object<WithOptional>(+[](aison2::detail::ObjectContext<WithOptional>& ctx) {
-            return aison2::Fields{
-                ctx.add(&WithOptional::maybe, "maybe"),
-            };
-        });
-
-    auto withVectorDef =
-        aison2::object<WithVector>(+[](aison2::detail::ObjectContext<WithVector>& ctx) {
-            return aison2::Fields{
-                ctx.add(&WithVector::bars, "bars"),
-            };
-        });
-
-    auto circleDef = aison2::object<Circle>(+[](aison2::detail::ObjectContext<Circle>& ctx) {
-        return aison2::Fields{
-            ctx.add(&Circle::radius, "radius"),
-        };
+    auto usesExternalDef = aison2::object<UsesExternal>(aison2::Fields{
+        aison2::field(&UsesExternal::ext, "ext"),
     });
 
-    auto rectangleDef =
-        aison2::object<Rectangle>(+[](aison2::detail::ObjectContext<Rectangle>& ctx) {
-            return aison2::Fields{
-                ctx.add(&Rectangle::width, "width"),
-                ctx.add(&Rectangle::height, "height"),
-            };
-        });
+    auto withOptionalDef = aison2::object<WithOptional>(aison2::Fields{
+        aison2::field(&WithOptional::maybe, "maybe"),
+    });
 
-    auto shapeDef = aison2::variant<Shape>(
-        {.tag = "kind"}, +[](aison2::detail::VariantContext<Shape>& ctx) {
-            ctx.template add<Circle>("circle");
-            ctx.template add<Rectangle>("rectangle");
-        });
+    auto withVectorDef = aison2::object<WithVector>(aison2::Fields{
+        aison2::field(&WithVector::bars, "bars"),
+    });
+
+    auto circleDef = aison2::object<Circle>(aison2::Fields{
+        aison2::field(&Circle::radius, "radius"),
+    });
+
+    auto rectangleDef = aison2::object<Rectangle>(aison2::Fields{
+        aison2::field(&Rectangle::width, "width"),
+        aison2::field(&Rectangle::height, "height"),
+    });
+
+    auto shapeDef = aison2::variant<Shape>(aison2::VariantAlternatives{
+        aison2::type<Circle>("circle"),
+        aison2::type<Rectangle>("rectangle"),
+    });
 
     auto schema = aison2::schema(
         std::tuple{
@@ -153,5 +132,5 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
 
     using ShapeDef = decltype(shapeDef);
     const auto& storedShapeDef = std::get<ShapeDef>(schema.definitions());
-    CHECK(std::string_view(storedShapeDef.config.tag) == "kind");
+    CHECK(std::string_view(storedShapeDef.config.tag) == "type");
 }
