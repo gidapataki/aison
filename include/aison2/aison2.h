@@ -13,24 +13,24 @@ namespace aison2 {
 namespace detail {
 
 // Simple typelist helpers ----------------------------------------------------
-template<class... Ts>
+template<typename... Ts>
 struct TypeList {};
 
-template<class T, class List>
+template<typename T, typename List>
 struct Contains;
 
-template<class T, class... Ts>
+template<typename T, typename... Ts>
 struct Contains<T, TypeList<Ts...>> : std::bool_constant<(std::is_same_v<T, Ts> || ...)> {};
 
-template<class T, class List>
+template<typename T, typename List>
 struct IndexOf;
 
 inline constexpr std::size_t kIndexNotFound = static_cast<std::size_t>(-1);
 
-template<class T>
+template<typename T>
 struct IndexOf<T, TypeList<>> : std::integral_constant<std::size_t, kIndexNotFound> {};
 
-template<class T, class Head, class... Tail>
+template<typename T, typename Head, typename... Tail>
 struct IndexOf<T, TypeList<Head, Tail...>>
     : std::conditional_t<
           std::is_same_v<T, Head>,
@@ -40,34 +40,39 @@ struct IndexOf<T, TypeList<Head, Tail...>>
               std::integral_constant<std::size_t, kIndexNotFound>,
               std::integral_constant<std::size_t, 1 + IndexOf<T, TypeList<Tail...>>::value>>> {};
 
-template<class List>
+template<typename List>
 struct TypeListSize;
 
-template<class... Ts>
+template<typename... Ts>
 struct TypeListSize<TypeList<Ts...>> : std::integral_constant<std::size_t, sizeof...(Ts)> {};
 
-template<class ListA, class ListB>
+template<typename T>
+struct IsTuple : std::false_type {};
+template<typename... Ts>
+struct IsTuple<std::tuple<Ts...>> : std::true_type {};
+
+template<typename ListA, typename ListB>
 struct ConcatTwo;
 
-template<class... As, class... Bs>
+template<typename... As, typename... Bs>
 struct ConcatTwo<TypeList<As...>, TypeList<Bs...>> {
     using Type = TypeList<As..., Bs...>;
 };
 
-template<class... Lists>
+template<typename... Lists>
 struct Concat;
 
-template<class List>
+template<typename List>
 struct Concat<List> {
     using Type = List;
 };
 
-template<class ListA, class ListB, class... Rest>
+template<typename ListA, typename ListB, typename... Rest>
 struct Concat<ListA, ListB, Rest...> {
     using Type = typename Concat<typename ConcatTwo<ListA, ListB>::Type, Rest...>::Type;
 };
 
-template<class List>
+template<typename List>
 struct MakeUnique;
 
 template<>
@@ -75,7 +80,7 @@ struct MakeUnique<TypeList<>> {
     using Type = TypeList<>;
 };
 
-template<class Head, class... Tail>
+template<typename Head, typename... Tail>
 struct MakeUnique<TypeList<Head, Tail...>> {
 private:
     using TailUnique = typename MakeUnique<TypeList<Tail...>>::Type;
@@ -87,13 +92,13 @@ public:
         typename ConcatTwo<TypeList<Head>, TailUnique>::Type>;
 };
 
-template<class Needed, class Declared>
+template<typename Needed, typename Declared>
 struct AllContained;
 
-template<class Declared>
+template<typename Declared>
 struct AllContained<TypeList<>, Declared> : std::true_type {};
 
-template<class Head, class... Tail, class Declared>
+template<typename Head, typename... Tail, typename Declared>
 struct AllContained<TypeList<Head, Tail...>, Declared>
     : std::conditional_t<
           Contains<Head, Declared>::value,
@@ -102,35 +107,35 @@ struct AllContained<TypeList<Head, Tail...>, Declared>
 
 // Dependencies only track class/enum types; fundamentals are treated as
 // built-ins that do not require schema declarations.
-template<class T>
+template<typename T>
 struct DependencyFor {
     using Type =
         std::conditional_t<std::is_class_v<T> || std::is_enum_v<T>, TypeList<T>, TypeList<>>;
 };
 
-template<class T>
+template<typename T>
 struct DependencyFor<std::optional<T>> {
     using Type = typename DependencyFor<T>::Type;
 };
 
-template<class T, class Alloc>
+template<typename T, typename Alloc>
 struct DependencyFor<std::vector<T, Alloc>> {
     using Type = typename DependencyFor<T>::Type;
 };
 
-template<class CharT, class Traits, class Alloc>
+template<typename CharT, typename Traits, typename Alloc>
 struct DependencyFor<std::basic_string<CharT, Traits, Alloc>> {
     using Type = TypeList<>;
 };
 
-template<class... Ts>
+template<typename... Ts>
 struct DependencyFor<std::variant<Ts...>> {
     using Type = typename MakeUnique<
         typename Concat<TypeList<>, typename DependencyFor<Ts>::Type...>::Type>::Type;
 };
 
 // Field plumbing -------------------------------------------------------------
-template<class Owner, class Field>
+template<typename Owner, typename Field>
 struct FieldDef {
     using OwnerType = Owner;
     using FieldType = Field;
@@ -138,7 +143,7 @@ struct FieldDef {
     Field Owner::* ptr;
 };
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 struct FieldList {
     std::tuple<FieldDefs...> fields;
 
@@ -147,33 +152,33 @@ struct FieldList {
     {}
 };
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 FieldList(FieldDefs...) -> FieldList<FieldDefs...>;
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 struct Fields : FieldList<FieldDefs...> {
     using FieldList<FieldDefs...>::FieldList;
 };
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 Fields(FieldDefs...) -> Fields<FieldDefs...>;
 
-template<class Owner>
+template<typename Owner>
 struct ObjectContext {
-    template<class Field>
+    template<typename Field>
     constexpr auto add(Field Owner::* ptr, const char* name) const
     {
         return FieldDef<Owner, Field>{name, ptr};
     }
 };
 
-template<class FieldDefs>
+template<typename FieldDefs>
 struct FieldDependencies;
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 struct FieldDependencies<FieldList<FieldDefs...>> {
 private:
-    template<class FieldDefT>
+    template<typename FieldDefT>
     using Dependency = typename DependencyFor<typename FieldDefT::FieldType>::Type;
 
 public:
@@ -181,17 +186,17 @@ public:
         typename MakeUnique<typename Concat<TypeList<>, Dependency<FieldDefs>...>::Type>::Type;
 };
 
-template<class... FieldDefs>
+template<typename... FieldDefs>
 struct FieldDependencies<Fields<FieldDefs...>> : FieldDependencies<FieldList<FieldDefs...>> {};
 
 // Enum plumbing --------------------------------------------------------------
-template<class T>
+template<typename T>
 struct EnumValue {
     const char* name;
     T value;
 };
 
-template<class... Values>
+template<typename... Values>
 struct EnumValues {
     std::tuple<Values...> values;
 
@@ -200,19 +205,19 @@ struct EnumValues {
     {}
 };
 
-template<class... Values>
+template<typename... Values>
 EnumValues(Values...) -> EnumValues<Values...>;
 
-template<class T>
+template<typename T>
 struct EnumContext {
     constexpr auto value(const char* name, T v) const { return EnumValue<T>{name, v}; }
 };
 
 // Variant plumbing -----------------------------------------------------------
-template<class Variant>
+template<typename Variant>
 struct VariantTypeInfo;
 
-template<class... Alternatives>
+template<typename... Alternatives>
 struct VariantTypeInfo<std::variant<Alternatives...>> {
     using AlternativesList = TypeList<Alternatives...>;
     static constexpr std::size_t kSize = sizeof...(Alternatives);
@@ -222,13 +227,13 @@ struct VariantConfig {
     const char* tag = "type";
 };
 
-template<class Alt>
+template<typename Alt>
 struct VariantAlternative {
     using Type = Alt;
     const char* tag;
 };
 
-template<class... Alternatives>
+template<typename... Alternatives>
 struct VariantAlternatives {
     std::tuple<Alternatives...> alternatives;
 
@@ -237,16 +242,16 @@ struct VariantAlternatives {
     {}
 };
 
-template<class... Alternatives>
+template<typename... Alternatives>
 VariantAlternatives(Alternatives...) -> VariantAlternatives<Alternatives...>;
 
-template<class VariantType>
+template<typename VariantType>
 class VariantContext
 {
 public:
     constexpr VariantContext() = default;
 
-    template<class Alt>
+    template<typename Alt>
     constexpr void add(const char* tag)
     {
         using Info = VariantTypeInfo<VariantType>;
@@ -259,7 +264,7 @@ public:
         seen_[index] = true;
     }
 
-    template<class TargetVariant = VariantType>
+    template<typename TargetVariant = VariantType>
     constexpr auto finalize() const
     {
         using Info = VariantTypeInfo<TargetVariant>;
@@ -267,7 +272,7 @@ public:
     }
 
 private:
-    template<class... Alternatives>
+    template<typename... Alternatives>
     constexpr auto finalizeImpl(TypeList<Alternatives...>) const
     {
         for (bool isSeen : seen_) {
@@ -283,13 +288,13 @@ private:
     std::array<bool, VariantTypeInfo<VariantType>::kSize> seen_{};
 };
 
-template<class Alternatives>
+template<typename Alternatives>
 struct VariantDependencies;
 
-template<class... Alternatives>
+template<typename... Alternatives>
 struct VariantDependencies<VariantAlternatives<Alternatives...>> {
 private:
-    template<class Alt>
+    template<typename Alt>
     using Dependency = typename DependencyFor<typename Alt::Type>::Type;
 
 public:
@@ -298,7 +303,7 @@ public:
 };
 
 // Def traits -----------------------------------------------------------------
-template<class T, class Fields>
+template<typename T, typename Fields>
 struct ObjectDef {
     using Type = T;
     using FieldsType = Fields;
@@ -307,7 +312,7 @@ struct ObjectDef {
     FieldsType fields;
 };
 
-template<class T, class Values>
+template<typename T, typename Values>
 struct EnumDef {
     using Type = T;
     using ValuesType = Values;
@@ -316,7 +321,7 @@ struct EnumDef {
     ValuesType values;
 };
 
-template<class T, class Alternatives>
+template<typename T, typename Alternatives>
 struct VariantDef {
     using Type = T;
     using AlternativesType = Alternatives;
@@ -327,7 +332,7 @@ struct VariantDef {
 };
 
 // Custom plumbing ------------------------------------------------------------
-template<class T, class EncoderFn, class DecoderFn>
+template<typename T, typename EncoderFn, typename DecoderFn>
 struct CustomDef {
     using Type = T;
     using Encoder = EncoderFn;
@@ -338,97 +343,94 @@ struct CustomDef {
     Decoder decoder;
 };
 
-template<class T>
+template<typename T>
 struct DeclareDef {
     using Type = T;
     using Deps = TypeList<>;
 };
 
-template<class Def>
+template<typename Def>
 struct DefTraits;
 
-template<class T, class Fields>
+template<typename T, typename Fields>
 struct DefTraits<ObjectDef<T, Fields>> {
     using Type = T;
     using Deps = typename ObjectDef<T, Fields>::Deps;
     static constexpr bool isDeclare = false;
 };
 
-template<class T, class Values>
+template<typename T, typename Values>
 struct DefTraits<EnumDef<T, Values>> {
     using Type = T;
     using Deps = typename EnumDef<T, Values>::Deps;
     static constexpr bool isDeclare = false;
 };
 
-template<class T, class Alternatives>
+template<typename T, typename Alternatives>
 struct DefTraits<VariantDef<T, Alternatives>> {
     using Type = T;
     using Deps = typename VariantDef<T, Alternatives>::Deps;
     static constexpr bool isDeclare = false;
 };
 
-template<class T>
+template<typename T>
 struct DefTraits<DeclareDef<T>> {
     using Type = T;
     using Deps = typename DeclareDef<T>::Deps;
     static constexpr bool isDeclare = true;
 };
 
-template<class T, class EncoderFn, class DecoderFn>
+template<typename T, typename EncoderFn, typename DecoderFn>
 struct DefTraits<CustomDef<T, EncoderFn, DecoderFn>> {
     using Type = T;
     using Deps = typename CustomDef<T, EncoderFn, DecoderFn>::Deps;
     static constexpr bool isDeclare = false;
 };
 
-template<class Def>
+template<typename Def>
 using TypeFromDef = std::
     conditional_t<DefTraits<Def>::isDeclare, TypeList<>, TypeList<typename DefTraits<Def>::Type>>;
 
-template<class Def>
+template<typename Def>
 using DeclaredFromDef = TypeList<typename DefTraits<Def>::Type>;
 
-template<class Def>
+template<typename Def>
 using DepsFromDef = typename DefTraits<Def>::Deps;
 
 }  // namespace detail
 
 // Public API -----------------------------------------------------------------
-template<class T, class F>
-constexpr auto Object(F&& fn)  // NOLINT(readability-identifier-naming)
+template<typename T, typename FieldsType>
+constexpr auto object(FieldsType (*fn)(detail::ObjectContext<T>&))
 {
     detail::ObjectContext<T> ctx;
     auto fields = fn(ctx);
-    using FieldsType = std::decay_t<decltype(fields)>;
     return detail::ObjectDef<T, FieldsType>{std::move(fields)};
 }
 
-template<class T, class F>
-constexpr auto Enum(F&& fn)  // NOLINT(readability-identifier-naming)
+template<typename T, typename ValuesType>
+constexpr auto enumeration(ValuesType (*fn)(detail::EnumContext<T>&))
 {
     detail::EnumContext<T> ctx;
     auto values = fn(ctx);
-    using ValuesType = std::decay_t<decltype(values)>;
     return detail::EnumDef<T, ValuesType>{std::move(values)};
 }
 
-template<class T>
-constexpr auto Declare()  // NOLINT(readability-identifier-naming)
+template<typename T>
+constexpr auto declare()
 {
     return detail::DeclareDef<T>{};
 }
 
-template<class T, class EncoderFn, class DecoderFn>
-constexpr auto Custom(
-    EncoderFn encoder, DecoderFn decoder)  // NOLINT(readability-identifier-naming)
+template<typename T, typename EncoderFn, typename DecoderFn>
+constexpr auto custom(EncoderFn encoder, DecoderFn decoder)
 {
     return detail::CustomDef<T, EncoderFn, DecoderFn>{std::move(encoder), std::move(decoder)};
 }
 
-template<class T, class F>
-constexpr auto Variant(
-    detail::VariantConfig config, F&& fn)  // NOLINT(readability-identifier-naming)
+template<typename T>
+constexpr auto variant(detail::VariantConfig config,
+                       void (*fn)(detail::VariantContext<T>&))
 {
     detail::VariantContext<T> ctx{};
     fn(ctx);
@@ -436,13 +438,13 @@ constexpr auto Variant(
     return detail::VariantDef<T, decltype(alternatives)>{config, std::move(alternatives)};
 }
 
-template<class T, class F>
-constexpr auto Variant(F&& fn)  // NOLINT(readability-identifier-naming)
+template<typename T>
+constexpr auto variant(void (*fn)(detail::VariantContext<T>&))
 {
-    return Variant<T>(detail::VariantConfig{}, std::forward<F>(fn));
+    return variant<T>(detail::VariantConfig{}, std::move(fn));
 }
 
-template<class... Defs>
+template<typename... Defs>
 struct Schema {
     constexpr Schema(Defs... inDefs)
         : defs(std::move(inDefs)...)
@@ -467,21 +469,44 @@ struct Schema {
 
     static constexpr std::size_t size() { return sizeof...(Defs); }
 
-    template<class T>
+    template<typename T>
     static constexpr bool defines()
     {
         return detail::Contains<T, DefinedTypes>::value;
     }
 
-    template<class T>
+    template<typename T>
     static constexpr bool declares()
     {
         return detail::Contains<T, DeclaredTypes>::value;
     }
 };
 
-template<class... Defs>
+template<typename... Defs>
 Schema(Defs...) -> Schema<Defs...>;
+
+namespace detail {
+template<typename Tuple, std::size_t... I>
+constexpr auto tupleToSchema(Tuple&& defs, std::index_sequence<I...>)
+{
+    return Schema<std::tuple_element_t<I, std::decay_t<Tuple>>...>{
+        std::get<I>(std::forward<Tuple>(defs))...};
+}
+
+template<typename Tuple>
+constexpr auto makeSchemaFromTuple(Tuple&& defs)
+{
+    constexpr std::size_t kSize = std::tuple_size_v<std::decay_t<Tuple>>;
+    return tupleToSchema(std::forward<Tuple>(defs), std::make_index_sequence<kSize>{});
+}
+}  // namespace detail
+
+template<typename Tuple>
+constexpr auto schema(Tuple&& defs)
+{
+    static_assert(detail::IsTuple<std::decay_t<Tuple>>::value, "schema expects std::tuple");
+    return detail::makeSchemaFromTuple(std::forward<Tuple>(defs));
+}
 
 using detail::EnumValue;
 using detail::EnumValues;

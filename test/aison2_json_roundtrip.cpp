@@ -1,9 +1,9 @@
 #include <doctest.h>
 #include <json/json.h>
 
-#include <iostream>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -49,45 +49,54 @@ struct LabelDto {
 
 TEST_CASE("aison2: JSON roundtrip with custom type and variant")
 {
-    auto pointDef = aison2::Object<Point>([](auto& ctx) {
+    auto pointDef = aison2::object<Point>(
+        +[](aison2::detail::ObjectContext<Point>& ctx) {
         return aison2::Fields{
             ctx.add(&Point::x, "x"),
             ctx.add(&Point::y, "y"),
         };
     });
 
-    auto colorDef = aison2::Enum<Color>([](auto& ctx) {
+    auto colorDef = aison2::enumeration<Color>(
+        +[](aison2::detail::EnumContext<Color>& ctx) {
         return aison2::EnumValues{
             ctx.value("red", Color::kRed),
             ctx.value("green", Color::kGreen),
         };
     });
 
-    auto circleDef = aison2::Object<Circle>([](auto& ctx) {
+    auto circleDef = aison2::object<Circle>(
+        +[](aison2::detail::ObjectContext<Circle>& ctx) {
         return aison2::Fields{
             ctx.add(&Circle::radius, "radius"),
         };
     });
 
-    auto rectangleDef = aison2::Object<Rectangle>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&Rectangle::width, "width"),
-            ctx.add(&Rectangle::height, "height"),
-        };
-    });
+    auto rectangleDef = aison2::object<Rectangle>(
+        +[](aison2::detail::ObjectContext<Rectangle>& ctx) {
+            return aison2::Fields{
+                ctx.add(&Rectangle::width, "width"),
+                ctx.add(&Rectangle::height, "height"),
+            };
+        });
 
-    auto shapeDef = aison2::Variant<Shape>({.tag = "kind"}, [](auto& ctx) {
-        ctx.template add<Circle>("circle");
-        ctx.template add<Rectangle>("rectangle");
-    });
+    auto shapeDef = aison2::variant<Shape>({.tag = "kind"},
+                                           +[](aison2::detail::VariantContext<Shape>& ctx) {
+            ctx.template add<Circle>("circle");
+            ctx.template add<Rectangle>("rectangle");
+        });
 
-    auto labelDtoDef = aison2::Object<LabelDto>([](auto& ctx) {
+    auto labelDtoDef = aison2::object<LabelDto>(
+        +[](aison2::detail::ObjectContext<LabelDto>& ctx) {
         return aison2::Fields{
             ctx.add(&LabelDto::value, "value"),
         };
     });
 
-    auto labelCustom = aison2::Custom<Label>(
+    auto schema = aison2::schema(std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef,
+                                            labelDtoDef});
+
+    auto labelCustom = aison2::custom<Label>(
         [](const Label& label, const auto& ctx) {
             LabelDto dto{label.text};
             return ctx.encode(dto);
@@ -97,7 +106,8 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
             return Label{dto.value};
         });
 
-    auto sceneDef = aison2::Object<Scene>([](auto& ctx) {
+    auto sceneDef = aison2::object<Scene>(
+        +[](aison2::detail::ObjectContext<Scene>& ctx) {
         return aison2::Fields{
             ctx.add(&Scene::origin, "origin"),
             ctx.add(&Scene::shapes, "shapes"),
@@ -106,9 +116,9 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
         };
     });
 
-    auto schema = aison2::Schema{
-        pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef, labelCustom, sceneDef,
-    };
+    auto fullSchema = aison2::schema(
+        std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef, labelCustom,
+                   sceneDef});
 
     Scene scene{
         .origin = {.x = 1, .y = 2},
@@ -117,10 +127,8 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
         .label = Label{.text = "hi"},
     };
 
-    const Json::Value encoded = aison2::json::encode(schema, scene);
-    const Scene decoded = aison2::json::decode<Scene>(schema, encoded);
-
-    std::cout << encoded.toStyledString() << "\n";
+    const Json::Value encoded = aison2::json::encode(fullSchema, scene);
+    const Scene decoded = aison2::json::decode<Scene>(fullSchema, encoded);
 
     CHECK(decoded.origin.x == 1);
     CHECK(decoded.origin.y == 2);

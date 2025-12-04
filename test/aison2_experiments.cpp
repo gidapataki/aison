@@ -4,7 +4,6 @@
 
 #include <optional>
 #include <string_view>
-#include <tuple>
 #include <variant>
 #include <vector>
 
@@ -54,16 +53,17 @@ using Shape = std::variant<Circle, Rectangle>;
 
 TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
 {
-    auto barDef = aison2::Object<Bar>([](auto& ctx) {
+    auto barDef = aison2::object<Bar>(+[](aison2::detail::ObjectContext<Bar>& ctx) {
         return aison2::Fields{
             ctx.add(&Bar::x, "x"),
         };
     });
 
-    auto fooDef = aison2::Object<Foo>(
-        [](auto& ctx) { return aison2::Fields{ctx.add(&Foo::y, "y"), ctx.add(&Foo::bar, "bar")}; });
+    auto fooDef = aison2::object<Foo>(+[](aison2::detail::ObjectContext<Foo>& ctx) {
+        return aison2::Fields{ctx.add(&Foo::y, "y"), ctx.add(&Foo::bar, "bar")};
+    });
 
-    auto modeDef = aison2::Enum<Mode>([](auto& ctx) {
+    auto modeDef = aison2::enumeration<Mode>(+[](aison2::detail::EnumContext<Mode>& ctx) {
         return aison2::EnumValues{
             ctx.value("dark", Mode::kDark),
             ctx.value("light", Mode::kLight),
@@ -71,54 +71,60 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         };
     });
 
-    auto usesExternalDef = aison2::Object<UsesExternal>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&UsesExternal::ext, "ext"),
-        };
-    });
+    auto usesExternalDef =
+        aison2::object<UsesExternal>(+[](aison2::detail::ObjectContext<UsesExternal>& ctx) {
+            return aison2::Fields{
+                ctx.add(&UsesExternal::ext, "ext"),
+            };
+        });
 
-    auto withOptionalDef = aison2::Object<WithOptional>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&WithOptional::maybe, "maybe"),
-        };
-    });
+    auto withOptionalDef =
+        aison2::object<WithOptional>(+[](aison2::detail::ObjectContext<WithOptional>& ctx) {
+            return aison2::Fields{
+                ctx.add(&WithOptional::maybe, "maybe"),
+            };
+        });
 
-    auto withVectorDef = aison2::Object<WithVector>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&WithVector::bars, "bars"),
-        };
-    });
+    auto withVectorDef =
+        aison2::object<WithVector>(+[](aison2::detail::ObjectContext<WithVector>& ctx) {
+            return aison2::Fields{
+                ctx.add(&WithVector::bars, "bars"),
+            };
+        });
 
-    auto circleDef = aison2::Object<Circle>([](auto& ctx) {
+    auto circleDef = aison2::object<Circle>(+[](aison2::detail::ObjectContext<Circle>& ctx) {
         return aison2::Fields{
             ctx.add(&Circle::radius, "radius"),
         };
     });
 
-    auto rectangleDef = aison2::Object<Rectangle>([](auto& ctx) {
-        return aison2::Fields{
-            ctx.add(&Rectangle::width, "width"),
-            ctx.add(&Rectangle::height, "height"),
-        };
-    });
+    auto rectangleDef =
+        aison2::object<Rectangle>(+[](aison2::detail::ObjectContext<Rectangle>& ctx) {
+            return aison2::Fields{
+                ctx.add(&Rectangle::width, "width"),
+                ctx.add(&Rectangle::height, "height"),
+            };
+        });
 
-    auto shapeDef = aison2::Variant<Shape>({.tag = "kind"}, [](auto& ctx) {
-        ctx.template add<Circle>("circle");
-        ctx.template add<Rectangle>("rectangle");
-    });
+    auto shapeDef = aison2::variant<Shape>(
+        {.tag = "kind"}, +[](aison2::detail::VariantContext<Shape>& ctx) {
+            ctx.template add<Circle>("circle");
+            ctx.template add<Rectangle>("rectangle");
+        });
 
-    auto schema = aison2::Schema{
-        aison2::Declare<External>(),
-        barDef,
-        fooDef,
-        modeDef,
-        usesExternalDef,
-        withOptionalDef,
-        withVectorDef,
-        circleDef,
-        rectangleDef,
-        shapeDef,
-    };
+    auto schema = aison2::schema(
+        std::tuple{
+            aison2::declare<External>(),
+            barDef,
+            fooDef,
+            modeDef,
+            usesExternalDef,
+            withOptionalDef,
+            withVectorDef,
+            circleDef,
+            rectangleDef,
+            shapeDef,
+        });
 
     static_assert(decltype(schema)::template defines<Bar>(), "Bar should be defined");
     static_assert(decltype(schema)::template defines<Foo>(), "Foo should be defined");
