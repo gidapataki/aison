@@ -133,5 +133,5 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
 
     using ShapeDef = decltype(shapeDef);
     const auto& storedShapeDef = std::get<ShapeDef>(schema.definitions());
-    CHECK(std::string_view(storedShapeDef.config.tag) == "type");
+    CHECK(std::string_view(storedShapeDef.tag) == "type");
 }

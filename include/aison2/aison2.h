@@ -239,10 +239,6 @@ struct VariantTypeInfo<std::variant<Ts...>> {
     static constexpr std::size_t kSize = sizeof...(Ts);
 };
 
-struct VariantConfig {
-    const char* tag = "type";
-};
-
 template<typename T>
 struct NamedType {
     using Type = T;
@@ -343,7 +339,7 @@ struct VariantDef {
     using AlternativesType = Alternatives;
     using Deps = typename VariantDependencies<AlternativesType>::Type;
 
-    VariantConfig config{};
+    const char* tag = "type";
     AlternativesType alternatives;
 };
 
@@ -457,19 +453,15 @@ constexpr auto custom(EncoderFn encoder, DecoderFn decoder)
 }
 
 template<typename T, typename AlternativesType>
-constexpr auto variant(detail::VariantConfig config, AlternativesType alts)
+constexpr auto variant(AlternativesType alts)
 {
     using AltList = typename AlternativesType::AlternativesList;
     using VariantAlternatives = typename detail::VariantTypeInfo<T>::AlternativesList;
     static_assert(detail::AllContained<AltList, VariantAlternatives>::value,
                   "Variant alternatives must be part of the std::variant type");
-    return detail::VariantDef<T, AlternativesType>{config, std::move(alts)};
-}
-
-template<typename T, typename AlternativesType>
-constexpr auto variant(AlternativesType alts)
-{
-    return detail::VariantDef<T, AlternativesType>{detail::VariantConfig{}, std::move(alts)};
+    static_assert(detail::AllContained<VariantAlternatives, AltList>::value,
+                  "Variant definition must cover every alternative in the std::variant");
+    return detail::VariantDef<T, AlternativesType>{.tag = "type", .alternatives = std::move(alts)};
 }
 
 template<typename T>
@@ -545,7 +537,6 @@ constexpr auto schema(Tuple&& defs)
 using detail::Fields;
 using detail::Types;
 using detail::Values;
-using detail::VariantConfig;
 using detail::VariantContext;
 
 }  // namespace aison2

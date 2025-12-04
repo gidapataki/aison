@@ -168,7 +168,7 @@ private:
                 constexpr std::size_t idx = aison2::detail::IndexOf<
                     AltType, typename aison2::detail::VariantTypeInfo<T>::AlternativesList>::value;
                 const char* tag = std::get<idx>(def.alternatives.alternatives).tag;
-                obj[def.config.tag] = Json::Value(tag);
+                obj[def.tag] = Json::Value(tag);
                 obj["value"] = encodeValue(alt);
             },
             value);
@@ -311,7 +311,7 @@ private:
     T decodeVariantWithDef(const Json::Value& value, const VariantDef& def) const
     {
         assert(value.isObject());
-        const Json::Value& tagNode = value[def.config.tag];
+        const Json::Value& tagNode = value[def.tag];
         assert(tagNode.isString());
         const std::string tag = tagNode.asString();
         const Json::Value& payload = value["value"];
