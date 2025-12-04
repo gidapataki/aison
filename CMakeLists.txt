@@ -110,6 +110,7 @@ if(AISON_BUILD_TESTS)
   if(AISON_BUILD_AISON2_TESTS)
     add_executable(aison2-test
         test/aison2_experiments.cpp
+        test/aison2_json_roundtrip.cpp
     )
 
     target_include_directories(aison2-test PRIVATE ${AISON_TEST_INCLUDES})

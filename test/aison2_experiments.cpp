@@ -3,6 +3,9 @@
 #include <doctest.h>
 
 #include <optional>
+#include <string_view>
+#include <tuple>
+#include <variant>
 #include <vector>
 
 #include "aison2/aison2.h"
@@ -35,6 +38,17 @@ struct WithOptional {
 struct WithVector {
     std::vector<Bar> bars;
 };
+
+struct Circle {
+    int radius;
+};
+
+struct Rectangle {
+    int width;
+    int height;
+};
+
+using Shape = std::variant<Circle, Rectangle>;
 
 }  // namespace
 
@@ -75,6 +89,24 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         };
     });
 
+    auto circleDef = aison2::Object<Circle>([](auto& ctx) {
+        return aison2::Fields{
+            ctx.add(&Circle::radius, "radius"),
+        };
+    });
+
+    auto rectangleDef = aison2::Object<Rectangle>([](auto& ctx) {
+        return aison2::Fields{
+            ctx.add(&Rectangle::width, "width"),
+            ctx.add(&Rectangle::height, "height"),
+        };
+    });
+
+    auto shapeDef = aison2::Variant<Shape>({.tag = "kind"}, [](auto& ctx) {
+        ctx.template add<Circle>("circle");
+        ctx.template add<Rectangle>("rectangle");
+    });
+
     auto schema = aison2::Schema{
         aison2::Declare<External>(),
         barDef,
@@ -83,6 +115,9 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         usesExternalDef,
         withOptionalDef,
         withVectorDef,
+        circleDef,
+        rectangleDef,
+        shapeDef,
     };
 
     static_assert(decltype(schema)::template defines<Bar>(), "Bar should be defined");
@@ -91,6 +126,9 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
     static_assert(
         decltype(schema)::template defines<WithOptional>(), "WithOptional should be defined");
     static_assert(decltype(schema)::template defines<WithVector>(), "WithVector should be defined");
+    static_assert(decltype(schema)::template defines<Circle>(), "Circle should be defined");
+    static_assert(decltype(schema)::template defines<Rectangle>(), "Rectangle should be defined");
+    static_assert(decltype(schema)::template defines<Shape>(), "Shape should be defined");
     static_assert(!decltype(schema)::template defines<External>(), "External is only declared");
     static_assert(decltype(schema)::template declares<External>(), "External should be declared");
 
@@ -99,5 +137,12 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
     CHECK(schema.defines<Mode>());
     CHECK(schema.defines<WithOptional>());
     CHECK(schema.defines<WithVector>());
+    CHECK(schema.defines<Circle>());
+    CHECK(schema.defines<Rectangle>());
+    CHECK(schema.defines<Shape>());
     CHECK(schema.declares<External>());
+
+    using ShapeDef = decltype(shapeDef);
+    const auto& storedShapeDef = std::get<ShapeDef>(schema.definitions());
+    CHECK(std::string_view(storedShapeDef.config.tag) == "kind");
 }
