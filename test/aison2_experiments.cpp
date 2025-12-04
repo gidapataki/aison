@@ -62,7 +62,7 @@ TEST_CASE("aison2: schema scaffolding captures definitions and declarations")
         aison2::field(&Foo::bar, "bar"),
     });
 
-    auto modeDef = aison2::enumeration<Mode>(aison2::EnumValues{
+    auto modeDef = aison2::enumeration<Mode>(aison2::Values{
         aison2::value(Mode::kDark, "dark"),
         aison2::value(Mode::kLight, "light"),
         aison2::value(Mode::kAutomatic, "auto"),

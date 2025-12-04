@@ -136,7 +136,7 @@ struct DependencyFor<std::variant<Ts...>> {
 
 // Field plumbing -------------------------------------------------------------
 template<typename Owner, typename Field>
-struct FieldDef {
+struct NamedField {
     using OwnerType = Owner;
     using FieldType = Field;
     const char* name;
@@ -168,7 +168,7 @@ struct ObjectContext {
     template<typename Field>
     constexpr auto add(Field Owner::* ptr, const char* name) const
     {
-        return FieldDef<Owner, Field>{name, ptr};
+        return NamedField<Owner, Field>{name, ptr};
     }
 };
 
@@ -191,26 +191,26 @@ struct FieldDependencies<Fields<FieldDefs...>> : FieldDependencies<FieldList<Fie
 
 // Enum plumbing --------------------------------------------------------------
 template<typename T>
-struct EnumValue {
+struct NamedValue {
     const char* name;
     T value;
 };
 
-template<typename... Values>
-struct EnumValues {
-    std::tuple<Values...> values;
+template<typename... NamedValues>
+struct Values {
+    std::tuple<NamedValues...> values;
 
-    constexpr explicit EnumValues(Values... v)
+    constexpr explicit Values(NamedValues... v)
         : values(std::move(v)...)
     {}
 };
 
-template<typename... Values>
-EnumValues(Values...) -> EnumValues<Values...>;
+template<typename... NamedValues>
+Values(NamedValues...) -> Values<NamedValues...>;
 
 template<typename T>
 struct EnumContext {
-    constexpr auto value(const char* name, T v) const { return EnumValue<T>{name, v}; }
+    constexpr auto value(const char* name, T v) const { return NamedValue<T>{name, v}; }
 };
 
 // Variant plumbing -----------------------------------------------------------
@@ -233,17 +233,17 @@ struct NamedType {
     const char* tag;
 };
 
-template<typename... Ts>
+template<typename... NamedTypes>
 struct Types {
-    std::tuple<Ts...> alternatives;
+    std::tuple<NamedTypes...> alternatives;
 
-    constexpr explicit Types(Ts... alts)
+    constexpr explicit Types(NamedTypes... alts)
         : alternatives(std::move(alts)...)
     {}
 };
 
-template<typename... Ts>
-Types(Ts...) -> Types<Ts...>;
+template<typename... NamedTypes>
+Types(NamedTypes...) -> Types<NamedTypes...>;
 
 template<typename VariantType>
 class VariantContext
@@ -401,7 +401,7 @@ using DepsFromDef = typename DefTraits<Def>::Deps;
 template<typename Owner, typename Field>
 constexpr auto field(Field Owner::* ptr, const char* name)
 {
-    return detail::FieldDef<Owner, Field>{name, ptr};
+    return detail::NamedField<Owner, Field>{name, ptr};
 }
 
 template<typename T, typename FieldsType>
@@ -413,7 +413,7 @@ constexpr auto object(FieldsType fields)
 template<typename T>
 constexpr auto value(T v, const char* name)
 {
-    return detail::EnumValue<T>{name, v};
+    return detail::NamedValue<T>{name, v};
 }
 
 template<typename T, typename ValuesType>
@@ -516,10 +516,9 @@ constexpr auto schema(Tuple&& defs)
     return detail::makeSchemaFromTuple(std::forward<Tuple>(defs));
 }
 
-using detail::EnumValue;
-using detail::EnumValues;
 using detail::Fields;
 using detail::Types;
+using detail::Values;
 using detail::VariantConfig;
 using detail::VariantContext;
 

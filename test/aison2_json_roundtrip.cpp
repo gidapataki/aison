@@ -49,14 +49,19 @@ struct LabelDto {
 
 TEST_CASE("aison2: JSON roundtrip with custom type and variant")
 {
-    auto pointDef = aison2::object<Point>(
-        aison2::Fields{aison2::field(&Point::x, "x"), aison2::field(&Point::y, "y")});
+    auto pointDef = aison2::object<Point>(aison2::Fields{
+        aison2::field(&Point::x, "x"),
+        aison2::field(&Point::y, "y"),
+    });
 
-    auto colorDef = aison2::enumeration<Color>(aison2::EnumValues{
-        aison2::value(Color::kRed, "red"), aison2::value(Color::kGreen, "green")});
+    auto colorDef = aison2::enumeration<Color>(aison2::Values{
+        aison2::value(Color::kRed, "red"),
+        aison2::value(Color::kGreen, "green"),
+    });
 
-    auto circleDef =
-        aison2::object<Circle>(aison2::Fields{aison2::field(&Circle::radius, "radius")});
+    auto circleDef = aison2::object<Circle>(aison2::Fields{
+        aison2::field(&Circle::radius, "radius"),
+    });
 
     auto rectangleDef = aison2::object<Rectangle>(aison2::Fields{
         aison2::field(&Rectangle::width, "width"),
@@ -68,11 +73,19 @@ TEST_CASE("aison2: JSON roundtrip with custom type and variant")
         aison2::type<Rectangle>("rectangle"),
     });
 
-    auto labelDtoDef =
-        aison2::object<LabelDto>(aison2::Fields{aison2::field(&LabelDto::value, "value")});
+    auto labelDtoDef = aison2::object<LabelDto>(aison2::Fields{
+        aison2::field(&LabelDto::value, "value"),
+    });
 
     auto schema = aison2::schema(
-        std::tuple{pointDef, colorDef, circleDef, rectangleDef, shapeDef, labelDtoDef});
+        std::tuple{
+            pointDef,
+            colorDef,
+            circleDef,
+            rectangleDef,
+            shapeDef,
+            labelDtoDef,
+        });
 
     auto labelCustom = aison2::custom<Label>(
         [](const Label& label, const auto& ctx) {
