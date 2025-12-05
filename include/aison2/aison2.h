@@ -143,29 +143,21 @@ struct NamedField {
     Field Owner::* ptr;
 };
 
-template<typename... FieldDefs>
-struct FieldList {
-    std::tuple<FieldDefs...> fields;
+template<typename... Ts>
+struct Fields {
+    using TupleType = std::tuple<Ts...>;
+    using OwnerType = typename std::tuple_element_t<0, TupleType>::OwnerType;
 
-    constexpr explicit FieldList(FieldDefs... defs)
+    constexpr explicit Fields(Ts... defs)
         : fields(std::move(defs)...)
-    {}
-};
-
-template<typename... FieldDefs>
-FieldList(FieldDefs...) -> FieldList<FieldDefs...>;
-
-template<typename... FieldDefs>
-struct Fields : FieldList<FieldDefs...> {
-    using OwnerType = typename std::tuple_element_t<0, std::tuple<FieldDefs...>>::OwnerType;
-
-    constexpr explicit Fields(FieldDefs... defs)
-        : FieldList<FieldDefs...>(std::move(defs)...)
     {
-        static_assert(sizeof...(FieldDefs) > 0, "Fields must contain at least one entry");
-        static_assert((std::is_same_v<typename FieldDefs::OwnerType, OwnerType> && ...),
-                      "All fields in Fields must share the same owner type");
+        static_assert(sizeof...(Ts) > 0, "Fields must contain at least one entry");
+        static_assert(
+            (std::is_same_v<typename Ts::OwnerType, OwnerType> && ...),
+            "All fields in Fields must share the same owner type");
     }
+
+    TupleType fields;
 };
 
 template<typename... FieldDefs>
@@ -184,7 +176,7 @@ template<typename FieldDefs>
 struct FieldDependencies;
 
 template<typename... FieldDefs>
-struct FieldDependencies<FieldList<FieldDefs...>> {
+struct FieldDependencies<Fields<FieldDefs...>> {
 private:
     template<typename FieldDefT>
     using Dependency = typename DependencyFor<typename FieldDefT::FieldType>::Type;
@@ -193,9 +185,6 @@ public:
     using Type =
         typename MakeUnique<typename Concat<TypeList<>, Dependency<FieldDefs>...>::Type>::Type;
 };
-
-template<typename... FieldDefs>
-struct FieldDependencies<Fields<FieldDefs...>> : FieldDependencies<FieldList<FieldDefs...>> {};
 
 // Enum plumbing --------------------------------------------------------------
 template<typename T>
@@ -207,8 +196,7 @@ struct NamedValue {
 
 template<typename... NamedValues>
 struct Values {
-    using ValueType =
-        typename std::tuple_element_t<0, std::tuple<NamedValues...>>::ValueType;
+    using ValueType = typename std::tuple_element_t<0, std::tuple<NamedValues...>>::ValueType;
 
     std::tuple<NamedValues...> values;
 
@@ -216,8 +204,9 @@ struct Values {
         : values(std::move(v)...)
     {
         static_assert(sizeof...(NamedValues) > 0, "Values must contain at least one entry");
-        static_assert((std::is_same_v<typename NamedValues::ValueType, ValueType> && ...),
-                      "All values must share the same enum value type");
+        static_assert(
+            (std::is_same_v<typename NamedValues::ValueType, ValueType> && ...),
+            "All values must share the same enum value type");
     }
 };
 
@@ -421,8 +410,9 @@ constexpr auto field(Field Owner::* ptr, const char* name)
 template<typename T, typename FieldsType>
 constexpr auto object(FieldsType fields)
 {
-    static_assert(std::is_same_v<typename FieldsType::OwnerType, T>,
-                  "Fields owner type must match object type");
+    static_assert(
+        std::is_same_v<typename FieldsType::OwnerType, T>,
+        "Fields owner type must match object type");
     return detail::ObjectDef<T, FieldsType>{std::move(fields)};
 }
 
@@ -435,8 +425,9 @@ constexpr auto value(T v, const char* name)
 template<typename T, typename ValuesType>
 constexpr auto enumeration(ValuesType values)
 {
-    static_assert(std::is_same_v<typename ValuesType::ValueType, T>,
-                  "Values entry type must match enumeration type");
+    static_assert(
+        std::is_same_v<typename ValuesType::ValueType, T>,
+        "Values entry type must match enumeration type");
     return detail::EnumDef<T, ValuesType>{std::move(values)};
 }
 
@@ -457,10 +448,12 @@ constexpr auto variant(AlternativesType alts)
 {
     using AltList = typename AlternativesType::AlternativesList;
     using VariantAlternatives = typename detail::VariantTypeInfo<T>::AlternativesList;
-    static_assert(detail::AllContained<AltList, VariantAlternatives>::value,
-                  "Variant alternatives must be part of the std::variant type");
-    static_assert(detail::AllContained<VariantAlternatives, AltList>::value,
-                  "Variant definition must cover every alternative in the std::variant");
+    static_assert(
+        detail::AllContained<AltList, VariantAlternatives>::value,
+        "Variant alternatives must be part of the std::variant type");
+    static_assert(
+        detail::AllContained<VariantAlternatives, AltList>::value,
+        "Variant definition must cover every alternative in the std::variant");
     return detail::VariantDef<T, AlternativesType>{.tag = "type", .alternatives = std::move(alts)};
 }
 
